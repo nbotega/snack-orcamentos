@@ -947,7 +947,8 @@ function renderListaOrcamentos() {
             <th class="text-right font-semibold">Margem</th>
             <th class="text-right font-semibold" title="MC total do contrato e equivalente em meses de overhead Snack coberto">MC contrato</th>
             <th class="text-center font-semibold">Saúde</th>
-            <th class="text-center font-semibold pr-5">Status</th>
+            <th class="text-center font-semibold">Status</th>
+            <th class="pr-5"></th>
           </tr>
         </thead>
         <tbody>
@@ -969,7 +970,12 @@ function renderListaOrcamentos() {
               <td class="text-right tabular-nums font-bold">${fmtPct(c.margem)}</td>
               <td class="text-right tabular-nums font-bold ${mcCls}" title="MC total do contrato\n≈ ${mesesCob.toFixed(2)} mês${mesesCob>=2?'es':''} de overhead Snack">${fmtBRL(mcT)}<div class="text-[10px] text-ink-400 font-normal">${mesesCob.toFixed(2)} mês${mesesCob>=2?'es':''} OH</div></td>
               <td class="text-center">${statusPill(c.statusMargem)}</td>
-              <td class="text-center pr-5">${statusPropostaPill(o.status)}</td>
+              <td class="text-center">${statusPropostaPill(o.status)}</td>
+              <td class="pr-5 text-right" onclick="event.stopPropagation()">
+                <button class="text-ink-500 hover:text-orange p-1.5 rounded hover:bg-ink-800 transition" onclick="duplicarOrcamento('${o.id}')" title="Duplicar este orçamento">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                </button>
+              </td>
             </tr>
           `;}).join('')}
         </tbody>
@@ -1049,6 +1055,10 @@ function renderNovoOrcamento(ctx) {
             </div>
           </div>
           <div class="flex items-center gap-2">
+            ${ctx?.id ? `<button class="btn btn-ghost" onclick="duplicarOrcamento('${ctx.id}')" title="Criar uma cópia desse orçamento">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              Duplicar
+            </button>` : ''}
             <button class="btn btn-ghost" onclick="abrirModalPDF()">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
               Exportar PDF
@@ -1759,6 +1769,31 @@ async function salvarOrcamento(){
   else { STATE.orcamentos.push(JSON.parse(JSON.stringify(CURRENT_ORC))); STATE.nextId++; }
   await salvarOrcamentoSupabase(CURRENT_ORC);
   navigate('orcamentos');
+}
+
+async function duplicarOrcamento(idOrigem, opts){
+  opts = opts || {};
+  const origem = STATE.orcamentos.find(o=>o.id===idOrigem);
+  if (!origem) { alert('Orçamento de origem não encontrado.'); return; }
+  if (!opts.silencioso && !confirm(`Duplicar o orçamento ${idOrigem} (${origem.cliente})? Será criado em Rascunho com a data de hoje.`)) return;
+
+  // Recalcula próximo ID pelos existentes (caso STATE.nextId esteja desincronizado)
+  let max = 0;
+  STATE.orcamentos.forEach(o=>{ const n=parseInt((o.id||'').replace(/[^0-9]/g,''),10); if(!isNaN(n)&&n>max) max=n; });
+  const novoId = 'C' + String(max+1).padStart(3,'0');
+
+  const copia = JSON.parse(JSON.stringify(origem));
+  copia.id = novoId;
+  copia.data = hoje();
+  copia.data_inicio = hoje();
+  copia.status = 'Rascunho';
+  copia.projeto = (copia.projeto || '') + ' (cópia)';
+
+  STATE.orcamentos.push(copia);
+  STATE.nextId = max + 2;
+
+  await salvarOrcamentoSupabase(copia);
+  navigate('detalhe', {id: novoId});
 }
 
 function abrirModalPDF(){
