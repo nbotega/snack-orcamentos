@@ -221,25 +221,11 @@ const TIPOS = [
 let PREMISSAS = {
   imposto: 0.10, encargo: 0.07, comissao: 0.015, taxa_admin: 0.15,
   margem_min: 0.20, margem_ideal: 0.30,
-  overhead_fixo_mensal: 600000, // overhead estrutural real da Snack: aluguel, ferramentas, BI, contabilidade, etc — não inclui heads
-  // Heads por tipo: cada tipo consome heads de forma diferente.
-  // Calibração inicial baseada na intuição "AON e Projeto consomem mais, UGC menos".
-  // Validar/ajustar com a média histórica trimestral.
-  heads_por_tipo: {
-    'Always-On': 0.13,
-    'Projeto Criativo': 0.12,
-    'Influ - Snack recebe': 0.09,
-    'Influ - repasse': 0.06,
-    'UGC simples': 0.05,
-    'Produção Externa': 0.07,
-  },
-  heads_upsell_pct: 0.05,
-  handling_upsell_pct: 0.20, margem_upsell: 0.40
+  overhead_fixo_mensal: 600000, // overhead estrutural real da Snack: aluguel, ferramentas, BI, contabilidade, etc
+  handling_upsell_pct: 0.20,
+  margem_upsell: 0.40
+  // Heads agora são cargos do squad — não há mais % automático.
 };
-
-function headsPctDoTipo(tipo){
-  return PREMISSAS.heads_por_tipo[tipo] ?? 0.10;
-}
 
 /* =============================================================
    ESTADO DO APP
@@ -271,11 +257,10 @@ function setSyncStatus(s){
 async function carregarDoSupabase(){
   setSyncStatus('saving');
   try {
-    const [c, t, p, h, o, sq] = await Promise.all([
+    const [c, t, p, o, sq] = await Promise.all([
       sb.from('cargos').select('*').order('id'),
       sb.from('tipos_orcamento').select('*'),
       sb.from('premissas').select('*'),
-      sb.from('heads_por_tipo').select('*'),
       sb.from('orcamentos').select('*').order('id'),
       sb.from('orcamento_squad').select('*'),
     ]);
@@ -293,11 +278,6 @@ async function carregarDoSupabase(){
         if (PREMISSAS[x.chave] !== undefined && typeof PREMISSAS[x.chave]==='number') PREMISSAS[x.chave] = Number(x.valor);
       });
     }
-    if (h.data){
-      PREMISSAS.heads_por_tipo = {};
-      h.data.forEach(x=>{ PREMISSAS.heads_por_tipo[x.tipo] = Number(x.pct); });
-    }
-
     // Orçamentos + squads
     const squadByOrc = {};
     (sq.data||[]).forEach(s=>{
@@ -382,13 +362,6 @@ async function salvarPremissaSupabase(chave, valor){
   });
 }
 
-async function salvarHeadsTipoSupabase(tipo, pct){
-  scheduleSync(async ()=>{
-    const { error } = await sb.from('heads_por_tipo').upsert({ tipo, pct, updated_at: new Date().toISOString() });
-    if (error) throw error;
-  });
-}
-
 async function salvarCargoSupabase(cargo){
   scheduleSync(async ()=>{
     const { error } = await sb.from('cargos').upsert({
@@ -464,17 +437,13 @@ function calcular(orc) {
   const T = orc.fee_mensal || 0;                                              // fee mensal proposto
   const U = T * (orc.meses||0);                                               // receita fee total
 
-  // Custo Heads — agora diferenciado por tipo
-  const headsPct = headsPctDoTipo(orc.tipo);
-  let P;
-  if (isUpsell) P = U * (1 - p.imposto) * p.heads_upsell_pct;
-  else if (isSemCache) P = (U - (orc.caches||0)) * headsPct;
-  else P = U * headsPct;
+  // Heads agora são cargos do squad — sem premissa automática
+  const P = 0;
 
   // Overhead
   let O;
   if (isUpsell) O = 0;
-  else O = (M + P) * tipo.overhead_mult;
+  else O = M * tipo.overhead_mult;
 
   // Governança incremental Upsell (AC)
   const AC = isUpsell ? U * (1 - p.imposto) * (orc.gov_upsell||0) : 0;
@@ -493,15 +462,15 @@ function calcular(orc) {
   function feeAlvo(alvo){
     if (isUpsell) {
       const gov = orc.gov_upsell || 0;
-      const den = 1 - p.imposto - (1-p.imposto)*p.comissao - alvo - (1-p.imposto)*(p.heads_upsell_pct + gov);
+      const den = 1 - p.imposto - (1-p.imposto)*p.comissao - alvo - (1-p.imposto)*gov;
       if (den <= 0) return null;
-      const num = J - K*(1-p.imposto)*(p.heads_upsell_pct + gov);
+      const num = J - K*(1-p.imposto)*gov;
       const ft = num/den - K;
       return ft / (orc.meses||1);
     }
-    const den = 1 - alvo - p.imposto - (1-p.imposto)*p.comissao - headsPct;
+    const den = 1 - alvo - p.imposto - (1-p.imposto)*p.comissao;
     if (den <= 0) return null;
-    const num = (J + M + N + O) - K * headsPct;
+    const num = (J + M + N + O);
     const ft = num/den - K;
     return ft / (orc.meses||1);
   }
@@ -532,8 +501,7 @@ function calcular(orc) {
     feeTotal:U, heads:P, overhead:O, govIncrUpsell:AC, custoOp:Q,
     receitaFeeTotal:U, receitaTotal:W, comissao:X, ebitda:Y, margem:Z,
     feeMin, feeIdeal, statusMargem,
-    upsellMinAnual, upsellIdealAnual,
-    headsPctAplicado: isUpsell ? p.heads_upsell_pct : headsPct
+    upsellMinAnual, upsellIdealAnual
   };
 }
 
@@ -1166,41 +1134,86 @@ function renderNovoOrcamento(ctx) {
         ${renderVolumetriaBloco(orc)}
       </div>
 
-      <!-- SQUAD -->
+      <!-- SQUAD (Heads + Operacional) -->
       <div class="card p-6">
-        <div class="font-display font-bold text-lg mb-1 flex items-center gap-3">
+        <div class="font-display font-bold text-lg mb-4 flex items-center gap-3">
           <div class="w-7 h-7 rounded-lg bg-orange/15 border border-orange/30 flex items-center justify-center text-orange text-sm font-bold">3</div>
           Squad alocado
         </div>
-        <p class="text-xs text-ink-400 mb-4 ml-10">Cargos do squad com % de alocação. O custo mensal calcula em tempo real.</p>
 
-        <div id="squad-rows" class="space-y-2"></div>
+        <!-- HEADS -->
+        <div class="rounded-xl p-4 mb-4" style="background: linear-gradient(180deg, rgba(46,107,255,.06), rgba(255,87,34,.04)); border: 1px solid rgba(46,107,255,.25);">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-2">
+              <span class="area-tag" style="background:rgba(46,107,255,.18); color:#A8C0FF;">HEADS</span>
+              <span class="text-xs text-ink-400">tempo de diretor alocado nesse orçamento</span>
+            </div>
+            <div class="text-sm">
+              <span class="text-ink-400">Subtotal:</span>
+              <span id="display-heads-mensal" class="font-display font-bold ml-2 text-azul-400">R$ 0/mês</span>
+            </div>
+          </div>
 
-        <div class="mt-4 p-4 rounded-xl border border-dashed border-ink-700 bg-ink-900/50">
-          <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold mb-3">Adicionar ao squad</div>
-          <div class="grid grid-cols-1 md:grid-cols-[1fr,1fr,auto] gap-3 items-end">
-            <div>
-              <label class="label">1. Área</label>
-              <select id="add-area" class="input" onchange="popularCargosDaArea()">
-                <option value="">Escolha a área...</option>
-                ${areasUnicas.map(a=>`<option value="${a}">${a}</option>`).join('')}
-              </select>
+          <div id="heads-rows" class="space-y-2"></div>
+
+          <div class="mt-3 p-3 rounded-lg border border-dashed border-azul/30 bg-ink-900/50">
+            <div class="grid grid-cols-1 md:grid-cols-[1fr,auto] gap-3 items-end">
+              <div>
+                <label class="label">Adicionar head</label>
+                <select id="add-head" class="input">
+                  <option value="">Escolha um head...</option>
+                  ${CARGOS.filter(c=>c.area==='HEADS').map(c=>`<option value="${c.id}">${c.cargo} — ${fmtBRL(c.salario)}/mês</option>`).join('')}
+                </select>
+              </div>
+              <button class="btn btn-secondary" onclick="addHead()">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Adicionar head
+              </button>
             </div>
-            <div>
-              <label class="label">2. Cargo + Nível</label>
-              <select id="add-cargo" class="input" disabled>
-                <option value="">Primeiro escolha a área</option>
-              </select>
-            </div>
-            <button class="btn btn-primary" onclick="addCargo()" id="btn-add-cargo" disabled>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              Adicionar
-            </button>
           </div>
         </div>
 
-        <div class="mt-3 flex items-center justify-end gap-3 text-sm">
-          <span class="text-ink-400">Custo squad/mês:</span>
+        <!-- SQUAD OPERACIONAL -->
+        <div class="rounded-xl p-4 border border-ink-700 bg-ink-900/30">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-2">
+              <span class="text-[11px] uppercase tracking-widest text-ink-300 font-semibold">Squad operacional</span>
+              <span class="text-xs text-ink-400">cargos do dia a dia</span>
+            </div>
+            <div class="text-sm">
+              <span class="text-ink-400">Subtotal:</span>
+              <span id="display-squad-op-mensal" class="font-display font-bold ml-2 text-orange">R$ 0/mês</span>
+            </div>
+          </div>
+
+          <div id="squad-rows" class="space-y-2"></div>
+
+          <div class="mt-3 p-3 rounded-lg border border-dashed border-ink-700 bg-ink-900/50">
+            <div class="grid grid-cols-1 md:grid-cols-[1fr,1fr,auto] gap-3 items-end">
+              <div>
+                <label class="label">1. Área</label>
+                <select id="add-area" class="input" onchange="popularCargosDaArea()">
+                  <option value="">Escolha a área...</option>
+                  ${areasUnicas.filter(a=>a!=='HEADS').map(a=>`<option value="${a}">${a}</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <label class="label">2. Cargo + Nível</label>
+                <select id="add-cargo" class="input" disabled>
+                  <option value="">Primeiro escolha a área</option>
+                </select>
+              </div>
+              <button class="btn btn-primary" onclick="addCargo()" id="btn-add-cargo" disabled>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Adicionar
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- TOTAL SQUAD -->
+        <div class="mt-4 flex items-center justify-end gap-3 text-sm">
+          <span class="text-ink-400">Custo total (Heads + Squad) / mês:</span>
           <span id="display-squad-mensal" class="font-display font-bold text-lg">R$ 0</span>
         </div>
       </div>
@@ -1320,9 +1333,8 @@ function renderNovoOrcamento(ctx) {
             Como isso é calculado
           </summary>
           <div class="mt-2.5 space-y-1.5 leading-relaxed pl-4">
-            <div>• Upsell usa o <strong>mesmo squad</strong> do AON-mãe — squad incremental = zero</div>
+            <div>• Upsell usa o <strong>mesmo squad</strong> do AON-mãe (você pode alocar heads incrementais se quiser)</div>
             <div>• Cobre custos diretos próprios (cachês, mídia, produção)</div>
-            <div>• Heads ${(PREMISSAS.heads_upsell_pct*100).toFixed(0)}% sobre receita líquida</div>
             <div>• Handling ${(PREMISSAS.handling_upsell_pct*100).toFixed(0)}% sobre terceiros</div>
             <div>• Comissão ${(PREMISSAS.comissao*100).toFixed(1)}% + imposto ${(PREMISSAS.imposto*100).toFixed(0)}%</div>
             <div>• Margem esperada padrão de upsell: <strong>${(PREMISSAS.margem_upsell*100).toFixed(0)}%</strong></div>
@@ -1340,7 +1352,6 @@ function renderNovoOrcamento(ctx) {
           ['Squad total','squadTotal','text-ink-300'],
           ['Encargos','encargos','text-ink-300'],
           ['Overhead','overhead','text-ink-300'],
-          ['Heads <span id="heads-pct-tag" class="text-[10px] text-orange ml-1"></span>','heads','text-ink-300'],
           ['Custo Total Op','custoOp','text-orange font-semibold'],
           ['Receita Fee Total','receitaFeeTotal','text-ink-200'],
           ['Receita Total','receitaTotal','text-azul-400 font-bold'],
@@ -1579,42 +1590,79 @@ function alterarAlocacao(idx, val){
   recalc();
 }
 
+function renderLinhaSquad(l, i){
+  const cargo = CARGOS.find(c=>c.id===l.cargo_id);
+  if (!cargo) return '';
+  const isHead = cargo.area === 'HEADS';
+  const sa = slugArea(cargo.area);
+  const custo = cargo.salario * (l.alocacao||0);
+  return `<div class="${isHead?'':'row-area-'+sa} bg-ink-900 hover:bg-ink-850 rounded-lg flex items-center gap-3 px-3 py-2" ${isHead?'style="border-left: 3px solid #2E6BFF;"':''}>
+    <span class="area-tag" ${isHead?'style="background:rgba(46,107,255,.18); color:#A8C0FF;"':`class="area-tag area-${sa}"`}>${isHead?'HEAD':cargo.area.split(' ')[0]}</span>
+    <div class="flex-1 min-w-0">
+      <div class="font-semibold text-sm truncate">${cargo.cargo} <span class="text-ink-400 font-normal">${cargo.nivel}</span></div>
+      <div class="text-xs text-ink-400">${fmtBRL(cargo.salario)}/mês integral</div>
+    </div>
+    <div class="flex items-center gap-2">
+      <input type="number" min="0" max="2" step="0.1" value="${l.alocacao}" class="input w-20 text-center" oninput="alterarAlocacao(${i}, +this.value)">
+      <span class="text-xs text-ink-400">×</span>
+    </div>
+    <div class="w-28 text-right">
+      <div class="text-[10px] uppercase tracking-wider text-ink-400">custo/mês</div>
+      <div class="font-bold tabular-nums text-sm">${fmtBRL(custo)}</div>
+    </div>
+    <button class="text-ink-500 hover:text-red-400 p-1" onclick="removerCargo(${i})">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg>
+    </button>
+  </div>`;
+}
+
 function renderSquadRows(){
-  const c = document.getElementById('squad-rows');
-  if (!c) return;
-  if (!CURRENT_ORC.squad || !CURRENT_ORC.squad.length) {
-    c.innerHTML = '<div class="text-sm text-ink-400 italic p-4 text-center border border-dashed border-ink-700 rounded-lg">Nenhum cargo adicionado. Use o seletor abaixo.</div>';
-    return;
-  }
-  c.innerHTML = CURRENT_ORC.squad.map((l,i)=>{
+  const heads = document.getElementById('heads-rows');
+  const squad = document.getElementById('squad-rows');
+  if (!heads || !squad) return;
+  const linhas = CURRENT_ORC.squad || [];
+  const headLinhas = [], squadLinhas = [];
+  linhas.forEach((l, i)=>{
     const cargo = CARGOS.find(c=>c.id===l.cargo_id);
-    if (!cargo) return '';
-    const sa = slugArea(cargo.area);
-    const custo = cargo.salario * (l.alocacao||0);
-    return `<div class="row-area-${sa} bg-ink-900 hover:bg-ink-850 rounded-lg flex items-center gap-3 px-3 py-2">
-      <span class="area-tag area-${sa}">${cargo.area.split(' ')[0]}</span>
-      <div class="flex-1 min-w-0">
-        <div class="font-semibold text-sm truncate">${cargo.cargo} <span class="text-ink-400 font-normal">${cargo.nivel}</span></div>
-        <div class="text-xs text-ink-400">${fmtBRL(cargo.salario)}/mês integral</div>
-      </div>
-      <div class="flex items-center gap-2">
-        <input type="number" min="0" max="2" step="0.1" value="${l.alocacao}" class="input w-20 text-center" oninput="alterarAlocacao(${i}, +this.value)">
-        <span class="text-xs text-ink-400">×</span>
-      </div>
-      <div class="w-28 text-right">
-        <div class="text-[10px] uppercase tracking-wider text-ink-400">custo/mês</div>
-        <div class="font-bold tabular-nums text-sm">${fmtBRL(custo)}</div>
-      </div>
-      <button class="text-ink-500 hover:text-red-400 p-1" onclick="removerCargo(${i})">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg>
-      </button>
-    </div>`;
-  }).join('');
+    if (!cargo) return;
+    if (cargo.area === 'HEADS') headLinhas.push({l, i});
+    else squadLinhas.push({l, i});
+  });
+  heads.innerHTML = headLinhas.length
+    ? headLinhas.map(({l,i})=>renderLinhaSquad(l,i)).join('')
+    : '<div class="text-xs text-ink-400 italic p-3 text-center">Nenhum head alocado.</div>';
+  squad.innerHTML = squadLinhas.length
+    ? squadLinhas.map(({l,i})=>renderLinhaSquad(l,i)).join('')
+    : '<div class="text-xs text-ink-400 italic p-3 text-center">Nenhum cargo operacional adicionado.</div>';
+}
+
+function addHead(){
+  const id = document.getElementById('add-head').value;
+  if (!id) { alert('Escolha um head primeiro.'); return; }
+  CURRENT_ORC.squad = CURRENT_ORC.squad || [];
+  CURRENT_ORC.squad.push({cargo_id: id, alocacao: 0.1});
+  document.getElementById('add-head').value = '';
+  renderSquadRows();
+  recalc();
 }
 
 function recalc(){
   const c = calcular(CURRENT_ORC);
   document.getElementById('display-squad-mensal').textContent = fmtBRL(c.squadMensal);
+
+  // Subtotais Heads e Squad operacional
+  let headsMensal = 0, squadOpMensal = 0;
+  (CURRENT_ORC.squad||[]).forEach(l=>{
+    const cg = CARGOS.find(x=>x.id===l.cargo_id);
+    if (!cg) return;
+    const custo = cg.salario * (l.alocacao||0);
+    if (cg.area === 'HEADS') headsMensal += custo;
+    else squadOpMensal += custo;
+  });
+  const headsEl = document.getElementById('display-heads-mensal');
+  const squadOpEl = document.getElementById('display-squad-op-mensal');
+  if (headsEl) headsEl.textContent = fmtBRL(headsMensal)+'/mês';
+  if (squadOpEl) squadOpEl.textContent = fmtBRL(squadOpMensal)+'/mês';
   document.getElementById('display-fee-min').textContent = c.feeMin==null ? 'Inviável' : fmtBRL(c.feeMin);
   document.getElementById('display-fee-ideal').textContent = c.feeIdeal==null ? 'Inviável' : fmtBRL(c.feeIdeal);
 
@@ -1631,13 +1679,9 @@ function recalc(){
   else if (c.statusMargem==='ABAIXO_MIN') painel.classList.add('border-orange');
   else painel.classList.add('border-red-500');
 
-  Object.entries({custoDireto:c.custoDireto,receitaTaxaAdmin:c.receitaTaxaAdmin,squadMensal:c.squadMensal,squadTotal:c.squadTotal,encargos:c.encargos,overhead:c.overhead,heads:c.heads,custoOp:c.custoOp,receitaFeeTotal:c.receitaFeeTotal,receitaTotal:c.receitaTotal,comissao:c.comissao}).forEach(([k,v])=>{
+  Object.entries({custoDireto:c.custoDireto,receitaTaxaAdmin:c.receitaTaxaAdmin,squadMensal:c.squadMensal,squadTotal:c.squadTotal,encargos:c.encargos,overhead:c.overhead,custoOp:c.custoOp,receitaFeeTotal:c.receitaFeeTotal,receitaTotal:c.receitaTotal,comissao:c.comissao}).forEach(([k,v])=>{
     const el = document.getElementById('d-'+k); if (el) el.textContent = fmtBRL(v);
   });
-
-  // Mostrar % de heads aplicado ao lado do label "Heads"
-  const tagHeads = document.getElementById('heads-pct-tag');
-  if (tagHeads) tagHeads.textContent = `(${(c.headsPctAplicado*100).toFixed(1)}%)`;
 
   // Contribuição pra cobertura de overhead
   const mc = mcMensal(CURRENT_ORC, c);
@@ -1678,7 +1722,7 @@ function recalc(){
   // Mostrar nota do tipo e governança upsell
   const tipo = TIPOS.find(t=>t.tipo===CURRENT_ORC.tipo);
   document.getElementById('tipo-nota').innerHTML = tipo
-    ? `<strong class="text-white">${tipo.tipo}</strong> · overhead ${(tipo.overhead_mult*100).toFixed(0)}% · heads <strong class="text-orange">${(c.headsPctAplicado*100).toFixed(1)}%</strong> · cachês na receita: ${tipo.cache_na_receita?'sim':'não'}. ${tipo.notas}`
+    ? `<strong class="text-white">${tipo.tipo}</strong> · overhead ${(tipo.overhead_mult*100).toFixed(0)}% · cachês na receita: ${tipo.cache_na_receita?'sim':'não'}. ${tipo.notas}`
     : '';
   document.getElementById('upsell-extra').classList.toggle('hidden', CURRENT_ORC.tipo!=='Upsell em AON');
 
@@ -2019,12 +2063,10 @@ const PREMISSAS_LABELS = {
   taxa_admin:['Taxa Admin','markup sobre Cachês+Mídia+Produção'],
   margem_min:['Margem Mínima','abaixo disso, não fecha'],
   margem_ideal:['Margem Ideal','alvo padrão pra propor'],
-  heads_upsell_pct:['Heads em Upsell','% sobre receita líquida — menor pq heads-mãe já estão no AON'],
   handling_upsell_pct:['Handling Upsell','sobre terceiros'],
   margem_upsell:['Margem Upsell esperada','quanto cada R$ de upsell vira EBITDA — default 40%'],
 };
 function renderPremissas() {
-  const tiposParaHeads = TIPOS.filter(t=>t.tipo !== 'Upsell em AON').map(t=>t.tipo);
   return `
   <div class="space-y-5">
 
@@ -2075,52 +2117,17 @@ function renderPremissas() {
       </div>
     </div>
 
-    <!-- BLOCO 2: HEADS POR TIPO -->
-    <div class="card p-6" style="background: linear-gradient(180deg, rgba(255,87,34,.06) 0%, rgba(46,107,255,.04) 100%); border: 1px solid rgba(255,87,34,.2);">
-      <div class="flex items-start gap-3 mb-2">
-        <div class="w-10 h-10 rounded-xl grad-snack flex items-center justify-center text-white font-bold">H</div>
-        <div class="flex-1">
-          <div class="font-display font-bold text-xl flex items-center gap-2">
-            Custo de Heads por tipo
-            <span class="pill pill-orange">novo</span>
-          </div>
-          <p class="text-sm text-ink-300 mt-1 max-w-3xl leading-relaxed">
-            Cada tipo consome heads diferente. AON e Projeto tomam mais tempo de diretor (war room, status, pitch).
-            UGC tem operação padronizada e quase não toca heads. Calibre aqui — vale fazer revisão trimestral comparando
-            com o real (soma de heads cobrados ÷ heads pagos).
+    <!-- NOTA EXPLICATIVA SOBRE HEADS -->
+    <div class="card p-5" style="background: linear-gradient(180deg, rgba(46,107,255,.06), rgba(255,87,34,.04)); border: 1px solid rgba(46,107,255,.2);">
+      <div class="flex items-start gap-3">
+        <div class="w-9 h-9 rounded-xl bg-azul/20 border border-azul/40 flex items-center justify-center text-azul-400 font-bold">i</div>
+        <div>
+          <div class="font-display font-bold text-base">Sobre heads</div>
+          <p class="text-sm text-ink-300 mt-1 leading-relaxed max-w-3xl">
+            Heads agora são <strong>cargos do squad</strong>, não premissa automática. Vá em <a class="text-orange hover:underline cursor-pointer" onclick="navigate('cargos')">Cargos & Salários</a>, área <strong class="text-orange">HEADS</strong>, e atualize os salários. Aloque o % de tempo de cada head no squad de cada orçamento — exatamente como você faz com os outros cargos.
           </p>
         </div>
       </div>
-
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-5">
-        ${tiposParaHeads.map(t=>{
-          const v = PREMISSAS.heads_por_tipo[t] ?? 0.10;
-          return `<div class="p-4 rounded-xl border border-ink-700 bg-ink-900 hover:border-orange/40">
-            <div class="flex items-center justify-between gap-3">
-              <div class="min-w-0">
-                <div class="text-sm font-semibold truncate">${t}</div>
-                <div class="text-[11px] text-ink-400 mt-0.5">% aplicado sobre fee${t==='Influ - repasse'||t==='UGC simples'?' Snack (sem cachê)':' total'}</div>
-              </div>
-              <div class="flex items-center gap-2 shrink-0">
-                <input type="number" step="0.005" min="0" max="0.50" value="${v}" class="input w-24 text-right" oninput="atualizarHeadsTipo('${t}', +this.value)">
-                <span id="pct-heads-${t.replace(/[^a-z]/gi,'')}" class="text-sm font-bold w-12 text-right text-orange">${(v*100).toFixed(1)}%</span>
-              </div>
-            </div>
-          </div>`;
-        }).join('')}
-      </div>
-
-      <details class="mt-5 text-xs text-ink-300">
-        <summary class="cursor-pointer text-ink-400 hover:text-white flex items-center gap-2 font-semibold">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-          Como calibrar esses números
-        </summary>
-        <div class="mt-3 space-y-2 leading-relaxed pl-4">
-          <div><strong class="text-white">Método rápido:</strong> pergunta pra cada head (Criação, Planejamento, Inteligência, Conteúdo, Produção): "distribui 100 pontos da tua semana típica entre AON, Projeto, Influ-Snack, Influ-repasse, UGC". Cruza com o mix de receita pra achar o % real de cada tipo.</div>
-          <div><strong class="text-white">Método empírico:</strong> deixa os defaults rodando 1 trimestre. Compara a soma de "Custo Heads" dos orçamentos do trimestre com o que a Snack pagou de heads. Se cobrou menos do que pagou, sobe os %. Se cobrou mais, abaixa.</div>
-          <div><strong class="text-white">Sanity check do agregado:</strong> média ponderada × mix de receita deve dar ~10% (a sua premissa atual de R$250k / R$2,5M). Se der muito acima, você tá superprovisionando. Muito abaixo, subprovisionando.</div>
-        </div>
-      </details>
     </div>
   </div>
   `;
@@ -2132,12 +2139,6 @@ function atualizarPremissa(k,v){
   const el = document.getElementById('pct-'+k);
   if (el) el.textContent = (v*100).toFixed(1)+'%';
   salvarPremissaSupabase(k, v);
-}
-function atualizarHeadsTipo(tipo, v){
-  PREMISSAS.heads_por_tipo[tipo] = v;
-  const el = document.getElementById('pct-heads-'+tipo.replace(/[^a-z]/gi,''));
-  if (el) el.textContent = (v*100).toFixed(1)+'%';
-  salvarHeadsTipoSupabase(tipo, v);
 }
 
 /* =============================================================
