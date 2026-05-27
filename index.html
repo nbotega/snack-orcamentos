@@ -1,0 +1,2124 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Snack — Plataforma de Orçamentos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      fontFamily: {
+        sans: ['Inter', 'system-ui', 'sans-serif'],
+        display: ['Space Grotesk', 'Inter', 'sans-serif'],
+      },
+      colors: {
+        ink: { 950:'#07070B', 900:'#0E0E14', 850:'#13131B', 800:'#1A1A24', 700:'#23232F', 600:'#2F2F3D', 500:'#3E3E50', 400:'#6B6B7E', 300:'#9C9CAB', 200:'#C9C9D2', 100:'#EDEDF0' },
+        orange: { DEFAULT:'#FF5722', 400:'#FF7A4D', 500:'#FF5722', 600:'#E84A18', 700:'#C13C12' },
+        azul: { DEFAULT:'#2E6BFF', 400:'#5C8BFF', 500:'#2E6BFF', 600:'#1F52D6', 700:'#1B43AD' },
+      }
+    }
+  }
+}
+</script>
+<style>
+  html, body { background: #07070B; color: #EDEDF0; font-family: 'Inter', system-ui, sans-serif; }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: #0E0E14; }
+  ::-webkit-scrollbar-thumb { background: #2F2F3D; border-radius: 6px; }
+  ::-webkit-scrollbar-thumb:hover { background: #3E3E50; }
+  .glow-orange { box-shadow: 0 0 60px -10px rgba(255,87,34,.35); }
+  .glow-azul { box-shadow: 0 0 60px -10px rgba(46,107,255,.35); }
+  .grad-snack { background: linear-gradient(135deg, #FF5722 0%, #FF7A4D 40%, #2E6BFF 100%); }
+  .grad-snack-soft { background: linear-gradient(135deg, rgba(255,87,34,.12) 0%, rgba(46,107,255,.12) 100%); }
+  .grad-text { background: linear-gradient(90deg, #FF5722 0%, #FF8A65 50%, #2E6BFF 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .card { background: linear-gradient(180deg, #14141C 0%, #0E0E14 100%); border: 1px solid #1F1F2A; border-radius: 16px; }
+  .card-hover { transition: all .2s ease; }
+  .card-hover:hover { border-color: #2F2F3D; transform: translateY(-2px); }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 11px; font-weight: 600; letter-spacing: .02em; }
+  .pill-orange { background: rgba(255,87,34,.14); color: #FFB199; border: 1px solid rgba(255,87,34,.35); }
+  .pill-azul { background: rgba(46,107,255,.14); color: #A8C0FF; border: 1px solid rgba(46,107,255,.35); }
+  .pill-green { background: rgba(34,197,94,.13); color: #86EFAC; border: 1px solid rgba(34,197,94,.35); }
+  .pill-red { background: rgba(239,68,68,.13); color: #FCA5A5; border: 1px solid rgba(239,68,68,.35); }
+  .pill-yellow { background: rgba(250,204,21,.13); color: #FDE68A; border: 1px solid rgba(250,204,21,.35); }
+  .pill-ink { background: #14141C; color: #9C9CAB; border: 1px solid #2F2F3D; }
+  .input { width: 100%; background: #0B0B12; border: 1px solid #23232F; border-radius: 10px; padding: 10px 12px; color: #EDEDF0; font-size: 14px; transition: all .15s ease; }
+  .input:focus { outline: none; border-color: #FF5722; box-shadow: 0 0 0 3px rgba(255,87,34,.15); }
+  .label { font-size: 11px; font-weight: 600; color: #9C9CAB; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 6px; display: block; }
+  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border-radius: 10px; font-weight: 600; font-size: 14px; transition: all .15s ease; cursor: pointer; border: 1px solid transparent; }
+  .btn-primary { background: #FF5722; color: white; }
+  .btn-primary:hover { background: #E84A18; transform: translateY(-1px); box-shadow: 0 6px 20px -6px rgba(255,87,34,.55); }
+  .btn-secondary { background: #2E6BFF; color: white; }
+  .btn-secondary:hover { background: #1F52D6; }
+  .btn-ghost { background: #14141C; color: #C9C9D2; border-color: #2F2F3D; }
+  .btn-ghost:hover { background: #1A1A24; border-color: #3E3E50; }
+  .nav-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 10px; font-weight: 500; font-size: 14px; color: #9C9CAB; transition: all .12s ease; cursor: pointer; }
+  .nav-item:hover { background: #14141C; color: #EDEDF0; }
+  .nav-item.active { background: linear-gradient(90deg, rgba(255,87,34,.18), rgba(46,107,255,.06)); color: #FFFFFF; border-left: 3px solid #FF5722; padding-left: 11px; }
+  .row-area-INTELIGENCIA { border-left: 3px solid #2E6BFF; }
+  .row-area-CONTEUDO { border-left: 3px solid #FF5722; }
+  .row-area-PRODUCAO { border-left: 3px solid #A855F7; }
+  .row-area-ATENDIMENTO { border-left: 3px solid #22C55E; }
+  .row-area-GP { border-left: 3px solid #EAB308; }
+  .row-area-CASTING { border-left: 3px solid #EC4899; }
+  .row-area-COMMERCE { border-left: 3px solid #14B8A6; }
+  .area-tag { font-size:10px; padding:2px 7px; border-radius:4px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
+  .area-INTELIGENCIA { background: rgba(46,107,255,.16); color: #93B4FF; }
+  .area-CONTEUDO { background: rgba(255,87,34,.16); color: #FFB199; }
+  .area-PRODUCAO { background: rgba(168,85,247,.16); color: #D8B4FE; }
+  .area-ATENDIMENTO { background: rgba(34,197,94,.16); color: #86EFAC; }
+  .area-GP { background: rgba(234,179,8,.16); color: #FDE68A; }
+  .area-CASTING { background: rgba(236,72,153,.16); color: #F9A8D4; }
+  .area-COMMERCE { background: rgba(20,184,166,.16); color: #5EEAD4; }
+  input[type=range].snack-slider { -webkit-appearance: none; appearance: none; height: 6px; background: linear-gradient(90deg, #EF4444 0%, #EAB308 50%, #22C55E 100%); border-radius: 999px; outline: none; }
+  input[type=range].snack-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 22px; height: 22px; background: white; border: 3px solid #FF5722; border-radius: 50%; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,.4); }
+  .fade-in { animation: fadeIn .25s ease; }
+  @keyframes fadeIn { from { opacity:0; transform: translateY(4px); } to { opacity:1; transform: translateY(0); } }
+  details > summary { list-style: none; cursor: pointer; }
+  details > summary::-webkit-details-marker { display: none; }
+  .check { width:18px; height:18px; border-radius:5px; border:1.5px solid #3E3E50; display:inline-flex; align-items:center; justify-content:center; }
+  .check.on { background:#FF5722; border-color:#FF5722; }
+  .badge-num { display:inline-flex; align-items:center; justify-content:center; min-width:22px; height:22px; padding:0 6px; border-radius:999px; background:#FF5722; color:white; font-size:11px; font-weight:700; }
+</style>
+</head>
+<body class="min-h-screen">
+
+<!-- LOGIN OVERLAY (mockup) -->
+<div id="login-screen" class="fixed inset-0 z-50 grad-snack-soft flex items-center justify-center" style="background: radial-gradient(circle at 30% 20%, rgba(255,87,34,.18), transparent 50%), radial-gradient(circle at 80% 70%, rgba(46,107,255,.18), transparent 50%), #07070B;">
+  <div class="text-center max-w-md px-6">
+    <div class="inline-flex items-center gap-3 mb-8">
+      <div class="w-12 h-12 rounded-2xl grad-snack flex items-center justify-center text-white font-black text-xl glow-orange">S</div>
+      <div class="text-2xl font-display font-bold tracking-tight">snack<span class="text-orange">.</span><span class="text-azul">orçamentos</span></div>
+    </div>
+    <h1 class="text-4xl font-display font-bold mb-3 tracking-tight">Bom ter você aqui.</h1>
+    <p class="text-ink-300 mb-8 leading-relaxed">A plataforma interna pra você fechar orçamento <span class="text-white font-semibold">em 2 minutos</span> sem se perder em planilha, sem chutar margem.</p>
+    <button onclick="entrar()" class="btn btn-primary w-full justify-center text-base py-3 glow-orange">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/></svg>
+      Entrar com Google @snackcontent.com.br
+    </button>
+    <p class="text-xs text-ink-400 mt-6">Protótipo navegável. Login é mock — entra direto.</p>
+  </div>
+</div>
+
+<!-- APP SHELL -->
+<div id="app" class="hidden">
+  <div class="flex min-h-screen">
+    <!-- SIDEBAR -->
+    <aside class="w-[240px] shrink-0 bg-ink-950 border-r border-ink-800 p-5 sticky top-0 h-screen flex flex-col">
+      <div class="flex items-center gap-2.5 mb-9">
+        <div class="w-9 h-9 rounded-xl grad-snack flex items-center justify-center text-white font-black text-base">S</div>
+        <div>
+          <div class="font-display font-bold text-[15px] leading-none">snack</div>
+          <div class="text-[10px] text-ink-400 mt-1 tracking-wider uppercase">orçamentos v1</div>
+        </div>
+      </div>
+
+      <nav class="space-y-1 flex-1">
+        <div class="nav-item" data-route="dashboard">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
+          Dashboard
+        </div>
+        <div class="nav-item" data-route="orcamentos">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Orçamentos
+          <span id="nav-orc-count" class="ml-auto badge-num">0</span>
+        </div>
+        <div class="nav-item" data-route="novo">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Novo Orçamento
+        </div>
+        <div class="nav-item" data-route="comparador">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="18"/><rect x="14" y="3" width="7" height="11"/></svg>
+          Comparador
+        </div>
+        <div class="nav-item" data-route="clientes">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          Clientes
+        </div>
+        <div class="pt-5 mt-3 border-t border-ink-800 space-y-1">
+          <div class="text-[10px] tracking-widest text-ink-500 uppercase px-3 mb-2 font-semibold">Configuração</div>
+          <div class="nav-item" data-route="premissas">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            Premissas
+          </div>
+          <div class="nav-item" data-route="cargos">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            Cargos & Salários
+          </div>
+          <div class="nav-item" data-route="tipos">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+            Tipos de Orçamento
+          </div>
+        </div>
+      </nav>
+
+      <div class="pt-4 border-t border-ink-800 mt-4">
+        <div class="flex items-center gap-2.5 p-2 rounded-lg hover:bg-ink-850 cursor-pointer">
+          <div class="w-8 h-8 rounded-full grad-snack flex items-center justify-center text-white font-bold text-sm">N</div>
+          <div class="flex-1 min-w-0">
+            <div class="text-sm font-semibold truncate">Nelson Botega</div>
+            <div class="text-[11px] text-ink-400 truncate">Co-CEO</div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- MAIN -->
+    <main class="flex-1 min-w-0">
+      <!-- TOPBAR -->
+      <div class="sticky top-0 z-30 bg-ink-950/80 backdrop-blur-md border-b border-ink-800 px-8 py-4 flex items-center justify-between">
+        <div class="flex items-center gap-4">
+          <div id="topbar-title" class="font-display font-bold text-xl tracking-tight">Dashboard</div>
+          <div id="sync-indicator" class="flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full bg-ink-900 border border-ink-800">
+            <span class="w-2 h-2 rounded-full bg-green-500"></span>
+            <span class="text-ink-300">Tudo salvo</span>
+          </div>
+        </div>
+        <div class="flex items-center gap-3">
+          <button class="btn btn-ghost text-xs">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            Buscar
+          </button>
+          <button class="btn btn-primary" onclick="navigate('novo')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Novo Orçamento
+          </button>
+        </div>
+      </div>
+
+      <!-- VIEW CONTAINER -->
+      <div id="view" class="p-8 fade-in"></div>
+    </main>
+  </div>
+</div>
+
+<!-- MODAL -->
+<div id="modal-bg" class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 hidden items-center justify-center p-6">
+  <div id="modal-content" class="card max-w-2xl w-full max-h-[85vh] overflow-y-auto p-7"></div>
+</div>
+
+<script>
+/* =============================================================
+   DADOS-BASE (vindos do Excel)
+============================================================= */
+let CARGOS = [{"id":"CG01","area":"INTELIGÊNCIA E MÍDIA","cargo":"BI Dashboard","nivel":"Júnior","salario":5500},{"id":"CG02","area":"INTELIGÊNCIA E MÍDIA","cargo":"BI Dashboard","nivel":"Pleno","salario":8500},{"id":"CG03","area":"INTELIGÊNCIA E MÍDIA","cargo":"BI Dashboard","nivel":"Sênior","salario":13000},{"id":"CG04","area":"INTELIGÊNCIA E MÍDIA","cargo":"Mídia","nivel":"Júnior","salario":5000},{"id":"CG05","area":"INTELIGÊNCIA E MÍDIA","cargo":"Mídia","nivel":"Pleno","salario":8000},{"id":"CG06","area":"INTELIGÊNCIA E MÍDIA","cargo":"Mídia","nivel":"Sênior","salario":12000},{"id":"CG07","area":"INTELIGÊNCIA E MÍDIA","cargo":"Dados","nivel":"Júnior","salario":5500},{"id":"CG08","area":"INTELIGÊNCIA E MÍDIA","cargo":"Dados","nivel":"Pleno","salario":8500},{"id":"CG09","area":"INTELIGÊNCIA E MÍDIA","cargo":"Dados","nivel":"Sênior","salario":13000},{"id":"CG10","area":"CONTEÚDO","cargo":"Estrategista","nivel":"Júnior","salario":6000},{"id":"CG11","area":"CONTEÚDO","cargo":"Estrategista","nivel":"Pleno","salario":9500},{"id":"CG12","area":"CONTEÚDO","cargo":"Estrategista","nivel":"Sênior","salario":14500},{"id":"CG13","area":"CONTEÚDO","cargo":"CM","nivel":"Júnior","salario":4500},{"id":"CG14","area":"CONTEÚDO","cargo":"CM","nivel":"Pleno","salario":7000},{"id":"CG15","area":"CONTEÚDO","cargo":"CM","nivel":"Sênior","salario":10500},{"id":"CG16","area":"CONTEÚDO","cargo":"Diretor de Arte","nivel":"Júnior","salario":5500},{"id":"CG17","area":"CONTEÚDO","cargo":"Diretor de Arte","nivel":"Pleno","salario":8500},{"id":"CG18","area":"CONTEÚDO","cargo":"Diretor de Arte","nivel":"Sênior","salario":13000},{"id":"CG19","area":"CONTEÚDO","cargo":"Redator","nivel":"Júnior","salario":5000},{"id":"CG20","area":"CONTEÚDO","cargo":"Redator","nivel":"Pleno","salario":8000},{"id":"CG21","area":"CONTEÚDO","cargo":"Redator","nivel":"Sênior","salario":12000},{"id":"CG22","area":"CONTEÚDO","cargo":"Roteirista","nivel":"Júnior","salario":4500},{"id":"CG23","area":"CONTEÚDO","cargo":"Roteirista","nivel":"Pleno","salario":7000},{"id":"CG24","area":"CONTEÚDO","cargo":"Roteirista","nivel":"Sênior","salario":10500},{"id":"CG25","area":"CONTEÚDO","cargo":"Social Media Star","nivel":"Júnior","salario":5500},{"id":"CG26","area":"CONTEÚDO","cargo":"Social Media Star","nivel":"Pleno","salario":8500},{"id":"CG27","area":"CONTEÚDO","cargo":"Social Media Star","nivel":"Sênior","salario":13000},{"id":"CG28","area":"PRODUÇÃO","cargo":"Editor","nivel":"Júnior","salario":5000},{"id":"CG29","area":"PRODUÇÃO","cargo":"Editor","nivel":"Pleno","salario":7500},{"id":"CG30","area":"PRODUÇÃO","cargo":"Editor","nivel":"Sênior","salario":11000},{"id":"CG31","area":"PRODUÇÃO","cargo":"Produtor","nivel":"Júnior","salario":5000},{"id":"CG32","area":"PRODUÇÃO","cargo":"Produtor","nivel":"Pleno","salario":8000},{"id":"CG33","area":"PRODUÇÃO","cargo":"Produtor","nivel":"Sênior","salario":12000},{"id":"CG34","area":"PRODUÇÃO","cargo":"Produtor Artístico","nivel":"Júnior","salario":5500},{"id":"CG35","area":"PRODUÇÃO","cargo":"Produtor Artístico","nivel":"Pleno","salario":8500},{"id":"CG36","area":"PRODUÇÃO","cargo":"Produtor Artístico","nivel":"Sênior","salario":12500},{"id":"CG37","area":"PRODUÇÃO","cargo":"Motion","nivel":"Júnior","salario":6000},{"id":"CG38","area":"PRODUÇÃO","cargo":"Motion","nivel":"Pleno","salario":9500},{"id":"CG39","area":"PRODUÇÃO","cargo":"Motion","nivel":"Sênior","salario":14000},{"id":"CG40","area":"ATENDIMENTO","cargo":"Atendimento","nivel":"Diretor de Contas","salario":21000},{"id":"CG41","area":"ATENDIMENTO","cargo":"Atendimento","nivel":"Gerente","salario":13000},{"id":"CG42","area":"ATENDIMENTO","cargo":"Atendimento","nivel":"Supervisor","salario":9000},{"id":"CG43","area":"ATENDIMENTO","cargo":"Atendimento","nivel":"Executivo","salario":6000},{"id":"CG44","area":"ATENDIMENTO","cargo":"Atendimento","nivel":"Assistente","salario":5000},{"id":"CG45","area":"ATENDIMENTO","cargo":"Atendimento","nivel":"Estagiário","salario":3500},{"id":"CG46","area":"GP","cargo":"Gerente de Projetos","nivel":"Júnior","salario":6500},{"id":"CG47","area":"GP","cargo":"Gerente de Projetos","nivel":"Pleno","salario":10000},{"id":"CG48","area":"GP","cargo":"Gerente de Projetos","nivel":"Sênior","salario":15000},{"id":"CG49","area":"CASTING","cargo":"Casting","nivel":"Júnior","salario":5500},{"id":"CG50","area":"CASTING","cargo":"Casting","nivel":"Pleno","salario":8500},{"id":"CG51","area":"CASTING","cargo":"Casting","nivel":"Sênior","salario":13000},{"id":"CG52","area":"COMMERCE","cargo":"Gestor de Afiliados","nivel":"Júnior","salario":5500},{"id":"CG53","area":"COMMERCE","cargo":"Gestor de Afiliados","nivel":"Pleno","salario":8500},{"id":"CG54","area":"COMMERCE","cargo":"Gestor de Afiliados","nivel":"Sênior","salario":13000},{"id":"CG55","area":"COMMERCE","cargo":"Shop Manager","nivel":"Júnior","salario":6000},{"id":"CG56","area":"COMMERCE","cargo":"Shop Manager","nivel":"Pleno","salario":9500},{"id":"CG57","area":"COMMERCE","cargo":"Shop Manager","nivel":"Sênior","salario":14500}];
+
+const TIPOS = [
+  {tipo:"Always-On", overhead_mult:0.9, base_overhead:"Squad + Heads", base_heads:"Fee total", cache_na_receita:true, notas:"Cliente complexo, muita reunião, war room"},
+  {tipo:"Projeto Criativo", overhead_mult:0.9, base_overhead:"Squad + Heads", base_heads:"Fee total", cache_na_receita:true, notas:"Pitch, urgência, muita senioridade"},
+  {tipo:"Upsell em AON", overhead_mult:0.55, base_overhead:"Squad + Heads", base_heads:"Fee total incremental", cache_na_receita:true, notas:"Squad já alocado parcial - usar squad incremental"},
+  {tipo:"Influ - Snack recebe", overhead_mult:0.4, base_overhead:"Squad + Heads", base_heads:"Fee total", cache_na_receita:true, notas:"Snack recebe budget total e paga creator"},
+  {tipo:"Influ - repasse", overhead_mult:0.4, base_overhead:"Squad + Heads", base_heads:"Fee Snack (sem cachê)", cache_na_receita:false, notas:"Cliente paga creator direto - Snack só gerencia"},
+  {tipo:"UGC simples", overhead_mult:0.35, base_overhead:"Squad + Heads", base_heads:"Fee Snack (sem cachê)", cache_na_receita:false, notas:"Muitos creators ou gestão intensa, cliente paga direto"},
+  {tipo:"Produção Externa", overhead_mult:0.0, base_overhead:"Handling sobre custo", base_heads:"Conforme gestão", cache_na_receita:true, notas:"Handling 15-20% sobre terceiros"},
+];
+
+let PREMISSAS = {
+  imposto: 0.10, encargo: 0.07, comissao: 0.015, taxa_admin: 0.15,
+  margem_min: 0.20, margem_ideal: 0.30,
+  overhead_fixo_mensal: 600000, // overhead estrutural real da Snack: aluguel, ferramentas, BI, contabilidade, etc — não inclui heads
+  // Heads por tipo: cada tipo consome heads de forma diferente.
+  // Calibração inicial baseada na intuição "AON e Projeto consomem mais, UGC menos".
+  // Validar/ajustar com a média histórica trimestral.
+  heads_por_tipo: {
+    'Always-On': 0.13,
+    'Projeto Criativo': 0.12,
+    'Influ - Snack recebe': 0.09,
+    'Influ - repasse': 0.06,
+    'UGC simples': 0.05,
+    'Produção Externa': 0.07,
+  },
+  heads_upsell_pct: 0.05,
+  handling_upsell_pct: 0.20, margem_upsell: 0.40
+};
+
+function headsPctDoTipo(tipo){
+  return PREMISSAS.heads_por_tipo[tipo] ?? 0.10;
+}
+
+/* =============================================================
+   ESTADO DO APP
+============================================================= */
+const STATE = {
+  route: 'dashboard',
+  orcamentos: [],
+  nextId: 1,
+};
+
+/* =============================================================
+   SUPABASE — camada de persistência
+============================================================= */
+const SUPABASE_URL = 'https://jibstoejwfvpzlhymoxe.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImppYnN0b2Vqd2Z2cHpsaHltb3hlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk4MzQ1OTEsImV4cCI6MjA5NTQxMDU5MX0.YCuPwOIYdVTA19H7c9UXNF921JADVj7iBChnGIraDvA';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+let SYNC_STATUS = 'idle'; // idle | saving | error
+let SYNC_TIMER = null;
+
+function setSyncStatus(s){
+  SYNC_STATUS = s;
+  const el = document.getElementById('sync-indicator');
+  if (!el) return;
+  if (s==='saving') el.innerHTML = '<span class="w-2 h-2 rounded-full bg-yellow-400 animate-pulse"></span><span class="text-ink-300">Salvando…</span>';
+  else if (s==='error') el.innerHTML = '<span class="w-2 h-2 rounded-full bg-red-500"></span><span class="text-red-300">Erro ao salvar — veja console</span>';
+  else el.innerHTML = '<span class="w-2 h-2 rounded-full bg-green-500"></span><span class="text-ink-300">Tudo salvo</span>';
+}
+
+async function carregarDoSupabase(){
+  setSyncStatus('saving');
+  try {
+    const [c, t, p, h, o, sq] = await Promise.all([
+      sb.from('cargos').select('*').order('id'),
+      sb.from('tipos_orcamento').select('*'),
+      sb.from('premissas').select('*'),
+      sb.from('heads_por_tipo').select('*'),
+      sb.from('orcamentos').select('*').order('id'),
+      sb.from('orcamento_squad').select('*'),
+    ]);
+    if (c.error) throw c.error;
+    CARGOS.length = 0;
+    c.data.forEach(x=>CARGOS.push({id:x.id, area:x.area, cargo:x.cargo, nivel:x.nivel, salario:Number(x.salario)}));
+
+    if (t.data && t.data.length){
+      TIPOS.length = 0;
+      t.data.forEach(x=>TIPOS.push({tipo:x.tipo, overhead_mult:Number(x.overhead_mult), base_overhead:x.base_overhead, base_heads:x.base_heads, cache_na_receita:x.cache_na_receita, notas:x.notas}));
+    }
+
+    if (p.data){
+      p.data.forEach(x=>{
+        if (PREMISSAS[x.chave] !== undefined && typeof PREMISSAS[x.chave]==='number') PREMISSAS[x.chave] = Number(x.valor);
+      });
+    }
+    if (h.data){
+      PREMISSAS.heads_por_tipo = {};
+      h.data.forEach(x=>{ PREMISSAS.heads_por_tipo[x.tipo] = Number(x.pct); });
+    }
+
+    // Orçamentos + squads
+    const squadByOrc = {};
+    (sq.data||[]).forEach(s=>{
+      if(!squadByOrc[s.orcamento_id]) squadByOrc[s.orcamento_id] = [];
+      squadByOrc[s.orcamento_id].push({cargo_id:s.cargo_id, alocacao:Number(s.alocacao)});
+    });
+    STATE.orcamentos = (o.data||[]).map(x=>({
+      id:x.id, data:x.data, cliente:x.cliente, projeto:x.projeto||'',
+      tipo:x.tipo, status:x.status, meses:x.meses,
+      caches:Number(x.caches), midia:Number(x.midia), producao:Number(x.producao),
+      fee_mensal:Number(x.fee_mensal), gov_upsell:Number(x.gov_upsell||0.05),
+      squad: squadByOrc[x.id] || []
+    }));
+    // Calcular próximo ID
+    let max = 0;
+    STATE.orcamentos.forEach(o=>{ const n=parseInt(o.id.replace(/[^0-9]/g,''),10); if(!isNaN(n)&&n>max) max=n; });
+    STATE.nextId = max + 1;
+
+    setSyncStatus('idle');
+    console.log(`✓ Carregado do Supabase: ${CARGOS.length} cargos, ${STATE.orcamentos.length} orçamentos`);
+  } catch(e){
+    console.error('Erro ao carregar:', e);
+    setSyncStatus('error');
+    alert('Erro ao carregar do Supabase. Veja o console (F12). Continuando com dados em memória.');
+  }
+}
+
+async function salvarOrcamentoSupabase(orc){
+  setSyncStatus('saving');
+  try {
+    // upsert orçamento (sem o squad)
+    const { error: e1 } = await sb.from('orcamentos').upsert({
+      id: orc.id, data: orc.data, cliente: orc.cliente, projeto: orc.projeto||null,
+      tipo: orc.tipo, status: orc.status, meses: orc.meses,
+      caches: orc.caches, midia: orc.midia, producao: orc.producao,
+      fee_mensal: orc.fee_mensal, gov_upsell: orc.gov_upsell||0.05,
+      updated_at: new Date().toISOString()
+    });
+    if (e1) throw e1;
+    // delete + insert squad
+    await sb.from('orcamento_squad').delete().eq('orcamento_id', orc.id);
+    if (orc.squad && orc.squad.length){
+      const linhas = orc.squad.filter(s=>s.cargo_id && s.cargo_id !== '_FAKE').map(s=>({
+        orcamento_id: orc.id, cargo_id: s.cargo_id, alocacao: s.alocacao
+      }));
+      if (linhas.length){
+        const { error: e2 } = await sb.from('orcamento_squad').insert(linhas);
+        if (e2) throw e2;
+      }
+    }
+    setSyncStatus('idle');
+  } catch(e){
+    console.error('Erro ao salvar orçamento:', e);
+    setSyncStatus('error');
+    alert('Erro ao salvar no Supabase. Veja o console (F12).');
+  }
+}
+
+async function deletarOrcamentoSupabase(id){
+  try { await sb.from('orcamentos').delete().eq('id', id); }
+  catch(e){ console.error(e); setSyncStatus('error'); }
+}
+
+// Debounced save pra premissas e cargos
+function scheduleSync(fn){
+  if (SYNC_TIMER) clearTimeout(SYNC_TIMER);
+  setSyncStatus('saving');
+  SYNC_TIMER = setTimeout(async ()=>{
+    try { await fn(); setSyncStatus('idle'); }
+    catch(e){ console.error(e); setSyncStatus('error'); }
+  }, 800);
+}
+
+async function salvarPremissaSupabase(chave, valor){
+  scheduleSync(async ()=>{
+    const { error } = await sb.from('premissas').upsert({ chave, valor, updated_at: new Date().toISOString() });
+    if (error) throw error;
+  });
+}
+
+async function salvarHeadsTipoSupabase(tipo, pct){
+  scheduleSync(async ()=>{
+    const { error } = await sb.from('heads_por_tipo').upsert({ tipo, pct, updated_at: new Date().toISOString() });
+    if (error) throw error;
+  });
+}
+
+async function salvarCargoSupabase(cargo){
+  scheduleSync(async ()=>{
+    const { error } = await sb.from('cargos').upsert({
+      id: cargo.id, area: cargo.area, cargo: cargo.cargo,
+      nivel: cargo.nivel, salario: cargo.salario,
+      updated_at: new Date().toISOString()
+    });
+    if (error) throw error;
+  });
+}
+
+async function deletarCargoSupabase(id){
+  try { await sb.from('cargos').delete().eq('id', id); }
+  catch(e){ console.error(e); setSyncStatus('error'); }
+}
+
+/* =============================================================
+   SEED — só usa em caso de banco vazio (primeira vez)
+============================================================= */
+function seed() {
+  STATE.orcamentos = [
+    {id:'C001', data:'2026-01-12', cliente:'BIC Soleil', projeto:'Sempre Soleil 2026', tipo:'Always-On', status:'Aprovada',
+     meses:10, caches:0, midia:0, producao:35000, fee_mensal:100000,
+     squad:[{cargo_id:'CG41', alocacao:0.3},{cargo_id:'CG43', alocacao:1.0},{cargo_id:'CG47', alocacao:0.3},{cargo_id:'CG11', alocacao:0.3},{cargo_id:'CG14', alocacao:1.0},{cargo_id:'CG17', alocacao:0.5},{cargo_id:'CG29', alocacao:0.4},{cargo_id:'CG50', alocacao:0.2}],
+     gov_upsell:0.05},
+    {id:'C002', data:'2026-02-03', cliente:'iFood B2B', projeto:'Campanha Restaurantes Parceiros', tipo:'Projeto Criativo', status:'Proposta',
+     meses:3, caches:12000, midia:0, producao:6000, fee_mensal:400000,
+     squad:[{cargo_id:'CG41',alocacao:1.0},{cargo_id:'CG48',alocacao:1.0},{cargo_id:'CG12',alocacao:1.0},{cargo_id:'CG18',alocacao:1.0},{cargo_id:'CG21',alocacao:1.0},{cargo_id:'CG23',alocacao:1.0},{cargo_id:'CG39',alocacao:0.5},{cargo_id:'CG30',alocacao:1.0},{cargo_id:'CG33',alocacao:1.0},{cargo_id:'CG35',alocacao:0.5}],
+     gov_upsell:0.05},
+    {id:'C003', data:'2026-02-18', cliente:'CVC', projeto:'CVC Sempre em Movimento', tipo:'Always-On', status:'Proposta',
+     meses:12, caches:5000, midia:10000, producao:12000, fee_mensal:140000,
+     squad:[{cargo_id:'CG41',alocacao:0.5},{cargo_id:'CG43',alocacao:1.0},{cargo_id:'CG47',alocacao:0.4},{cargo_id:'CG12',alocacao:0.3},{cargo_id:'CG14',alocacao:1.0},{cargo_id:'CG17',alocacao:0.5},{cargo_id:'CG29',alocacao:0.5},{cargo_id:'CG50',alocacao:0.3},{cargo_id:'CG05',alocacao:0.3},{cargo_id:'CG02',alocacao:0.2}],
+     gov_upsell:0.05},
+    {id:'C004', data:'2026-03-07', cliente:'Porto Seguro', projeto:'Influência Porto 2026', tipo:'Influ - Snack recebe', status:'Proposta',
+     meses:6, caches:80000, midia:25000, producao:20000, fee_mensal:250000,
+     squad:[{cargo_id:'CG41',alocacao:1.0},{cargo_id:'CG47',alocacao:0.5},{cargo_id:'CG12',alocacao:0.5},{cargo_id:'CG51',alocacao:1.0},{cargo_id:'CG50',alocacao:1.0},{cargo_id:'CG09',alocacao:0.3},{cargo_id:'CG29',alocacao:0.5},{cargo_id:'CG53',alocacao:0.5}],
+     gov_upsell:0.05},
+    {id:'C005', data:'2026-04-22', cliente:'Guaraná Antarctica', projeto:'Ativação Copa do Mundo', tipo:'Upsell em AON', status:'Proposta',
+     meses:1, caches:0, midia:0, producao:550000, fee_mensal:1000000,
+     squad:[], gov_upsell:0.05},
+    {id:'C006', data:'2026-05-14', cliente:'Porto Seguro', projeto:'AON Institucional Porto', tipo:'Always-On', status:'Proposta',
+     meses:12, caches:0, midia:0, producao:5000, fee_mensal:170000,
+     squad:[{cargo_id:'CG41',alocacao:1.0},{cargo_id:'CG48',alocacao:0.5},{cargo_id:'CG12',alocacao:0.5},{cargo_id:'CG14',alocacao:1.0},{cargo_id:'CG18',alocacao:0.5},{cargo_id:'CG21',alocacao:1.0}],
+     gov_upsell:0.05},
+  ];
+  STATE.nextId = 7;
+}
+
+function hoje(){ const d=new Date(); return d.toISOString().slice(0,10); }
+function fmtData(s){ if(!s) return '—'; const [y,m,d]=s.split('-'); return `${d}/${m}/${y}`; }
+
+/* =============================================================
+   ENGINE DE CÁLCULO (1:1 com o Excel)
+============================================================= */
+function squadCustoMensal(orc){
+  return (orc.squad||[]).reduce((s,l)=>{
+    const c = CARGOS.find(x=>x.id===l.cargo_id);
+    return s + (c ? c.salario * (l.alocacao||0) : 0);
+  }, 0);
+}
+
+function calcular(orc) {
+  const p = PREMISSAS;
+  const tipo = TIPOS.find(t=>t.tipo===orc.tipo) || TIPOS[0];
+  const isUpsell = orc.tipo === 'Upsell em AON';
+  const isSemCache = orc.tipo === 'Influ - repasse' || orc.tipo === 'UGC simples';
+
+  const J = (orc.caches||0) + (orc.midia||0) + (orc.producao||0);            // custo direto total
+  const K = isUpsell ? J * p.handling_upsell_pct : J * p.taxa_admin;          // receita taxa admin / handling
+  const L = squadCustoMensal(orc);                                            // squad mensal
+  const M = L * (orc.meses||0);                                               // squad total
+  const N = M * p.encargo;                                                    // encargos
+  const T = orc.fee_mensal || 0;                                              // fee mensal proposto
+  const U = T * (orc.meses||0);                                               // receita fee total
+
+  // Custo Heads — agora diferenciado por tipo
+  const headsPct = headsPctDoTipo(orc.tipo);
+  let P;
+  if (isUpsell) P = U * (1 - p.imposto) * p.heads_upsell_pct;
+  else if (isSemCache) P = (U - (orc.caches||0)) * headsPct;
+  else P = U * headsPct;
+
+  // Overhead
+  let O;
+  if (isUpsell) O = 0;
+  else O = (M + P) * tipo.overhead_mult;
+
+  // Governança incremental Upsell (AC)
+  const AC = isUpsell ? U * (1 - p.imposto) * (orc.gov_upsell||0) : 0;
+
+  // Custo total op (Q) = J + M + N + O + P + AC
+  const Q = J + M + N + O + P + AC;
+
+  // Receita
+  const V = K;
+  const W = U + V;
+  const X = W * (1 - p.imposto) * p.comissao;
+  const Y = W * (1 - p.imposto) - Q - X;
+  const Z = W>0 ? Y / W : 0;
+
+  // Fee mínimo / ideal (replicando fórmula linear do Excel)
+  function feeAlvo(alvo){
+    if (isUpsell) {
+      const gov = orc.gov_upsell || 0;
+      const den = 1 - p.imposto - (1-p.imposto)*p.comissao - alvo - (1-p.imposto)*(p.heads_upsell_pct + gov);
+      if (den <= 0) return null;
+      const num = J - K*(1-p.imposto)*(p.heads_upsell_pct + gov);
+      const ft = num/den - K;
+      return ft / (orc.meses||1);
+    }
+    const den = 1 - alvo - p.imposto - (1-p.imposto)*p.comissao - headsPct;
+    if (den <= 0) return null;
+    const num = (J + M + N + O) - K * headsPct;
+    const ft = num/den - K;
+    return ft / (orc.meses||1);
+  }
+
+  const feeMin = feeAlvo(p.margem_min);
+  const feeIdeal = feeAlvo(p.margem_ideal);
+
+  let statusMargem;
+  if (Y < 0) statusMargem = 'PREJUIZO';
+  else if (Z < p.margem_min) statusMargem = 'ABAIXO_MIN';
+  else if (Z < p.margem_ideal) statusMargem = 'OK';
+  else statusMargem = 'IDEAL';
+
+  // Upsell necessário pra fechar o gap de margem (apenas pra Always-On)
+  // Fórmula do Excel: ((alvo*W) - Y) * 12 / meses / margem_upsell
+  // Premissa: upsell usa o mesmo squad (squad zero), tem custos diretos próprios,
+  // heads_upsell_pct, handling_upsell_pct, comissão e imposto — e margem esperada padrão margem_upsell.
+  let upsellMinAnual = null, upsellIdealAnual = null;
+  if (orc.tipo === 'Always-On' && (orc.meses||0) > 0) {
+    if (Z >= p.margem_min) upsellMinAnual = 0;
+    else upsellMinAnual = (p.margem_min * W - Y) * 12 / orc.meses / p.margem_upsell;
+    if (Z >= p.margem_ideal) upsellIdealAnual = 0;
+    else upsellIdealAnual = (p.margem_ideal * W - Y) * 12 / orc.meses / p.margem_upsell;
+  }
+
+  return {
+    custoDireto:J, receitaTaxaAdmin:K, squadMensal:L, squadTotal:M, encargos:N,
+    feeTotal:U, heads:P, overhead:O, govIncrUpsell:AC, custoOp:Q,
+    receitaFeeTotal:U, receitaTotal:W, comissao:X, ebitda:Y, margem:Z,
+    feeMin, feeIdeal, statusMargem,
+    upsellMinAnual, upsellIdealAnual,
+    headsPctAplicado: isUpsell ? p.heads_upsell_pct : headsPct
+  };
+}
+
+/* =============================================================
+   HELPERS DE FORMATAÇÃO
+============================================================= */
+const fmtBRL = v => (v==null||isNaN(v)) ? '—' : v.toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0});
+const fmtBRLcent = v => (v==null||isNaN(v)) ? '—' : v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const fmtPct = v => (v==null||isNaN(v)) ? '—' : (v*100).toLocaleString('pt-BR',{maximumFractionDigits:1})+'%';
+const fmtNum = v => (v==null||isNaN(v)) ? '—' : v.toLocaleString('pt-BR',{maximumFractionDigits:0});
+
+function statusPill(s) {
+  switch(s){
+    case 'IDEAL': return '<span class="pill pill-green">✅ Ideal</span>';
+    case 'OK': return '<span class="pill pill-yellow">🟡 Min~Ideal</span>';
+    case 'ABAIXO_MIN': return '<span class="pill pill-orange">⚠ Abaixo mín</span>';
+    case 'PREJUIZO': return '<span class="pill pill-red">❌ Prejuízo</span>';
+  }
+}
+
+function statusPropostaPill(s) {
+  const map = {'Rascunho':'pill-ink','Proposta':'pill-azul','Aprovada':'pill-green','Perdida':'pill-red'};
+  return `<span class="pill ${map[s]||'pill-ink'}">${s}</span>`;
+}
+
+const slugArea = a => {
+  const m={'INTELIGÊNCIA E MÍDIA':'INTELIGENCIA','CONTEÚDO':'CONTEUDO','PRODUÇÃO':'PRODUCAO'};
+  return m[a]||a;
+};
+
+/* =============================================================
+   ROUTER & RENDER
+============================================================= */
+const VIEW_TITLES = {
+  dashboard:'Dashboard', orcamentos:'Orçamentos', novo:'Novo Orçamento',
+  comparador:'Comparador de Cenários', clientes:'Clientes',
+  premissas:'Premissas', cargos:'Cargos & Salários', tipos:'Tipos de Orçamento',
+  detalhe:'Orçamento', cliente:'Cliente'
+};
+
+function navigate(r, ctx) {
+  STATE.route = r;
+  STATE.ctx = ctx;
+  document.querySelectorAll('.nav-item').forEach(n=>{
+    n.classList.toggle('active', n.dataset.route===r);
+  });
+  document.getElementById('topbar-title').textContent = VIEW_TITLES[r]||'Snack';
+  document.getElementById('nav-orc-count').textContent = STATE.orcamentos.length;
+  render();
+  window.scrollTo(0,0);
+  document.getElementById('view').classList.remove('fade-in');
+  void document.getElementById('view').offsetWidth;
+  document.getElementById('view').classList.add('fade-in');
+}
+
+function render() {
+  const el = document.getElementById('view');
+  const r = STATE.route;
+  if (r==='dashboard') el.innerHTML = renderDashboard();
+  else if (r==='orcamentos') el.innerHTML = renderListaOrcamentos();
+  else if (r==='novo') { el.innerHTML = renderNovoOrcamento(STATE.ctx); bindNovoOrcamento(); }
+  else if (r==='detalhe') { el.innerHTML = renderNovoOrcamento(STATE.ctx); bindNovoOrcamento(); }
+  else if (r==='comparador') { el.innerHTML = renderComparador(); bindComparador(); }
+  else if (r==='clientes') el.innerHTML = renderClientes();
+  else if (r==='cliente') el.innerHTML = renderClienteDetalhe(STATE.ctx);
+  else if (r==='premissas') { el.innerHTML = renderPremissas(); bindPremissas(); }
+  else if (r==='cargos') el.innerHTML = renderCargos();
+  else if (r==='tipos') el.innerHTML = renderTipos();
+}
+
+async function entrar(){
+  document.getElementById('login-screen').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  document.querySelectorAll('.nav-item').forEach(n=>{
+    n.addEventListener('click', ()=>navigate(n.dataset.route));
+  });
+  await carregarDoSupabase();
+  navigate('dashboard');
+}
+
+/* =============================================================
+   VIEW: DASHBOARD
+============================================================= */
+// Margem de contribuição mensal de um orçamento = (EBITDA + Overhead alocado) / meses
+// Representa o R$/mês que aquele orçamento gera pra cobrir o overhead fixo da Snack.
+function mcMensal(orc, calc){
+  const c = calc || calcular(orc);
+  return ((c.ebitda||0) + (c.overhead||0)) / Math.max(1, orc.meses||1);
+}
+
+function renderDashboard() {
+  const orcs = STATE.orcamentos.map(o => ({o, c: calcular(o)}));
+  const ativos = orcs.filter(x => x.o.status !== 'Perdida');
+  const aprovados = orcs.filter(x=>x.o.status==='Aprovada');
+  const propostas = orcs.filter(x=>x.o.status==='Proposta');
+  const receitaPipeline = ativos.reduce((s,x)=>s + x.c.receitaTotal, 0);
+  const receitaAprovada = aprovados.reduce((s,x)=>s + x.c.receitaTotal, 0);
+  const ebitdaTotal = ativos.reduce((s,x)=>s + x.c.ebitda, 0);
+  const margemMedia = receitaPipeline>0 ? ebitdaTotal/receitaPipeline : 0;
+
+  // Cobertura de overhead
+  const overheadAlvo = PREMISSAS.overhead_fixo_mensal || 0;
+  const mcMensalAprovado = aprovados.reduce((s,x)=>s + mcMensal(x.o,x.c), 0);
+  const mcMensalProposta = propostas.reduce((s,x)=>s + mcMensal(x.o,x.c), 0);
+  const mcMensalPotencial = mcMensalAprovado + mcMensalProposta;
+  const pctCob = overheadAlvo>0 ? (mcMensalAprovado/overheadAlvo)*100 : 0;
+  const pctCobPot = overheadAlvo>0 ? (mcMensalPotencial/overheadAlvo)*100 : 0;
+  const gapMensal = Math.max(0, overheadAlvo - mcMensalAprovado);
+
+  const porTipo = {};
+  ativos.forEach(x=>{ porTipo[x.o.tipo] = (porTipo[x.o.tipo]||0) + x.c.receitaTotal; });
+  const tiposChart = Object.entries(porTipo).sort((a,b)=>b[1]-a[1]);
+  const totalTipos = tiposChart.reduce((s,t)=>s+t[1],0) || 1;
+
+  const porStatus = {Rascunho:0,Proposta:0,Aprovada:0,Perdida:0};
+  orcs.forEach(x=>{ porStatus[x.o.status] = (porStatus[x.o.status]||0) + 1; });
+
+  const semaforos = {IDEAL:0,OK:0,ABAIXO_MIN:0,PREJUIZO:0};
+  ativos.forEach(x=>{ semaforos[x.c.statusMargem]++; });
+
+  const recentes = orcs.slice().sort((a,b)=> (b.o.data||'').localeCompare(a.o.data||'') || b.o.id.localeCompare(a.o.id)).slice(0,5);
+
+  return `
+  <div class="space-y-6">
+
+    <!-- STATS HERO -->
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div class="card p-5 card-hover relative overflow-hidden">
+        <div class="absolute top-0 right-0 w-32 h-32 bg-orange/10 rounded-full blur-3xl"></div>
+        <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">Pipeline Total</div>
+        <div class="text-3xl font-display font-bold mt-2 text-orange">${fmtBRL(receitaPipeline)}</div>
+        <div class="text-xs text-ink-300 mt-2">${ativos.length} orçamentos ativos</div>
+      </div>
+      <div class="card p-5 card-hover relative overflow-hidden">
+        <div class="absolute top-0 right-0 w-32 h-32 bg-azul/10 rounded-full blur-3xl"></div>
+        <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">Receita Aprovada</div>
+        <div class="text-3xl font-display font-bold mt-2 text-azul-400">${fmtBRL(receitaAprovada)}</div>
+        <div class="text-xs text-ink-300 mt-2">${orcs.filter(x=>x.o.status==='Aprovada').length} fechados</div>
+      </div>
+      <div class="card p-5 card-hover">
+        <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">EBITDA Pipeline</div>
+        <div class="text-3xl font-display font-bold mt-2 ${ebitdaTotal<0?'text-red-400':'text-white'}">${fmtBRL(ebitdaTotal)}</div>
+        <div class="text-xs text-ink-300 mt-2">soma de todos ativos</div>
+      </div>
+      <div class="card p-5 card-hover">
+        <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">Margem Média</div>
+        <div class="text-3xl font-display font-bold mt-2 ${margemMedia<PREMISSAS.margem_min?'text-orange':margemMedia<PREMISSAS.margem_ideal?'text-yellow-400':'text-green-400'}">${fmtPct(margemMedia)}</div>
+        <div class="text-xs text-ink-300 mt-2">alvo: ${fmtPct(PREMISSAS.margem_ideal)} ideal · ${fmtPct(PREMISSAS.margem_min)} mín</div>
+      </div>
+    </div>
+
+    <!-- COBERTURA DE OVERHEAD -->
+    <div class="card p-6 relative overflow-hidden" style="background: linear-gradient(135deg, rgba(255,87,34,.08), rgba(46,107,255,.06)); border: 1px solid rgba(255,87,34,.22);">
+      <div class="absolute top-0 right-0 w-64 h-64 bg-orange/8 rounded-full blur-3xl pointer-events-none"></div>
+      <div class="relative flex items-start justify-between gap-6 flex-wrap mb-5">
+        <div class="flex items-start gap-3">
+          <div class="w-11 h-11 rounded-xl grad-snack flex items-center justify-center text-white font-bold text-lg">⌂</div>
+          <div>
+            <div class="font-display font-bold text-xl flex items-center gap-2">
+              Cobertura de Overhead Fixo
+              <span class="pill ${pctCob>=100?'pill-green':pctCob>=80?'pill-yellow':'pill-orange'}">${pctCob.toFixed(0)}% coberto</span>
+            </div>
+            <p class="text-xs text-ink-300 mt-1">Quanto a margem de contribuição dos orçamentos cobre da estrutura fixa mensal da Snack</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2">
+          <label class="text-xs text-ink-400">Overhead fixo / mês</label>
+          <input type="number" min="0" step="10000" value="${overheadAlvo}" class="input w-36 text-right tabular-nums font-bold" oninput="atualizarPremissa('overhead_fixo_mensal', +this.value); render();">
+        </div>
+      </div>
+
+      <!-- Barra principal: aprovados + propostas -->
+      <div class="relative h-7 bg-ink-900 rounded-full overflow-hidden border border-ink-800">
+        <!-- Potencial (proposta) atrás -->
+        <div class="absolute top-0 left-0 h-full" style="width:${Math.min(100,pctCobPot).toFixed(2)}%; background: repeating-linear-gradient(45deg, rgba(46,107,255,.25), rgba(46,107,255,.25) 6px, rgba(46,107,255,.15) 6px, rgba(46,107,255,.15) 12px);"></div>
+        <!-- Aprovado na frente -->
+        <div class="absolute top-0 left-0 h-full grad-snack" style="width:${Math.min(100,pctCob).toFixed(2)}%"></div>
+        <!-- Marca 100% -->
+        <div class="absolute top-0 h-full w-px bg-white/40" style="left:${pctCob>100||pctCobPot>100?(100*100/Math.max(pctCob,pctCobPot,100)).toFixed(2):100}%"></div>
+      </div>
+
+      <div class="flex items-center justify-between mt-3 text-xs">
+        <div class="flex items-center gap-4 flex-wrap">
+          <span class="flex items-center gap-1.5">
+            <span class="w-3 h-3 rounded-sm grad-snack"></span>
+            <span class="text-ink-300">Aprovados</span>
+            <span class="font-bold tabular-nums text-white">${fmtBRL(mcMensalAprovado)}/mês</span>
+          </span>
+          <span class="flex items-center gap-1.5">
+            <span class="w-3 h-3 rounded-sm" style="background: repeating-linear-gradient(45deg, rgba(46,107,255,.6), rgba(46,107,255,.6) 3px, rgba(46,107,255,.3) 3px, rgba(46,107,255,.3) 6px);"></span>
+            <span class="text-ink-300">+ Propostas (potencial)</span>
+            <span class="font-bold tabular-nums text-white">+${fmtBRL(mcMensalProposta)}/mês</span>
+          </span>
+          <span class="flex items-center gap-1.5">
+            <span class="w-3 h-px bg-white/60"></span>
+            <span class="text-ink-300">Meta</span>
+            <span class="font-bold tabular-nums text-white">${fmtBRL(overheadAlvo)}/mês</span>
+          </span>
+        </div>
+      </div>
+
+      <!-- Detalhamento em 3 colunas -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-5">
+        <div class="p-4 rounded-xl bg-ink-900 border border-ink-800">
+          <div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Aprovados cobrem</div>
+          <div class="font-display font-bold text-2xl mt-1 ${pctCob>=100?'text-green-400':pctCob>=80?'text-yellow-400':'text-orange'}">${fmtBRL(mcMensalAprovado)}<span class="text-sm text-ink-400 font-normal">/mês</span></div>
+          <div class="text-xs text-ink-300 mt-1">${aprovados.length} orçamento${aprovados.length===1?'':'s'} aprovado${aprovados.length===1?'':'s'} · <span class="font-bold">${pctCob.toFixed(0)}%</span> do overhead</div>
+        </div>
+        <div class="p-4 rounded-xl bg-ink-900 border border-ink-800">
+          <div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">${gapMensal>0?'Gap mensal':'Sobra mensal'}</div>
+          <div class="font-display font-bold text-2xl mt-1 ${gapMensal>0?'text-red-400':'text-green-400'}">${fmtBRL(gapMensal>0?gapMensal:(mcMensalAprovado-overheadAlvo))}<span class="text-sm text-ink-400 font-normal">/mês</span></div>
+          <div class="text-xs text-ink-300 mt-1">${gapMensal>0?'Falta cobrir pra zerar o mês':'Já sobra acima do overhead (lucro estrutural)'}</div>
+        </div>
+        <div class="p-4 rounded-xl bg-ink-900 border border-ink-800">
+          <div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Se fechar todas as propostas</div>
+          <div class="font-display font-bold text-2xl mt-1 ${pctCobPot>=100?'text-green-400':'text-azul-400'}">${fmtBRL(mcMensalPotencial)}<span class="text-sm text-ink-400 font-normal">/mês</span></div>
+          <div class="text-xs text-ink-300 mt-1">${propostas.length} proposta${propostas.length===1?'':'s'} em aberto · <span class="font-bold">${pctCobPot.toFixed(0)}%</span> do overhead</div>
+        </div>
+      </div>
+
+      <details class="mt-4 text-xs text-ink-300">
+        <summary class="cursor-pointer text-ink-400 hover:text-white flex items-center gap-2 font-semibold">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          O que é "cobertura" e como é calculada
+        </summary>
+        <div class="mt-2.5 space-y-1.5 leading-relaxed pl-4">
+          <div>Pra cada orçamento, somo <strong>receita líquida menos custos variáveis</strong> (squad, encargos, heads, cachês, mídia, produção, comissão). É o que sobra <strong>antes</strong> de descontar overhead.</div>
+          <div>Divido pelos meses do contrato → cobertura mensal daquele orçamento.</div>
+          <div>Somo de todos os <strong>aprovados</strong> → quanto a Snack está gerando de margem de contribuição por mês.</div>
+          <div>Comparo com o overhead fixo (R$ ${(overheadAlvo/1000).toFixed(0)}k/mês) → % coberto.</div>
+          <div class="text-ink-400 italic mt-2">Esse R$ ${(overheadAlvo/1000).toFixed(0)}k é o overhead estrutural real (aluguel, ferramentas, BI, contabilidade, etc) — não inclui salários de heads, que já estão alocados via % nos orçamentos.</div>
+        </div>
+      </details>
+    </div>
+
+    <!-- ROW 2: SEMÁFORO + RECEITA POR TIPO -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div class="card p-6">
+        <div class="flex items-center justify-between mb-4">
+          <div class="font-display font-bold">Saúde da Margem</div>
+          <span class="text-[10px] text-ink-400 uppercase tracking-wider">pipeline ativo</span>
+        </div>
+        <div class="space-y-3">
+          ${[
+            ['IDEAL','✅ Ideal','bg-green-500',semaforos.IDEAL],
+            ['OK','🟡 Entre mín e ideal','bg-yellow-500',semaforos.OK],
+            ['ABAIXO_MIN','⚠ Abaixo do mínimo','bg-orange-500',semaforos.ABAIXO_MIN],
+            ['PREJUIZO','❌ Prejuízo','bg-red-500',semaforos.PREJUIZO],
+          ].map(([k,l,c,v])=>{
+            const total = ativos.length || 1;
+            const pct = (v/total)*100;
+            return `<div>
+              <div class="flex items-center justify-between text-sm mb-1.5">
+                <span class="text-ink-200">${l}</span>
+                <span class="font-bold tabular-nums">${v}</span>
+              </div>
+              <div class="h-2 bg-ink-800 rounded-full overflow-hidden">
+                <div class="h-full ${c}" style="width:${pct}%"></div>
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+      </div>
+
+      <div class="card p-6 lg:col-span-2">
+        <div class="flex items-center justify-between mb-4">
+          <div class="font-display font-bold">Receita por Tipo de Orçamento</div>
+          <span class="text-[10px] text-ink-400 uppercase tracking-wider">pipeline ativo</span>
+        </div>
+        <div class="space-y-3.5">
+          ${tiposChart.map(([t,v])=>{
+            const pct = (v/totalTipos)*100;
+            return `<div>
+              <div class="flex items-center justify-between text-sm mb-1.5">
+                <span class="text-ink-100">${t}</span>
+                <span class="font-bold tabular-nums">${fmtBRL(v)} <span class="text-ink-400 font-normal ml-2">${pct.toFixed(0)}%</span></span>
+              </div>
+              <div class="h-2.5 bg-ink-800 rounded-full overflow-hidden">
+                <div class="h-full grad-snack" style="width:${pct}%"></div>
+              </div>
+            </div>`;
+          }).join('') || '<div class="text-sm text-ink-400">Sem dados</div>'}
+        </div>
+      </div>
+    </div>
+
+    <!-- RECENTES -->
+    <div class="card p-6">
+      <div class="flex items-center justify-between mb-5">
+        <div class="font-display font-bold text-lg">Orçamentos Recentes</div>
+        <button class="text-xs text-orange hover:text-orange-400 font-semibold" onclick="navigate('orcamentos')">Ver todos →</button>
+      </div>
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-[11px] uppercase tracking-wider text-ink-400 border-b border-ink-800">
+            <th class="text-left font-semibold py-3">ID</th>
+            <th class="text-left font-semibold">Data</th>
+            <th class="text-left font-semibold">Cliente</th>
+            <th class="text-left font-semibold">Tipo</th>
+            <th class="text-right font-semibold">Receita</th>
+            <th class="text-right font-semibold">Margem</th>
+            <th class="text-center font-semibold">Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${recentes.map(({o,c})=>`
+            <tr class="border-b border-ink-800 hover:bg-ink-850 cursor-pointer" onclick="navigate('detalhe',{id:'${o.id}'})">
+              <td class="py-3 font-mono text-ink-300">${o.id}</td>
+              <td class="text-ink-300 tabular-nums whitespace-nowrap">${fmtData(o.data)}</td>
+              <td class="font-semibold">${o.cliente}</td>
+              <td><span class="pill pill-ink">${o.tipo}</span></td>
+              <td class="text-right tabular-nums">${fmtBRL(c.receitaTotal)}</td>
+              <td class="text-right tabular-nums font-bold">${fmtPct(c.margem)}</td>
+              <td class="text-center">${statusPill(c.statusMargem)}</td>
+              <td class="text-right">${statusPropostaPill(o.status)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+  `;
+}
+
+/* =============================================================
+   VIEW: LISTA DE ORÇAMENTOS
+============================================================= */
+function renderListaOrcamentos() {
+  const orcs = STATE.orcamentos.map(o => ({o, c: calcular(o)}));
+  return `
+  <div class="space-y-5">
+    <div class="flex items-center gap-3 flex-wrap">
+      <input id="filtro-q" placeholder="Buscar cliente ou ID..." class="input max-w-xs" oninput="filtrarOrcs()">
+      <select id="filtro-tipo" class="input max-w-[200px]" onchange="filtrarOrcs()">
+        <option value="">Todos os tipos</option>
+        ${TIPOS.map(t=>`<option>${t.tipo}</option>`).join('')}
+      </select>
+      <select id="filtro-status" class="input max-w-[180px]" onchange="filtrarOrcs()">
+        <option value="">Todos os status</option>
+        <option>Rascunho</option><option>Proposta</option><option>Aprovada</option><option>Perdida</option>
+      </select>
+      <select id="filtro-margem" class="input max-w-[200px]" onchange="filtrarOrcs()">
+        <option value="">Todas margens</option>
+        <option value="IDEAL">✅ Ideal</option>
+        <option value="OK">🟡 OK</option>
+        <option value="ABAIXO_MIN">⚠ Abaixo mín</option>
+        <option value="PREJUIZO">❌ Prejuízo</option>
+      </select>
+      <button class="btn btn-ghost ml-auto" onclick="exportarJSON()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Exportar JSON
+      </button>
+    </div>
+
+    <div class="card overflow-hidden">
+      <table class="w-full text-sm" id="tabela-orcs">
+        <thead class="bg-ink-900">
+          <tr class="text-[11px] uppercase tracking-wider text-ink-400">
+            <th class="text-left font-semibold py-3.5 px-5">ID</th>
+            <th class="text-left font-semibold">Data</th>
+            <th class="text-left font-semibold">Cliente</th>
+            <th class="text-left font-semibold">Projeto</th>
+            <th class="text-left font-semibold">Tipo</th>
+            <th class="text-center font-semibold">Meses</th>
+            <th class="text-right font-semibold">Fee/mês</th>
+            <th class="text-right font-semibold">Receita</th>
+            <th class="text-right font-semibold">Margem</th>
+            <th class="text-right font-semibold">MC/mês</th>
+            <th class="text-center font-semibold">Saúde</th>
+            <th class="text-center font-semibold pr-5">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${orcs.map(({o,c})=>{
+            const mc = mcMensal(o,c);
+            const mcCls = mc <= 0 ? 'text-red-400' : (c.statusMargem==='IDEAL'||c.statusMargem==='OK') ? 'text-green-400' : 'text-yellow-400';
+            return `
+            <tr class="border-t border-ink-800 hover:bg-ink-850 cursor-pointer" onclick="navigate('detalhe',{id:'${o.id}'})">
+              <td class="py-3.5 px-5 font-mono text-ink-300">${o.id}</td>
+              <td class="text-ink-300 tabular-nums whitespace-nowrap">${fmtData(o.data)}</td>
+              <td class="font-semibold">${o.cliente}</td>
+              <td class="text-ink-200">${o.projeto || '<span class="text-ink-500 italic">—</span>'}</td>
+              <td><span class="pill pill-ink">${o.tipo}</span></td>
+              <td class="text-center tabular-nums">${o.meses}</td>
+              <td class="text-right tabular-nums">${fmtBRL(o.fee_mensal)}</td>
+              <td class="text-right tabular-nums font-bold">${fmtBRL(c.receitaTotal)}</td>
+              <td class="text-right tabular-nums font-bold">${fmtPct(c.margem)}</td>
+              <td class="text-right tabular-nums font-bold ${mcCls}" title="Margem de contribuição mensal — quanto esse orçamento gera pra cobrir overhead">${fmtBRL(mc)}</td>
+              <td class="text-center">${statusPill(c.statusMargem)}</td>
+              <td class="text-center pr-5">${statusPropostaPill(o.status)}</td>
+            </tr>
+          `;}).join('')}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  `;
+}
+
+function filtrarOrcs() {
+  const q = document.getElementById('filtro-q').value.toLowerCase();
+  const t = document.getElementById('filtro-tipo').value;
+  const s = document.getElementById('filtro-status').value;
+  const m = document.getElementById('filtro-margem').value;
+  document.querySelectorAll('#tabela-orcs tbody tr').forEach(tr=>{
+    const txt = tr.textContent.toLowerCase();
+    let show = (!q || txt.includes(q));
+    if (t && !tr.textContent.includes(t)) show = false;
+    if (s && !tr.textContent.includes(s)) show = false;
+    // margem filter simples
+    if (m === 'IDEAL' && !tr.innerHTML.includes('Ideal')) show=false;
+    if (m === 'OK' && !tr.innerHTML.includes('Min~Ideal')) show=false;
+    if (m === 'ABAIXO_MIN' && !tr.innerHTML.includes('Abaixo')) show=false;
+    if (m === 'PREJUIZO' && !tr.innerHTML.includes('Prejuízo')) show=false;
+    tr.style.display = show ? '' : 'none';
+  });
+}
+
+function exportarJSON() {
+  const data = JSON.stringify({orcamentos:STATE.orcamentos, premissas:PREMISSAS}, null, 2);
+  const blob = new Blob([data], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = 'snack-orcamentos.json'; a.click();
+}
+
+/* =============================================================
+   VIEW: NOVO ORÇAMENTO / DETALHE
+============================================================= */
+let CURRENT_ORC = null;
+
+function renderNovoOrcamento(ctx) {
+  let orc;
+  if (ctx && ctx.id) {
+    orc = JSON.parse(JSON.stringify(STATE.orcamentos.find(o=>o.id===ctx.id)));
+  } else {
+    orc = {
+      id: 'C' + String(STATE.nextId).padStart(3,'0'),
+      data: hoje(),
+      cliente: '', projeto: '', tipo: 'Always-On', status: 'Rascunho',
+      meses: 6, caches: 0, midia: 0, producao: 0, fee_mensal: 100000,
+      squad: [], gov_upsell: 0.05
+    };
+  }
+  if (!orc.data) orc.data = hoje();
+  CURRENT_ORC = orc;
+
+  const areasUnicas = [...new Set(CARGOS.map(c=>c.area))].sort();
+
+  return `
+  <div class="grid grid-cols-1 xl:grid-cols-[1fr,420px] gap-6">
+
+    <!-- COLUNA ESQUERDA: INPUTS -->
+    <div class="space-y-6">
+
+      <!-- HEADER DO ORÇAMENTO -->
+      <div class="card p-6">
+        <div class="flex items-start justify-between mb-5">
+          <div>
+            <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">${ctx?.id ? 'Editando' : 'Novo orçamento'}</div>
+            <div class="font-display font-bold text-2xl mt-1">${orc.id} · <span id="display-cliente" class="text-orange">${orc.cliente || 'Sem cliente'}</span></div>
+            <div id="display-projeto" class="text-ink-200 text-base font-semibold mt-0.5">${orc.projeto || '<span class="text-ink-500 font-normal italic">Sem nome de projeto</span>'}</div>
+            <div class="text-xs text-ink-400 mt-1.5 flex items-center gap-2">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+              Criado em <span id="display-data" class="text-ink-200 font-semibold">${fmtData(orc.data)}</span>
+            </div>
+          </div>
+          <div class="flex items-center gap-2">
+            <button class="btn btn-ghost" onclick="abrirModalPDF()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              Exportar PDF
+            </button>
+            <button class="btn btn-primary" onclick="salvarOrcamento()">Salvar</button>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <div>
+            <label class="label">Cliente</label>
+            <input id="i-cliente" class="input" placeholder="Ex: BIC Soleil" value="${orc.cliente}" oninput="onChange('cliente', this.value)">
+          </div>
+          <div>
+            <label class="label">Data</label>
+            <input id="i-data" type="date" class="input" value="${orc.data}" oninput="onChangeData(this.value)">
+          </div>
+          <div>
+            <label class="label">Tipo</label>
+            <select id="i-tipo" class="input" onchange="onChange('tipo', this.value)">
+              ${TIPOS.map(t=>`<option ${t.tipo===orc.tipo?'selected':''}>${t.tipo}</option>`).join('')}
+            </select>
+          </div>
+          <div>
+            <label class="label">Nome do projeto</label>
+            <input id="i-projeto" class="input" placeholder="Ex: Sempre Soleil 2026" value="${orc.projeto||''}" oninput="onChangeProjeto(this.value)">
+          </div>
+          <div>
+            <label class="label">Status</label>
+            <select id="i-status" class="input" onchange="onChange('status', this.value)">
+              ${['Rascunho','Proposta','Aprovada','Perdida'].map(s=>`<option ${s===orc.status?'selected':''}>${s}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+
+        <!-- Nota do tipo escolhido -->
+        <div id="tipo-nota" class="mt-4 px-4 py-3 rounded-lg grad-snack-soft border border-ink-700 text-xs text-ink-200"></div>
+      </div>
+
+      <!-- DURAÇÃO E CUSTOS DIRETOS -->
+      <div class="card p-6">
+        <div class="font-display font-bold text-lg mb-5 flex items-center gap-3">
+          <div class="w-7 h-7 rounded-lg bg-azul/15 border border-azul/30 flex items-center justify-center text-azul-400 text-sm font-bold">1</div>
+          Duração & custos diretos
+        </div>
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div>
+            <label class="label">Meses</label>
+            <input id="i-meses" type="number" min="1" class="input" value="${orc.meses}" oninput="onChange('meses', +this.value)">
+          </div>
+          <div>
+            <label class="label">Cachês R$ (total)</label>
+            <input id="i-caches" type="number" min="0" step="1000" class="input" value="${orc.caches}" oninput="onChange('caches', +this.value)">
+          </div>
+          <div>
+            <label class="label">Mídia R$ (total)</label>
+            <input id="i-midia" type="number" min="0" step="1000" class="input" value="${orc.midia}" oninput="onChange('midia', +this.value)">
+          </div>
+          <div>
+            <label class="label">Produção R$ (total)</label>
+            <input id="i-producao" type="number" min="0" step="1000" class="input" value="${orc.producao}" oninput="onChange('producao', +this.value)">
+          </div>
+        </div>
+        <div id="upsell-extra" class="mt-4 hidden">
+          <label class="label">Governança Incremental (Upsell) — % sobre receita líquida</label>
+          <input id="i-gov" type="number" min="0" max="0.15" step="0.005" class="input max-w-xs" value="${orc.gov_upsell}" oninput="onChange('gov_upsell', +this.value)">
+          <p class="text-xs text-ink-400 mt-1.5">0 a 15%. Default 5%.</p>
+        </div>
+      </div>
+
+      <!-- SQUAD -->
+      <div class="card p-6">
+        <div class="font-display font-bold text-lg mb-1 flex items-center gap-3">
+          <div class="w-7 h-7 rounded-lg bg-orange/15 border border-orange/30 flex items-center justify-center text-orange text-sm font-bold">2</div>
+          Squad alocado
+        </div>
+        <p class="text-xs text-ink-400 mb-4 ml-10">Cargos do squad com % de alocação. O custo mensal calcula em tempo real.</p>
+
+        <div id="squad-rows" class="space-y-2"></div>
+
+        <div class="mt-4 p-4 rounded-xl border border-dashed border-ink-700 bg-ink-900/50">
+          <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold mb-3">Adicionar ao squad</div>
+          <div class="grid grid-cols-1 md:grid-cols-[1fr,1fr,auto] gap-3 items-end">
+            <div>
+              <label class="label">1. Área</label>
+              <select id="add-area" class="input" onchange="popularCargosDaArea()">
+                <option value="">Escolha a área...</option>
+                ${areasUnicas.map(a=>`<option value="${a}">${a}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="label">2. Cargo + Nível</label>
+              <select id="add-cargo" class="input" disabled>
+                <option value="">Primeiro escolha a área</option>
+              </select>
+            </div>
+            <button class="btn btn-primary" onclick="addCargo()" id="btn-add-cargo" disabled>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Adicionar
+            </button>
+          </div>
+        </div>
+
+        <div class="mt-3 flex items-center justify-end gap-3 text-sm">
+          <span class="text-ink-400">Custo squad/mês:</span>
+          <span id="display-squad-mensal" class="font-display font-bold text-lg">R$ 0</span>
+        </div>
+      </div>
+
+      <!-- SIMULADOR FEE -->
+      <div class="card p-6">
+        <div class="font-display font-bold text-lg mb-1 flex items-center gap-3">
+          <div class="w-7 h-7 rounded-lg bg-green-500/15 border border-green-500/30 flex items-center justify-center text-green-400 text-sm font-bold">3</div>
+          Fee Mensal & Simulador de Negociação
+        </div>
+        <p class="text-xs text-ink-400 mb-4 ml-10">Mande o Fee Ideal na proposta. Negocie até o Mínimo se precisar.</p>
+
+        <div class="grid grid-cols-2 gap-3 mb-4">
+          <div class="p-3 rounded-lg border border-orange/30 bg-orange/5">
+            <div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Fee Mínimo (margem ${fmtPct(PREMISSAS.margem_min)})</div>
+            <div id="display-fee-min" class="font-display font-bold text-2xl text-orange mt-1">—</div>
+          </div>
+          <div class="p-3 rounded-lg border border-green-500/30 bg-green-500/5">
+            <div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Fee Ideal (margem ${fmtPct(PREMISSAS.margem_ideal)})</div>
+            <div id="display-fee-ideal" class="font-display font-bold text-2xl text-green-400 mt-1">—</div>
+          </div>
+        </div>
+
+        <div class="mb-3 flex items-center justify-between">
+          <label class="label mb-0">Fee Mensal Proposto</label>
+          <div class="text-2xl font-display font-bold tabular-nums"><span id="display-fee-mensal">R$ ${(orc.fee_mensal||0).toLocaleString('pt-BR')}</span></div>
+        </div>
+        <input id="i-fee" type="range" min="0" max="2000000" step="5000" value="${orc.fee_mensal}" class="snack-slider w-full" oninput="onChangeFee(+this.value)">
+        <div class="flex items-center justify-between mt-2 text-xs text-ink-400">
+          <span>R$ 0</span>
+          <span>R$ 2M</span>
+        </div>
+        <div class="mt-4">
+          <input id="i-fee-num" type="number" min="0" step="1000" class="input" value="${orc.fee_mensal}" oninput="onChangeFee(+this.value)">
+        </div>
+      </div>
+
+    </div>
+
+    <!-- COLUNA DIREITA: PAINEL DE CÁLCULO AO VIVO -->
+    <div class="space-y-4 xl:sticky xl:top-24 self-start">
+      <div class="card p-6 border-2" id="painel-margem">
+        <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">Status da margem</div>
+        <div id="display-status" class="mt-2 text-3xl font-display font-bold">—</div>
+        <div class="mt-4 grid grid-cols-2 gap-4">
+          <div>
+            <div class="text-[10px] uppercase tracking-wider text-ink-400">EBITDA</div>
+            <div id="display-ebitda" class="text-xl font-bold tabular-nums">—</div>
+          </div>
+          <div>
+            <div class="text-[10px] uppercase tracking-wider text-ink-400">Margem</div>
+            <div id="display-margem" class="text-xl font-bold tabular-nums">—</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CONTRIBUIÇÃO PRA OVERHEAD -->
+      <div class="card p-5" id="painel-mc">
+        <div class="flex items-center justify-between mb-2">
+          <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold flex items-center gap-1.5">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+            Contribui pra overhead?
+          </div>
+          <span id="mc-pill" class="pill pill-ink">—</span>
+        </div>
+        <div class="grid grid-cols-2 gap-3 mt-3">
+          <div>
+            <div class="text-[10px] uppercase tracking-wider text-ink-400">MC / mês</div>
+            <div id="display-mc" class="text-xl font-bold tabular-nums">—</div>
+          </div>
+          <div>
+            <div class="text-[10px] uppercase tracking-wider text-ink-400">% do overhead</div>
+            <div id="display-mc-pct" class="text-xl font-bold tabular-nums">—</div>
+          </div>
+        </div>
+        <div id="mc-veredito" class="mt-3 p-3 rounded-lg text-xs leading-relaxed border"></div>
+      </div>
+
+      <!-- META DE UPSELL (só Always-On) -->
+      <div id="painel-upsell" class="card p-6 hidden" style="background: linear-gradient(180deg, rgba(255,87,34,.08) 0%, rgba(46,107,255,.06) 100%); border: 1px solid rgba(255,87,34,.25);">
+        <div class="flex items-start justify-between mb-2">
+          <div>
+            <div class="text-[11px] uppercase tracking-widest text-orange font-semibold flex items-center gap-2">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
+              Meta de upsell pra fechar o gap
+            </div>
+            <div class="text-[10px] text-ink-400 mt-1">Receita anualizada de upsell necessária pra atingir cada alvo de margem</div>
+          </div>
+        </div>
+
+        <div class="space-y-3 mt-4">
+          <div class="p-3 rounded-lg border border-orange/30 bg-ink-900">
+            <div class="flex items-center justify-between">
+              <div>
+                <div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Pra atingir mín (${(PREMISSAS.margem_min*100).toFixed(0)}%)</div>
+                <div id="display-upsell-min" class="font-display font-bold text-2xl text-orange mt-0.5">—</div>
+                <div id="display-upsell-min-mes" class="text-[11px] text-ink-400 mt-0.5">—</div>
+              </div>
+            </div>
+          </div>
+          <div class="p-3 rounded-lg border border-green-500/30 bg-ink-900">
+            <div class="flex items-center justify-between">
+              <div>
+                <div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Pra atingir ideal (${(PREMISSAS.margem_ideal*100).toFixed(0)}%)</div>
+                <div id="display-upsell-ideal" class="font-display font-bold text-2xl text-green-400 mt-0.5">—</div>
+                <div id="display-upsell-ideal-mes" class="text-[11px] text-ink-400 mt-0.5">—</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <details class="mt-4 text-[11px] text-ink-300">
+          <summary class="cursor-pointer text-ink-400 hover:text-white flex items-center gap-1.5 font-semibold">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            Como isso é calculado
+          </summary>
+          <div class="mt-2.5 space-y-1.5 leading-relaxed pl-4">
+            <div>• Upsell usa o <strong>mesmo squad</strong> do AON-mãe — squad incremental = zero</div>
+            <div>• Cobre custos diretos próprios (cachês, mídia, produção)</div>
+            <div>• Heads ${(PREMISSAS.heads_upsell_pct*100).toFixed(0)}% sobre receita líquida</div>
+            <div>• Handling ${(PREMISSAS.handling_upsell_pct*100).toFixed(0)}% sobre terceiros</div>
+            <div>• Comissão ${(PREMISSAS.comissao*100).toFixed(1)}% + imposto ${(PREMISSAS.imposto*100).toFixed(0)}%</div>
+            <div>• Margem esperada padrão de upsell: <strong>${(PREMISSAS.margem_upsell*100).toFixed(0)}%</strong></div>
+            <div class="text-ink-400 mt-2 italic">Resultado anualizado. Pra mudar a margem esperada de upsell, edite premissa <code class="bg-ink-800 px-1 rounded">margem_upsell</code>.</div>
+          </div>
+        </details>
+      </div>
+
+      <div class="card p-6 space-y-2.5 text-sm">
+        <div class="font-display font-bold mb-2">Demonstrativo</div>
+        ${[
+          ['Custo direto total','custoDireto','text-ink-300'],
+          ['Taxa Admin (receita)','receitaTaxaAdmin','text-ink-300'],
+          ['Squad mensal','squadMensal','text-ink-300'],
+          ['Squad total','squadTotal','text-ink-300'],
+          ['Encargos','encargos','text-ink-300'],
+          ['Overhead','overhead','text-ink-300'],
+          ['Heads <span id="heads-pct-tag" class="text-[10px] text-orange ml-1"></span>','heads','text-ink-300'],
+          ['Custo Total Op','custoOp','text-orange font-semibold'],
+          ['Receita Fee Total','receitaFeeTotal','text-ink-200'],
+          ['Receita Total','receitaTotal','text-azul-400 font-bold'],
+          ['Comissão (1,5% líquida)','comissao','text-ink-300'],
+        ].map(([l,k,cls])=>`<div class="flex items-center justify-between border-b border-ink-800 pb-1.5">
+          <span class="text-ink-400">${l}</span>
+          <span id="d-${k}" class="${cls} tabular-nums">—</span>
+        </div>`).join('')}
+      </div>
+
+    </div>
+
+  </div>
+  `;
+}
+
+function bindNovoOrcamento(){
+  renderSquadRows();
+  recalc();
+}
+
+function onChange(k,v){
+  CURRENT_ORC[k] = v;
+  if (k==='cliente') document.getElementById('display-cliente').textContent = v || 'Sem cliente';
+  recalc();
+}
+
+function onChangeFee(v){
+  CURRENT_ORC.fee_mensal = v;
+  document.getElementById('i-fee').value = v;
+  document.getElementById('i-fee-num').value = v;
+  document.getElementById('display-fee-mensal').textContent = 'R$ ' + v.toLocaleString('pt-BR');
+  recalc();
+}
+
+function onChangeData(v){
+  CURRENT_ORC.data = v;
+  const el = document.getElementById('display-data');
+  if (el) el.textContent = fmtData(v);
+}
+
+function onChangeProjeto(v){
+  CURRENT_ORC.projeto = v;
+  const el = document.getElementById('display-projeto');
+  if (el) el.innerHTML = v ? v : '<span class="text-ink-500 font-normal italic">Sem nome de projeto</span>';
+}
+
+function popularCargosDaArea(){
+  const area = document.getElementById('add-area').value;
+  const sel = document.getElementById('add-cargo');
+  const btn = document.getElementById('btn-add-cargo');
+  if (!area){
+    sel.innerHTML = '<option value="">Primeiro escolha a área</option>';
+    sel.disabled = true;
+    btn.disabled = true;
+    return;
+  }
+  const candidatos = CARGOS.filter(c=>c.area===area)
+    .sort((a,b)=> a.cargo.localeCompare(b.cargo) || a.nivel.localeCompare(b.nivel));
+  sel.innerHTML = '<option value="">Escolha um cargo...</option>' +
+    candidatos.map(c=>`<option value="${c.id}">${c.cargo} ${c.nivel} — ${fmtBRL(c.salario)}/mês</option>`).join('');
+  sel.disabled = false;
+  btn.disabled = false;
+}
+
+function addCargo(){
+  const id = document.getElementById('add-cargo').value;
+  if (!id) { alert('Escolha um cargo primeiro.'); return; }
+  CURRENT_ORC.squad = CURRENT_ORC.squad || [];
+  CURRENT_ORC.squad.push({cargo_id: id, alocacao: 0.5});
+  // Reset dos seletores pra próxima adição
+  document.getElementById('add-area').value = '';
+  popularCargosDaArea();
+  renderSquadRows();
+  recalc();
+}
+
+function removerCargo(idx){
+  CURRENT_ORC.squad.splice(idx,1);
+  renderSquadRows();
+  recalc();
+}
+
+function alterarAlocacao(idx, val){
+  CURRENT_ORC.squad[idx].alocacao = val;
+  recalc();
+}
+
+function renderSquadRows(){
+  const c = document.getElementById('squad-rows');
+  if (!c) return;
+  if (!CURRENT_ORC.squad || !CURRENT_ORC.squad.length) {
+    c.innerHTML = '<div class="text-sm text-ink-400 italic p-4 text-center border border-dashed border-ink-700 rounded-lg">Nenhum cargo adicionado. Use o seletor abaixo.</div>';
+    return;
+  }
+  c.innerHTML = CURRENT_ORC.squad.map((l,i)=>{
+    const cargo = CARGOS.find(c=>c.id===l.cargo_id);
+    if (!cargo) return '';
+    const sa = slugArea(cargo.area);
+    const custo = cargo.salario * (l.alocacao||0);
+    return `<div class="row-area-${sa} bg-ink-900 hover:bg-ink-850 rounded-lg flex items-center gap-3 px-3 py-2">
+      <span class="area-tag area-${sa}">${cargo.area.split(' ')[0]}</span>
+      <div class="flex-1 min-w-0">
+        <div class="font-semibold text-sm truncate">${cargo.cargo} <span class="text-ink-400 font-normal">${cargo.nivel}</span></div>
+        <div class="text-xs text-ink-400">${fmtBRL(cargo.salario)}/mês integral</div>
+      </div>
+      <div class="flex items-center gap-2">
+        <input type="number" min="0" max="2" step="0.1" value="${l.alocacao}" class="input w-20 text-center" oninput="alterarAlocacao(${i}, +this.value)">
+        <span class="text-xs text-ink-400">×</span>
+      </div>
+      <div class="w-28 text-right">
+        <div class="text-[10px] uppercase tracking-wider text-ink-400">custo/mês</div>
+        <div class="font-bold tabular-nums text-sm">${fmtBRL(custo)}</div>
+      </div>
+      <button class="text-ink-500 hover:text-red-400 p-1" onclick="removerCargo(${i})">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg>
+      </button>
+    </div>`;
+  }).join('');
+}
+
+function recalc(){
+  const c = calcular(CURRENT_ORC);
+  document.getElementById('display-squad-mensal').textContent = fmtBRL(c.squadMensal);
+  document.getElementById('display-fee-min').textContent = c.feeMin==null ? 'Inviável' : fmtBRL(c.feeMin);
+  document.getElementById('display-fee-ideal').textContent = c.feeIdeal==null ? 'Inviável' : fmtBRL(c.feeIdeal);
+
+  document.getElementById('display-ebitda').textContent = fmtBRL(c.ebitda);
+  document.getElementById('display-ebitda').className = 'text-xl font-bold tabular-nums ' + (c.ebitda<0?'text-red-400':'text-white');
+  document.getElementById('display-margem').textContent = fmtPct(c.margem);
+
+  const statusEl = document.getElementById('display-status');
+  const painel = document.getElementById('painel-margem');
+  statusEl.innerHTML = statusPill(c.statusMargem);
+  painel.classList.remove('border-green-500','border-yellow-500','border-orange','border-red-500');
+  if (c.statusMargem==='IDEAL') painel.classList.add('border-green-500');
+  else if (c.statusMargem==='OK') painel.classList.add('border-yellow-500');
+  else if (c.statusMargem==='ABAIXO_MIN') painel.classList.add('border-orange');
+  else painel.classList.add('border-red-500');
+
+  Object.entries({custoDireto:c.custoDireto,receitaTaxaAdmin:c.receitaTaxaAdmin,squadMensal:c.squadMensal,squadTotal:c.squadTotal,encargos:c.encargos,overhead:c.overhead,heads:c.heads,custoOp:c.custoOp,receitaFeeTotal:c.receitaFeeTotal,receitaTotal:c.receitaTotal,comissao:c.comissao}).forEach(([k,v])=>{
+    const el = document.getElementById('d-'+k); if (el) el.textContent = fmtBRL(v);
+  });
+
+  // Mostrar % de heads aplicado ao lado do label "Heads"
+  const tagHeads = document.getElementById('heads-pct-tag');
+  if (tagHeads) tagHeads.textContent = `(${(c.headsPctAplicado*100).toFixed(1)}%)`;
+
+  // Contribuição pra cobertura de overhead
+  const mc = mcMensal(CURRENT_ORC, c);
+  const overheadAlvo = PREMISSAS.overhead_fixo_mensal || 1;
+  const pctOH = (mc / overheadAlvo) * 100;
+  document.getElementById('display-mc').textContent = fmtBRL(mc) + '/mês';
+  document.getElementById('display-mc-pct').textContent = pctOH.toFixed(1)+'%';
+
+  const mcVer = document.getElementById('mc-veredito');
+  const mcPill = document.getElementById('mc-pill');
+  const painelMC = document.getElementById('painel-mc');
+  painelMC.classList.remove('border-green-500/40','border-yellow-500/40','border-orange/40','border-red-500/40');
+
+  if (mc <= 0) {
+    // Não cobre nem custos variáveis — destruidor de valor
+    mcPill.className = 'pill pill-red';
+    mcPill.textContent = '❌ Não';
+    painelMC.classList.add('border-red-500/40');
+    mcVer.className = 'mt-3 p-3 rounded-lg text-xs leading-relaxed border border-red-500/30 bg-red-500/5 text-red-100';
+    mcVer.innerHTML = '<strong>Recusar.</strong> Esse orçamento não cobre nem os custos variáveis dele mesmo. Aceitar significa pagar pra trabalhar.';
+  } else if (c.statusMargem === 'IDEAL' || c.statusMargem === 'OK') {
+    // Cobre custos E tem margem dentro da faixa aceitável
+    mcPill.className = 'pill pill-green';
+    mcPill.textContent = '✓ Saudável';
+    painelMC.classList.add('border-green-500/40');
+    mcVer.className = 'mt-3 p-3 rounded-lg text-xs leading-relaxed border border-green-500/30 bg-green-500/5 text-green-100';
+    mcVer.innerHTML = `<strong>Aceitar.</strong> Margem dentro da faixa e cobre <strong>${pctOH.toFixed(1)}%</strong> do overhead mensal. Esse é o tipo de orçamento que paga a estrutura e ainda sobra.`;
+  } else {
+    // Margem ruim (abaixo do mín ou prejuízo no EBITDA) — mas MC positiva
+    mcPill.className = 'pill pill-yellow';
+    mcPill.textContent = '⚠ Pensa';
+    painelMC.classList.add('border-yellow-500/40');
+    mcVer.className = 'mt-3 p-3 rounded-lg text-xs leading-relaxed border border-yellow-500/30 bg-yellow-500/5 text-yellow-100';
+    mcVer.innerHTML = `<strong>Caso a caso.</strong> Margem abaixo do alvo, mas ainda contribui <strong>${fmtBRL(mc)}/mês</strong> (${pctOH.toFixed(1)}% do overhead). Aceitar se: o squad estaria ocioso. Recusar se: tem outro cliente disputando o mesmo squad com margem melhor.`;
+  }
+
+  // Mostrar nota do tipo e governança upsell
+  const tipo = TIPOS.find(t=>t.tipo===CURRENT_ORC.tipo);
+  document.getElementById('tipo-nota').innerHTML = tipo
+    ? `<strong class="text-white">${tipo.tipo}</strong> · overhead ${(tipo.overhead_mult*100).toFixed(0)}% · heads <strong class="text-orange">${(c.headsPctAplicado*100).toFixed(1)}%</strong> · cachês na receita: ${tipo.cache_na_receita?'sim':'não'}. ${tipo.notas}`
+    : '';
+  document.getElementById('upsell-extra').classList.toggle('hidden', CURRENT_ORC.tipo!=='Upsell em AON');
+
+  // Painel de meta de upsell — só pra Always-On
+  const painelUp = document.getElementById('painel-upsell');
+  if (CURRENT_ORC.tipo === 'Always-On') {
+    painelUp.classList.remove('hidden');
+    const renderUp = (anual, idEl, idMes) => {
+      const el = document.getElementById(idEl);
+      const elMes = document.getElementById(idMes);
+      if (anual === 0) {
+        el.textContent = 'Meta atingida';
+        el.classList.add('text-base'); el.classList.remove('text-2xl');
+        elMes.innerHTML = '<span class="text-green-400">✓ margem já está acima do alvo</span>';
+      } else if (anual == null || !isFinite(anual)) {
+        el.textContent = '—'; elMes.textContent = '—';
+      } else {
+        el.textContent = fmtBRL(anual) + ' / ano';
+        el.classList.remove('text-base'); el.classList.add('text-2xl');
+        elMes.textContent = '≈ ' + fmtBRL(anual/12) + '/mês de upsell';
+      }
+    };
+    renderUp(c.upsellMinAnual, 'display-upsell-min', 'display-upsell-min-mes');
+    renderUp(c.upsellIdealAnual, 'display-upsell-ideal', 'display-upsell-ideal-mes');
+  } else {
+    painelUp.classList.add('hidden');
+  }
+}
+
+async function salvarOrcamento(){
+  if (!CURRENT_ORC.cliente) { alert('Coloca o nome do cliente.'); return; }
+  const idx = STATE.orcamentos.findIndex(o=>o.id===CURRENT_ORC.id);
+  if (idx>=0) STATE.orcamentos[idx] = JSON.parse(JSON.stringify(CURRENT_ORC));
+  else { STATE.orcamentos.push(JSON.parse(JSON.stringify(CURRENT_ORC))); STATE.nextId++; }
+  await salvarOrcamentoSupabase(CURRENT_ORC);
+  navigate('orcamentos');
+}
+
+function abrirModalPDF(){
+  const o = CURRENT_ORC;
+  const c = calcular(o);
+  const promptIA = `Gere uma proposta comercial profissional pra ${o.cliente || '[cliente]'} no formato PDF.
+
+Projeto: ${o.projeto || '[nome do projeto]'}
+Tipo de orçamento: ${o.tipo}
+Duração: ${o.meses} meses
+Investimento mensal proposto: ${fmtBRL(o.fee_mensal)}
+Receita total do contrato: ${fmtBRL(c.receitaTotal)}
+
+A proposta deve conter:
+1. Capa com nome do cliente e nome do projeto "${o.projeto || '[projeto]'}"
+2. Sobre a Snack (parágrafo curto, voz Nelson)
+3. Entendimento do briefing
+4. Estratégia proposta pro projeto "${o.projeto || '[projeto]'}"
+5. Squad alocado (esconder cargos internos e atribuir só áreas: Conteúdo, Produção, Mídia & BI, Atendimento)
+6. Cronograma macro de ${o.meses} meses
+7. Investimento: ${fmtBRL(o.fee_mensal)}/mês + custos diretos (Cachês: ${fmtBRL(o.caches)}, Mídia: ${fmtBRL(o.midia)}, Produção: ${fmtBRL(o.producao)})
+8. Próximos passos
+
+IMPORTANTE: NÃO mostrar margem, EBITDA, fee mínimo, custos internos, salários, overhead. Só valor pro cliente.`;
+
+  document.getElementById('modal-content').innerHTML = `
+    <div class="flex items-start justify-between mb-5">
+      <div>
+        <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">Exportar proposta</div>
+        <div class="font-display font-bold text-2xl mt-1">PDF com IA</div>
+      </div>
+      <button onclick="fecharModal()" class="text-ink-400 hover:text-white"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <p class="text-sm text-ink-300 mb-4 leading-relaxed">A proposta pro cliente é gerada por IA usando os dados desse orçamento. Aqui o <strong>prompt template</strong> que vai ser disparado — você pode editar antes de gerar. <span class="text-orange font-semibold">Depois você vai me passar os prompts oficiais</span> e eu plugo na plataforma.</p>
+    <div class="mb-4">
+      <label class="label">Prompt template</label>
+      <textarea class="input font-mono text-xs leading-relaxed" rows="14" id="prompt-pdf">${promptIA}</textarea>
+    </div>
+    <div class="flex items-center gap-3">
+      <button class="btn btn-primary" onclick="alert('Aqui vai chamar Claude API com esse prompt e gerar o PDF. Stub do mockup.')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M5 12h14"/></svg>
+        Gerar PDF com IA
+      </button>
+      <button class="btn btn-ghost" onclick="copiarPrompt()">Copiar prompt</button>
+    </div>
+    <details class="mt-5 text-xs">
+      <summary class="cursor-pointer text-ink-400 hover:text-white">Dados que o prompt usa (preview)</summary>
+      <pre class="mt-2 p-3 bg-ink-900 rounded-lg overflow-x-auto text-[11px]">${JSON.stringify({orcamento:o, calculo:c}, null, 2)}</pre>
+    </details>
+  `;
+  document.getElementById('modal-bg').classList.remove('hidden');
+  document.getElementById('modal-bg').classList.add('flex');
+}
+
+function copiarPrompt(){
+  const t = document.getElementById('prompt-pdf').value;
+  navigator.clipboard.writeText(t).then(()=>alert('Prompt copiado.'));
+}
+
+function fecharModal(){
+  document.getElementById('modal-bg').classList.add('hidden');
+  document.getElementById('modal-bg').classList.remove('flex');
+}
+
+/* =============================================================
+   VIEW: COMPARADOR DE CENÁRIOS
+============================================================= */
+function renderComparador() {
+  // 3 cenários do mesmo orçamento base
+  return `
+  <div class="space-y-5">
+    <div class="card p-5 grad-snack-soft">
+      <div class="font-display font-bold text-lg mb-2">Comparador A vs B vs C</div>
+      <p class="text-sm text-ink-300">Defina 3 versões do mesmo orçamento — squad menor, squad ideal, squad maior — e veja o impacto em margem e fee de cada uma. Útil pra ir pra reunião de pricing com cenário pronto.</p>
+    </div>
+    <div id="comparador-grid" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      ${['A','B','C'].map(letra=>`
+        <div class="card p-5" data-cen="${letra}">
+          <div class="flex items-center justify-between mb-4">
+            <div class="font-display font-bold text-xl">Cenário ${letra}</div>
+            <span class="pill pill-ink">${letra==='A'?'enxuto':letra==='B'?'base':'premium'}</span>
+          </div>
+          <div class="space-y-3 text-sm">
+            <div><label class="label">Tipo</label>
+              <select class="input cmp-tipo">${TIPOS.map(t=>`<option ${t.tipo==='Always-On'?'selected':''}>${t.tipo}</option>`).join('')}</select>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div><label class="label">Meses</label><input type="number" class="input cmp-meses" value="${letra==='A'?6:letra==='B'?12:12}"></div>
+              <div><label class="label">Fee/mês</label><input type="number" class="input cmp-fee" value="${letra==='A'?80000:letra==='B'?120000:180000}" step="5000"></div>
+            </div>
+            <div class="grid grid-cols-3 gap-2">
+              <div><label class="label">Cachês</label><input type="number" class="input cmp-cache" value="0"></div>
+              <div><label class="label">Mídia</label><input type="number" class="input cmp-midia" value="0"></div>
+              <div><label class="label">Produção</label><input type="number" class="input cmp-prod" value="${letra==='A'?5000:letra==='B'?15000:35000}"></div>
+            </div>
+            <div><label class="label">Squad/mês (R$ direto)</label><input type="number" class="input cmp-squad" value="${letra==='A'?20000:letra==='B'?42000:75000}" step="1000"></div>
+          </div>
+          <div class="mt-5 pt-4 border-t border-ink-800 space-y-2 text-sm">
+            <div class="flex justify-between"><span class="text-ink-400">Receita</span><span class="cmp-rec font-bold tabular-nums">—</span></div>
+            <div class="flex justify-between"><span class="text-ink-400">EBITDA</span><span class="cmp-eb font-bold tabular-nums">—</span></div>
+            <div class="flex justify-between"><span class="text-ink-400">Margem</span><span class="cmp-mg font-bold tabular-nums text-lg">—</span></div>
+            <div class="flex justify-between"><span class="text-ink-400">Fee Mín</span><span class="cmp-fm tabular-nums">—</span></div>
+            <div class="flex justify-between"><span class="text-ink-400">Fee Ideal</span><span class="cmp-fi tabular-nums">—</span></div>
+            <div class="pt-2 cmp-pill text-center"></div>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  </div>
+  `;
+}
+
+function bindComparador(){
+  function recalcCmp(){
+    document.querySelectorAll('#comparador-grid .card').forEach(card=>{
+      const orc = {
+        tipo: card.querySelector('.cmp-tipo').value,
+        meses: +card.querySelector('.cmp-meses').value || 1,
+        fee_mensal: +card.querySelector('.cmp-fee').value || 0,
+        caches: +card.querySelector('.cmp-cache').value || 0,
+        midia: +card.querySelector('.cmp-midia').value || 0,
+        producao: +card.querySelector('.cmp-prod').value || 0,
+        squad: [],
+        gov_upsell: 0.05
+      };
+      // Squad como custo direto fake
+      const sq = +card.querySelector('.cmp-squad').value || 0;
+      // Truque: inserir cargo CG43 (R$6000) com alocação correspondente pra simular o R$ direto
+      orc.squad = sq>0 ? [{cargo_id:'_FAKE', alocacao:0}] : [];
+      // Vou usar squadMensal direto por monkeypatch
+      const realSquadMensal = squadCustoMensal;
+      window.squadCustoMensal = (o)=> o===orc ? sq : realSquadMensal(o);
+      const c = calcular(orc);
+      window.squadCustoMensal = realSquadMensal;
+
+      card.querySelector('.cmp-rec').textContent = fmtBRL(c.receitaTotal);
+      card.querySelector('.cmp-eb').textContent = fmtBRL(c.ebitda);
+      const mg = card.querySelector('.cmp-mg');
+      mg.textContent = fmtPct(c.margem);
+      mg.className = 'cmp-mg font-bold tabular-nums text-lg ' + (c.statusMargem==='IDEAL'?'text-green-400':c.statusMargem==='OK'?'text-yellow-400':c.statusMargem==='ABAIXO_MIN'?'text-orange':'text-red-400');
+      card.querySelector('.cmp-fm').textContent = c.feeMin==null?'Inviável':fmtBRL(c.feeMin);
+      card.querySelector('.cmp-fi').textContent = c.feeIdeal==null?'Inviável':fmtBRL(c.feeIdeal);
+      card.querySelector('.cmp-pill').innerHTML = statusPill(c.statusMargem);
+    });
+  }
+  document.querySelectorAll('#comparador-grid input, #comparador-grid select').forEach(i=>i.addEventListener('input',recalcCmp));
+  recalcCmp();
+}
+
+/* =============================================================
+   VIEW: CLIENTES
+============================================================= */
+function renderClientes() {
+  const clientes = {};
+  STATE.orcamentos.forEach(o=>{
+    if (!clientes[o.cliente]) clientes[o.cliente] = {nome:o.cliente, orcs:[]};
+    clientes[o.cliente].orcs.push({o, c:calcular(o)});
+  });
+  const lista = Object.values(clientes).map(cl=>{
+    const totalReceita = cl.orcs.reduce((s,x)=>s+x.c.receitaTotal,0);
+    const totalEbitda = cl.orcs.reduce((s,x)=>s+x.c.ebitda,0);
+    const margemMedia = totalReceita>0 ? totalEbitda/totalReceita : 0;
+    const tickets = cl.orcs.map(x=>x.c.receitaTotal).sort((a,b)=>b-a);
+    return {...cl, totalReceita, totalEbitda, margemMedia, ticketMedio: totalReceita/cl.orcs.length, qtd: cl.orcs.length, maiorTicket: tickets[0]||0};
+  }).sort((a,b)=>b.totalReceita-a.totalReceita);
+
+  return `
+  <div class="space-y-5">
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      ${lista.map(cl=>`
+        <div class="card p-6 card-hover cursor-pointer" onclick="navigate('cliente',{nome:'${cl.nome.replace(/'/g,"\\'")}'})">
+          <div class="flex items-start justify-between mb-3">
+            <div>
+              <div class="font-display font-bold text-lg">${cl.nome}</div>
+              <div class="text-xs text-ink-400 mt-1">${cl.qtd} orçamento${cl.qtd>1?'s':''}</div>
+            </div>
+            <div class="w-10 h-10 rounded-xl grad-snack-soft border border-ink-700 flex items-center justify-center text-orange font-bold">${cl.nome[0]}</div>
+          </div>
+          <div class="grid grid-cols-2 gap-3 mt-4">
+            <div>
+              <div class="text-[10px] uppercase tracking-wider text-ink-400">Pipeline</div>
+              <div class="font-bold tabular-nums">${fmtBRL(cl.totalReceita)}</div>
+            </div>
+            <div>
+              <div class="text-[10px] uppercase tracking-wider text-ink-400">Margem média</div>
+              <div class="font-bold tabular-nums ${cl.margemMedia<PREMISSAS.margem_min?'text-orange':cl.margemMedia<PREMISSAS.margem_ideal?'text-yellow-400':'text-green-400'}">${fmtPct(cl.margemMedia)}</div>
+            </div>
+            <div>
+              <div class="text-[10px] uppercase tracking-wider text-ink-400">Ticket médio</div>
+              <div class="font-bold tabular-nums">${fmtBRL(cl.ticketMedio)}</div>
+            </div>
+            <div>
+              <div class="text-[10px] uppercase tracking-wider text-ink-400">Maior ticket</div>
+              <div class="font-bold tabular-nums">${fmtBRL(cl.maiorTicket)}</div>
+            </div>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  </div>
+  `;
+}
+
+function renderClienteDetalhe(ctx) {
+  const nome = ctx?.nome;
+  const orcs = STATE.orcamentos.filter(o=>o.cliente===nome).map(o=>({o,c:calcular(o)}));
+  if (!orcs.length) return `<div class="card p-8 text-center text-ink-400">Cliente não encontrado.</div>`;
+
+  const totalReceita = orcs.reduce((s,x)=>s+x.c.receitaTotal,0);
+  const totalEbitda = orcs.reduce((s,x)=>s+x.c.ebitda,0);
+  const margemMedia = totalReceita>0 ? totalEbitda/totalReceita : 0;
+
+  // Histograma simplificado por tipo
+  const porTipo = {};
+  orcs.forEach(x=>{ porTipo[x.o.tipo] = (porTipo[x.o.tipo]||0) + x.c.receitaTotal; });
+
+  return `
+  <div class="space-y-5">
+    <button class="text-sm text-orange hover:text-orange-400 font-semibold" onclick="navigate('clientes')">← Voltar pra clientes</button>
+    <div class="card p-7 grad-snack-soft border border-ink-700">
+      <div class="flex items-start gap-5">
+        <div class="w-16 h-16 rounded-2xl grad-snack flex items-center justify-center text-white font-black text-2xl">${nome[0]}</div>
+        <div class="flex-1">
+          <div class="font-display font-bold text-3xl">${nome}</div>
+          <div class="text-sm text-ink-300 mt-1">${orcs.length} orçamento${orcs.length>1?'s':''} cadastrado${orcs.length>1?'s':''}</div>
+          <div class="grid grid-cols-4 gap-6 mt-6">
+            <div>
+              <div class="text-[10px] uppercase tracking-wider text-ink-400">Receita total</div>
+              <div class="font-display font-bold text-2xl">${fmtBRL(totalReceita)}</div>
+            </div>
+            <div>
+              <div class="text-[10px] uppercase tracking-wider text-ink-400">EBITDA total</div>
+              <div class="font-display font-bold text-2xl ${totalEbitda<0?'text-red-400':''}">${fmtBRL(totalEbitda)}</div>
+            </div>
+            <div>
+              <div class="text-[10px] uppercase tracking-wider text-ink-400">Margem média</div>
+              <div class="font-display font-bold text-2xl ${margemMedia<PREMISSAS.margem_min?'text-orange':margemMedia<PREMISSAS.margem_ideal?'text-yellow-400':'text-green-400'}">${fmtPct(margemMedia)}</div>
+            </div>
+            <div>
+              <div class="text-[10px] uppercase tracking-wider text-ink-400">Ticket médio</div>
+              <div class="font-display font-bold text-2xl">${fmtBRL(totalReceita/orcs.length)}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div class="card p-6 lg:col-span-2">
+        <div class="font-display font-bold mb-4">Histórico</div>
+        <table class="w-full text-sm">
+          <thead><tr class="text-[11px] uppercase tracking-wider text-ink-400 border-b border-ink-800">
+            <th class="text-left py-2.5">ID</th><th class="text-left">Projeto</th><th class="text-left">Tipo</th>
+            <th class="text-right">Receita</th><th class="text-right">Margem</th><th class="text-center">Status</th>
+          </tr></thead>
+          <tbody>
+            ${orcs.map(({o,c})=>`<tr class="border-b border-ink-800 hover:bg-ink-850 cursor-pointer" onclick="navigate('detalhe',{id:'${o.id}'})">
+              <td class="py-3 font-mono text-ink-300">${o.id}</td>
+              <td class="font-semibold">${o.projeto || '<span class="text-ink-500 italic">—</span>'}</td>
+              <td><span class="pill pill-ink">${o.tipo}</span></td>
+              <td class="text-right tabular-nums">${fmtBRL(c.receitaTotal)}</td>
+              <td class="text-right tabular-nums font-bold">${fmtPct(c.margem)}</td>
+              <td class="text-center">${statusPropostaPill(o.status)}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card p-6">
+        <div class="font-display font-bold mb-4">Receita por tipo</div>
+        <div class="space-y-3">
+          ${Object.entries(porTipo).sort((a,b)=>b[1]-a[1]).map(([t,v])=>{
+            const pct = (v/totalReceita)*100;
+            return `<div>
+              <div class="flex justify-between text-xs mb-1"><span>${t}</span><span class="tabular-nums font-bold">${fmtBRL(v)}</span></div>
+              <div class="h-1.5 bg-ink-800 rounded-full overflow-hidden"><div class="h-full grad-snack" style="width:${pct}%"></div></div>
+            </div>`;
+          }).join('')}
+        </div>
+
+        <div class="mt-6 pt-5 border-t border-ink-800">
+          <div class="font-display font-bold mb-2 text-sm">Benchmarks Snack</div>
+          <div class="text-xs space-y-2 text-ink-300">
+            <div class="flex justify-between"><span>Margem média Snack</span><span class="font-bold">25%</span></div>
+            <div class="flex justify-between"><span>Ticket médio Snack</span><span class="font-bold">${fmtBRL(450000)}</span></div>
+            <div class="flex justify-between"><span>Margem deste cliente</span><span class="font-bold ${margemMedia<0.25?'text-orange':'text-green-400'}">${fmtPct(margemMedia)}</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  `;
+}
+
+/* =============================================================
+   VIEW: PREMISSAS
+============================================================= */
+const PREMISSAS_LABELS = {
+  imposto:['Imposto','sobre faturamento'],
+  encargo:['Encargos sobre folha','férias, 13º, dissídio'],
+  comissao:['Comissão de venda','% sobre receita líquida'],
+  taxa_admin:['Taxa Admin','markup sobre Cachês+Mídia+Produção'],
+  margem_min:['Margem Mínima','abaixo disso, não fecha'],
+  margem_ideal:['Margem Ideal','alvo padrão pra propor'],
+  heads_upsell_pct:['Heads em Upsell','% sobre receita líquida — menor pq heads-mãe já estão no AON'],
+  handling_upsell_pct:['Handling Upsell','sobre terceiros'],
+  margem_upsell:['Margem Upsell esperada','quanto cada R$ de upsell vira EBITDA — default 40%'],
+};
+function renderPremissas() {
+  const tiposParaHeads = TIPOS.filter(t=>t.tipo !== 'Upsell em AON').map(t=>t.tipo);
+  return `
+  <div class="space-y-5">
+
+    <!-- BLOCO ZERO: OVERHEAD FIXO -->
+    <div class="card p-6" style="background: linear-gradient(135deg, rgba(255,87,34,.06), rgba(46,107,255,.04));">
+      <div class="flex items-start justify-between gap-6 flex-wrap">
+        <div class="flex items-start gap-3">
+          <div class="w-10 h-10 rounded-xl grad-snack flex items-center justify-center text-white font-bold text-lg">⌂</div>
+          <div>
+            <div class="font-display font-bold text-xl">Overhead Fixo Mensal</div>
+            <p class="text-sm text-ink-300 mt-1 max-w-xl">Custo estrutural real da Snack (aluguel, ferramentas, BI, contabilidade, etc). Não inclui salários de heads — esses já estão alocados via % nos orçamentos.</p>
+          </div>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="text-sm text-ink-400">R$</span>
+          <input type="number" min="0" step="10000" value="${PREMISSAS.overhead_fixo_mensal}" class="input text-right tabular-nums font-bold text-lg w-48" oninput="atualizarPremissa('overhead_fixo_mensal', +this.value)">
+          <span class="text-sm text-ink-400">/mês</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- BLOCO 1: PREMISSAS GERAIS -->
+    <div class="card p-6">
+      <div class="flex items-start gap-3 mb-4">
+        <div class="w-10 h-10 rounded-xl grad-snack flex items-center justify-center text-white font-bold">P</div>
+        <div>
+          <div class="font-display font-bold text-xl">Premissas globais</div>
+          <p class="text-sm text-ink-300 mt-1">Mude aqui pra mudar todos os cálculos da plataforma. Use com cuidado — afeta orçamentos existentes.</p>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6">
+        ${Object.entries(PREMISSAS).filter(([k])=>typeof PREMISSAS[k]==='number' && PREMISSAS_LABELS[k]).map(([k,v])=>{
+          const [titulo,desc] = PREMISSAS_LABELS[k];
+          return `<div class="p-4 rounded-xl border border-ink-700 bg-ink-900 hover:border-ink-600">
+            <div class="flex items-center justify-between mb-2">
+              <div>
+                <div class="text-sm font-semibold">${titulo}</div>
+                <div class="text-xs text-ink-400 mt-0.5">${desc}</div>
+              </div>
+              <code class="text-[10px] text-ink-500">${k}</code>
+            </div>
+            <div class="flex items-center gap-2 mt-3">
+              <input type="number" step="0.001" min="0" max="1" value="${v}" class="input flex-1" oninput="atualizarPremissa('${k}', +this.value)">
+              <span id="pct-${k}" class="text-sm text-ink-400 font-bold w-16 text-right">${(v*100).toFixed(1)}%</span>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+
+    <!-- BLOCO 2: HEADS POR TIPO -->
+    <div class="card p-6" style="background: linear-gradient(180deg, rgba(255,87,34,.06) 0%, rgba(46,107,255,.04) 100%); border: 1px solid rgba(255,87,34,.2);">
+      <div class="flex items-start gap-3 mb-2">
+        <div class="w-10 h-10 rounded-xl grad-snack flex items-center justify-center text-white font-bold">H</div>
+        <div class="flex-1">
+          <div class="font-display font-bold text-xl flex items-center gap-2">
+            Custo de Heads por tipo
+            <span class="pill pill-orange">novo</span>
+          </div>
+          <p class="text-sm text-ink-300 mt-1 max-w-3xl leading-relaxed">
+            Cada tipo consome heads diferente. AON e Projeto tomam mais tempo de diretor (war room, status, pitch).
+            UGC tem operação padronizada e quase não toca heads. Calibre aqui — vale fazer revisão trimestral comparando
+            com o real (soma de heads cobrados ÷ heads pagos).
+          </p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-5">
+        ${tiposParaHeads.map(t=>{
+          const v = PREMISSAS.heads_por_tipo[t] ?? 0.10;
+          return `<div class="p-4 rounded-xl border border-ink-700 bg-ink-900 hover:border-orange/40">
+            <div class="flex items-center justify-between gap-3">
+              <div class="min-w-0">
+                <div class="text-sm font-semibold truncate">${t}</div>
+                <div class="text-[11px] text-ink-400 mt-0.5">% aplicado sobre fee${t==='Influ - repasse'||t==='UGC simples'?' Snack (sem cachê)':' total'}</div>
+              </div>
+              <div class="flex items-center gap-2 shrink-0">
+                <input type="number" step="0.005" min="0" max="0.50" value="${v}" class="input w-24 text-right" oninput="atualizarHeadsTipo('${t}', +this.value)">
+                <span id="pct-heads-${t.replace(/[^a-z]/gi,'')}" class="text-sm font-bold w-12 text-right text-orange">${(v*100).toFixed(1)}%</span>
+              </div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+
+      <details class="mt-5 text-xs text-ink-300">
+        <summary class="cursor-pointer text-ink-400 hover:text-white flex items-center gap-2 font-semibold">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          Como calibrar esses números
+        </summary>
+        <div class="mt-3 space-y-2 leading-relaxed pl-4">
+          <div><strong class="text-white">Método rápido:</strong> pergunta pra cada head (Criação, Planejamento, Inteligência, Conteúdo, Produção): "distribui 100 pontos da tua semana típica entre AON, Projeto, Influ-Snack, Influ-repasse, UGC". Cruza com o mix de receita pra achar o % real de cada tipo.</div>
+          <div><strong class="text-white">Método empírico:</strong> deixa os defaults rodando 1 trimestre. Compara a soma de "Custo Heads" dos orçamentos do trimestre com o que a Snack pagou de heads. Se cobrou menos do que pagou, sobe os %. Se cobrou mais, abaixa.</div>
+          <div><strong class="text-white">Sanity check do agregado:</strong> média ponderada × mix de receita deve dar ~10% (a sua premissa atual de R$250k / R$2,5M). Se der muito acima, você tá superprovisionando. Muito abaixo, subprovisionando.</div>
+        </div>
+      </details>
+    </div>
+  </div>
+  `;
+}
+
+function bindPremissas(){}
+function atualizarPremissa(k,v){
+  PREMISSAS[k] = v;
+  const el = document.getElementById('pct-'+k);
+  if (el) el.textContent = (v*100).toFixed(1)+'%';
+  salvarPremissaSupabase(k, v);
+}
+function atualizarHeadsTipo(tipo, v){
+  PREMISSAS.heads_por_tipo[tipo] = v;
+  const el = document.getElementById('pct-heads-'+tipo.replace(/[^a-z]/gi,''));
+  if (el) el.textContent = (v*100).toFixed(1)+'%';
+  salvarHeadsTipoSupabase(tipo, v);
+}
+
+/* =============================================================
+   VIEW: CARGOS (editável)
+============================================================= */
+function gerarNovoCargoId(){
+  let max = 0;
+  CARGOS.forEach(c=>{
+    const n = parseInt((c.id||'').replace(/[^0-9]/g,''),10);
+    if (!isNaN(n) && n>max) max=n;
+  });
+  return 'CG' + String(max+1).padStart(2,'0');
+}
+
+function renderCargos() {
+  const porArea = {};
+  CARGOS.forEach(c=>{ if(!porArea[c.area]) porArea[c.area]=[]; porArea[c.area].push(c); });
+  const areas = Object.keys(porArea).sort();
+
+  return `
+  <div class="space-y-5">
+    <div class="card p-6">
+      <div class="flex items-start justify-between gap-3 mb-2">
+        <div class="flex items-start gap-3">
+          <div class="w-10 h-10 rounded-xl grad-snack flex items-center justify-center text-white font-bold">C</div>
+          <div>
+            <div class="font-display font-bold text-xl">Cargos & Salários</div>
+            <p class="text-sm text-ink-300 mt-1"><span id="cargos-count">${CARGOS.length}</span> cargos. Edite qualquer campo — afeta os orçamentos em tempo real.</p>
+          </div>
+        </div>
+        <button class="btn btn-primary" onclick="abrirModalNovoCargo()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Novo cargo
+        </button>
+      </div>
+    </div>
+
+    ${areas.map(area=>{
+      const sa = slugArea(area);
+      const cs = porArea[area];
+      return `<div class="card overflow-hidden">
+        <div class="px-6 py-4 border-b border-ink-800 flex items-center justify-between row-area-${sa}">
+          <div class="flex items-center gap-3">
+            <span class="area-tag area-${sa}">${area}</span>
+            <span class="text-sm text-ink-400">${cs.length} cargo${cs.length>1?'s':''}</span>
+          </div>
+          <button class="btn btn-ghost text-xs" onclick="abrirModalNovoCargo('${area.replace(/'/g,"\\'")}')">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add cargo nessa área
+          </button>
+        </div>
+        <table class="w-full text-sm">
+          <thead class="bg-ink-900">
+            <tr class="text-[11px] uppercase tracking-wider text-ink-400">
+              <th class="text-left font-semibold py-3 pl-6">Cargo</th>
+              <th class="text-left font-semibold w-40">Nível</th>
+              <th class="text-left font-semibold w-56">Área</th>
+              <th class="text-right font-semibold w-44">Salário (c/ benef)</th>
+              <th class="w-10 pr-6"></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${cs.map((c)=>{
+              const idx = CARGOS.findIndex(x=>x.id===c.id);
+              return `<tr class="border-t border-ink-800 hover:bg-ink-850 group">
+                <td class="py-2 pl-6">
+                  <input class="input bg-transparent border-transparent hover:border-ink-700 focus:border-orange" value="${c.cargo.replace(/"/g,'&quot;')}" oninput="editarCargo(${idx},'cargo',this.value)">
+                </td>
+                <td>
+                  <input class="input bg-transparent border-transparent hover:border-ink-700 focus:border-orange" value="${c.nivel.replace(/"/g,'&quot;')}" oninput="editarCargo(${idx},'nivel',this.value)">
+                </td>
+                <td>
+                  <select class="input bg-transparent border-transparent hover:border-ink-700 focus:border-orange" onchange="editarCargoArea(${idx},this.value)">
+                    ${areas.map(a=>`<option ${a===c.area?'selected':''}>${a}</option>`).join('')}
+                    <option value="__nova__">+ Nova área...</option>
+                  </select>
+                </td>
+                <td class="text-right">
+                  <input type="number" min="0" step="500" class="input bg-transparent border-transparent hover:border-ink-700 focus:border-orange text-right tabular-nums font-bold" value="${c.salario}" oninput="editarCargo(${idx},'salario',+this.value)">
+                </td>
+                <td class="pr-4">
+                  <button class="opacity-0 group-hover:opacity-100 text-ink-500 hover:text-red-400 p-2 transition" onclick="removerCargoCatalogo(${idx})" title="Remover cargo">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg>
+                  </button>
+                </td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>`;
+    }).join('')}
+  </div>
+  `;
+}
+
+function editarCargo(idx, campo, valor){
+  if (!CARGOS[idx]) return;
+  CARGOS[idx][campo] = valor;
+  salvarCargoSupabase(CARGOS[idx]);
+}
+
+function editarCargoArea(idx, valor){
+  if (valor === '__nova__'){
+    const nova = prompt('Nome da nova área (ex: BRANDED CONTENT):');
+    if (!nova) { render(); return; }
+    CARGOS[idx].area = nova.toUpperCase().trim();
+  } else {
+    CARGOS[idx].area = valor;
+  }
+  salvarCargoSupabase(CARGOS[idx]);
+  render();
+}
+
+async function removerCargoCatalogo(idx){
+  const c = CARGOS[idx];
+  const usado = STATE.orcamentos.some(o => (o.squad||[]).some(s=>s.cargo_id===c.id));
+  const msg = usado
+    ? `O cargo "${c.cargo} ${c.nivel}" está sendo usado em orçamentos. Remover assim mesmo? Os orçamentos ainda vão calcular usando o salário gravado, mas o cargo some do catálogo.`
+    : `Remover "${c.cargo} ${c.nivel}" do catálogo?`;
+  if (!confirm(msg)) return;
+  await deletarCargoSupabase(c.id);
+  CARGOS.splice(idx,1);
+  render();
+}
+
+function abrirModalNovoCargo(areaPre){
+  const areas = [...new Set(CARGOS.map(c=>c.area))].sort();
+  document.getElementById('modal-content').innerHTML = `
+    <div class="flex items-start justify-between mb-5">
+      <div>
+        <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">Catálogo de cargos</div>
+        <div class="font-display font-bold text-2xl mt-1">Novo cargo</div>
+      </div>
+      <button onclick="fecharModal()" class="text-ink-400 hover:text-white"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+    </div>
+    <div class="space-y-4">
+      <div>
+        <label class="label">Área</label>
+        <select id="novo-area" class="input" onchange="if(this.value==='__nova__'){const n=prompt('Nome da nova área:');if(n){const op=document.createElement('option');op.value=n.toUpperCase().trim();op.text=n.toUpperCase().trim();op.selected=true;this.add(op,this);}else this.value='${areaPre||areas[0]||''}';}">
+          ${areas.map(a=>`<option ${a===areaPre?'selected':''}>${a}</option>`).join('')}
+          <option value="__nova__">+ Nova área...</option>
+        </select>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="label">Cargo</label>
+          <input id="novo-cargo" class="input" placeholder="Ex: Diretor de Criação" autofocus>
+        </div>
+        <div>
+          <label class="label">Nível</label>
+          <input id="novo-nivel" class="input" placeholder="Ex: Sênior" value="Pleno">
+        </div>
+      </div>
+      <div>
+        <label class="label">Salário mensal (com benefícios)</label>
+        <input id="novo-salario" type="number" min="0" step="500" class="input" placeholder="Ex: 12000">
+      </div>
+    </div>
+    <div class="flex items-center gap-3 mt-6">
+      <button class="btn btn-primary" onclick="salvarNovoCargo()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Adicionar
+      </button>
+      <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
+    </div>
+  `;
+  document.getElementById('modal-bg').classList.remove('hidden');
+  document.getElementById('modal-bg').classList.add('flex');
+}
+
+async function salvarNovoCargo(){
+  const area = document.getElementById('novo-area').value;
+  const cargo = document.getElementById('novo-cargo').value.trim();
+  const nivel = document.getElementById('novo-nivel').value.trim();
+  const salario = +document.getElementById('novo-salario').value;
+  if (!cargo || !nivel || !salario || !area || area==='__nova__'){
+    alert('Preenche todos os campos.');
+    return;
+  }
+  const novo = { id: gerarNovoCargoId(), area, cargo, nivel, salario };
+  CARGOS.push(novo);
+  await salvarCargoSupabase(novo);
+  fecharModal();
+  render();
+}
+
+/* =============================================================
+   VIEW: TIPOS
+============================================================= */
+function renderTipos() {
+  return `
+  <div class="space-y-4">
+    <div class="card p-6 mb-2">
+      <div class="font-display font-bold text-xl mb-1">7 tipos de orçamento</div>
+      <p class="text-sm text-ink-300">Cada tipo tem regra própria de overhead, base de heads e tratamento de cachês.</p>
+    </div>
+    ${TIPOS.map(t=>`
+      <div class="card p-6">
+        <div class="flex items-start justify-between mb-3">
+          <div>
+            <div class="font-display font-bold text-lg">${t.tipo}</div>
+            <p class="text-sm text-ink-300 mt-1 max-w-2xl">${t.notas}</p>
+          </div>
+          <span class="pill ${t.overhead_mult>=0.55?'pill-orange':'pill-azul'}">overhead ${(t.overhead_mult*100).toFixed(0)}%</span>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-4">
+          <div class="p-3 rounded-lg bg-ink-900 border border-ink-700">
+            <div class="text-[10px] uppercase tracking-wider text-ink-400">Base do overhead</div>
+            <div class="font-semibold mt-1">${t.base_overhead}</div>
+          </div>
+          <div class="p-3 rounded-lg bg-ink-900 border border-ink-700">
+            <div class="text-[10px] uppercase tracking-wider text-ink-400">Base do heads</div>
+            <div class="font-semibold mt-1">${t.base_heads}</div>
+          </div>
+          <div class="p-3 rounded-lg bg-ink-900 border border-ink-700">
+            <div class="text-[10px] uppercase tracking-wider text-ink-400">Cachês na receita?</div>
+            <div class="font-semibold mt-1">${t.cache_na_receita?'Sim':'Não'}</div>
+          </div>
+        </div>
+      </div>
+    `).join('')}
+  </div>
+  `;
+}
+
+/* =============================================================
+   BOOT
+============================================================= */
+window.addEventListener('keydown',e=>{if(e.key==='Escape')fecharModal();});
+
+</script>
+</body>
+</html>
