@@ -305,7 +305,8 @@ async function carregarDoSupabase(){
       squadByOrc[s.orcamento_id].push({cargo_id:s.cargo_id, alocacao:Number(s.alocacao)});
     });
     STATE.orcamentos = (o.data||[]).map(x=>({
-      id:x.id, data:x.data, cliente:x.cliente, projeto:x.projeto||'',
+      id:x.id, data:x.data, data_inicio:x.data_inicio||x.data,
+      cliente:x.cliente, projeto:x.projeto||'',
       tipo:x.tipo, status:x.status, meses:x.meses,
       caches:Number(x.caches), midia:Number(x.midia), producao:Number(x.producao),
       fee_mensal:Number(x.fee_mensal), gov_upsell:Number(x.gov_upsell||0.05),
@@ -331,7 +332,8 @@ async function salvarOrcamentoSupabase(orc){
   try {
     // upsert orçamento (sem o squad)
     const { error: e1 } = await sb.from('orcamentos').upsert({
-      id: orc.id, data: orc.data, cliente: orc.cliente, projeto: orc.projeto||null,
+      id: orc.id, data: orc.data, data_inicio: orc.data_inicio || orc.data,
+      cliente: orc.cliente, projeto: orc.projeto||null,
       tipo: orc.tipo, status: orc.status, meses: orc.meses,
       caches: orc.caches, midia: orc.midia, producao: orc.producao,
       fee_mensal: orc.fee_mensal, gov_upsell: orc.gov_upsell||0.05,
@@ -615,11 +617,166 @@ async function entrar(){
 /* =============================================================
    VIEW: DASHBOARD
 ============================================================= */
-// Margem de contribuição mensal de um orçamento = (EBITDA + Overhead alocado) / meses
-// Representa o R$/mês que aquele orçamento gera pra cobrir o overhead fixo da Snack.
-function mcMensal(orc, calc){
+// Margem de contribuição TOTAL de um orçamento = EBITDA + Overhead alocado
+// Representa quantos R$ totais aquele contrato gera pra cobrir o overhead fixo da Snack.
+function mcTotal(orc, calc){
   const c = calc || calcular(orc);
-  return ((c.ebitda||0) + (c.overhead||0)) / Math.max(1, orc.meses||1);
+  return (c.ebitda||0) + (c.overhead||0);
+}
+
+// Margem de contribuição mensal — MC total dividida pelos meses do contrato.
+// Útil pra AON / contratos longos, distorce pra one-shot curto.
+function mcMensal(orc, calc){
+  return mcTotal(orc, calc) / Math.max(1, orc.meses||1);
+}
+
+// Distribui a MC do orçamento mês a mês ao longo do período de execução.
+// Retorna um array de {ano, mes (1-12), mc} pra cada mês ativo do contrato.
+function distribuirMcPorMes(orc, calc){
+  const inicio = new Date((orc.data_inicio || orc.data || hoje()) + 'T00:00:00');
+  if (isNaN(inicio.getTime())) return [];
+  const mensal = mcMensal(orc, calc);
+  const meses = Math.max(1, orc.meses||1);
+  const out = [];
+  for (let i=0; i<meses; i++){
+    const d = new Date(inicio.getFullYear(), inicio.getMonth()+i, 1);
+    out.push({ ano: d.getFullYear(), mes: d.getMonth()+1, mc: mensal });
+  }
+  return out;
+}
+
+const MESES_BR = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+
+function renderTimelineOverhead(orcs, overheadAlvo){
+  const anoAtual = new Date().getFullYear();
+  const ano = STATE.timelineAno || anoAtual;
+  STATE.timelineAno = ano;
+
+  // Construir matriz de cobertura mês a mês
+  const mesesAno = Array.from({length:12}, (_,i)=>({ mes:i+1, aprovado:0, proposta:0 }));
+  orcs.forEach(({o,c})=>{
+    if (o.status === 'Perdida') return;
+    const dist = distribuirMcPorMes(o, c);
+    dist.forEach(d=>{
+      if (d.ano !== ano) return;
+      const slot = mesesAno[d.mes-1];
+      if (o.status === 'Aprovada') slot.aprovado += d.mc;
+      else if (o.status === 'Proposta') slot.proposta += d.mc;
+    });
+  });
+
+  // Stats agregados do ano
+  const ohAnual = overheadAlvo * 12;
+  const mcAprovAnual = mesesAno.reduce((s,m)=>s+m.aprovado, 0);
+  const mcPropAnual = mesesAno.reduce((s,m)=>s+m.proposta, 0);
+  const mcPotAnual = mcAprovAnual + mcPropAnual;
+  const pctAnualAprov = ohAnual>0 ? (mcAprovAnual/ohAnual)*100 : 0;
+  const pctAnualPot = ohAnual>0 ? (mcPotAnual/ohAnual)*100 : 0;
+  const mesesCobertos = mcAprovAnual / overheadAlvo;
+  const mesesCobertosPot = mcPotAnual / overheadAlvo;
+
+  // Cor da barra de cada mês baseado em % aprovado
+  function corBarra(pct){
+    if (pct >= 100) return 'bg-green-500';
+    if (pct >= 80) return 'bg-yellow-500';
+    if (pct >= 50) return 'bg-orange';
+    if (pct > 0) return 'bg-red-500';
+    return 'bg-ink-700';
+  }
+
+  return `
+  <div class="card p-6 relative overflow-hidden" style="background: linear-gradient(135deg, rgba(255,87,34,.08), rgba(46,107,255,.06)); border: 1px solid rgba(255,87,34,.22);">
+    <div class="absolute top-0 right-0 w-64 h-64 bg-orange/8 rounded-full blur-3xl pointer-events-none"></div>
+
+    <div class="relative flex items-start justify-between gap-6 flex-wrap mb-5">
+      <div class="flex items-start gap-3">
+        <div class="w-11 h-11 rounded-xl grad-snack flex items-center justify-center text-white font-bold text-lg">⌂</div>
+        <div>
+          <div class="font-display font-bold text-xl flex items-center gap-3">
+            Cobertura de Overhead — ${ano}
+            <span class="pill ${pctAnualAprov>=100?'pill-green':pctAnualAprov>=66?'pill-yellow':'pill-orange'}">${mesesCobertos.toFixed(1)} de 12 meses cobertos</span>
+          </div>
+          <p class="text-xs text-ink-300 mt-1">Cada contrato é distribuído mês a mês a partir da data de início. Cores: <span class="text-green-400">verde ≥100%</span> · <span class="text-yellow-400">amarelo 80-100%</span> · <span class="text-orange">laranja 50-80%</span> · <span class="text-red-400">vermelho &lt;50%</span></p>
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <div class="flex items-center gap-1 bg-ink-900 rounded-lg border border-ink-800 p-1">
+          <button onclick="STATE.timelineAno=${ano-1}; render();" class="px-2 py-1 text-xs text-ink-300 hover:text-white hover:bg-ink-800 rounded">‹ ${ano-1}</button>
+          <span class="px-2 text-xs font-bold">${ano}</span>
+          <button onclick="STATE.timelineAno=${ano+1}; render();" class="px-2 py-1 text-xs text-ink-300 hover:text-white hover:bg-ink-800 rounded">${ano+1} ›</button>
+        </div>
+        <div class="flex items-center gap-2">
+          <label class="text-xs text-ink-400">Overhead / mês</label>
+          <input type="number" min="0" step="10000" value="${overheadAlvo}" class="input w-32 text-right tabular-nums font-bold" oninput="atualizarPremissa('overhead_fixo_mensal', +this.value); render();">
+        </div>
+      </div>
+    </div>
+
+    <!-- TIMELINE 12 MESES -->
+    <div class="grid grid-cols-12 gap-2 mt-4">
+      ${mesesAno.map(m=>{
+        const pctApr = overheadAlvo>0 ? (m.aprovado/overheadAlvo)*100 : 0;
+        const pctPot = overheadAlvo>0 ? ((m.aprovado+m.proposta)/overheadAlvo)*100 : 0;
+        const alturaApr = Math.min(100, pctApr);
+        const alturaPot = Math.min(100, pctPot);
+        const mesAtual = (ano===anoAtual && m.mes===new Date().getMonth()+1);
+        return `<div class="relative flex flex-col items-center gap-1 ${mesAtual?'':''}">
+          <!-- Bar container -->
+          <div class="relative w-full h-32 bg-ink-900 rounded-md overflow-hidden border ${mesAtual?'border-orange/60':'border-ink-800'}">
+            <!-- Linha 100% (meta overhead) -->
+            <div class="absolute left-0 right-0 border-t border-dashed border-white/30" style="bottom: 100%"></div>
+            <!-- Proposta atrás (potencial) -->
+            <div class="absolute bottom-0 left-0 right-0" style="height:${alturaPot}%; background: repeating-linear-gradient(45deg, rgba(46,107,255,.35), rgba(46,107,255,.35) 4px, rgba(46,107,255,.15) 4px, rgba(46,107,255,.15) 8px);"></div>
+            <!-- Aprovado na frente -->
+            <div class="absolute bottom-0 left-0 right-0 ${corBarra(pctApr)}" style="height:${alturaApr}%; transition: height .3s ease;"></div>
+            <!-- % label dentro/acima da barra -->
+            ${pctApr > 12 ? `<div class="absolute bottom-1 left-0 right-0 text-center text-[10px] font-bold text-white">${pctApr.toFixed(0)}%</div>` : pctApr>0 ? `<div class="absolute top-1 left-0 right-0 text-center text-[10px] font-bold text-ink-300">${pctApr.toFixed(0)}%</div>` : ''}
+          </div>
+          <div class="text-[11px] font-bold ${mesAtual?'text-orange':'text-ink-300'}">${MESES_BR[m.mes-1]}</div>
+          <div class="text-[10px] text-ink-400 tabular-nums" title="Aprovado: ${fmtBRL(m.aprovado)}\nProposta: ${fmtBRL(m.proposta)}\nOverhead: ${fmtBRL(overheadAlvo)}">${fmtBRL(m.aprovado)}</div>
+        </div>`;
+      }).join('')}
+    </div>
+
+    <!-- 4 KPIs anuais -->
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mt-6">
+      <div class="p-4 rounded-xl bg-ink-900 border border-ink-800">
+        <div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Overhead anual ${ano}</div>
+        <div class="font-display font-bold text-xl mt-1">${fmtBRL(ohAnual)}</div>
+        <div class="text-[11px] text-ink-300 mt-1">${fmtBRL(overheadAlvo)}/mês × 12</div>
+      </div>
+      <div class="p-4 rounded-xl bg-ink-900 border border-ink-800">
+        <div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">MC anual dos aprovados</div>
+        <div class="font-display font-bold text-xl mt-1 ${pctAnualAprov>=100?'text-green-400':pctAnualAprov>=66?'text-yellow-400':'text-orange'}">${fmtBRL(mcAprovAnual)}</div>
+        <div class="text-[11px] text-ink-300 mt-1"><span class="font-bold">${pctAnualAprov.toFixed(0)}%</span> do overhead anual</div>
+      </div>
+      <div class="p-4 rounded-xl bg-ink-900 border border-ink-800">
+        <div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">${mcAprovAnual<ohAnual?'Falta cobrir no ano':'Sobra anual (lucro)'}</div>
+        <div class="font-display font-bold text-xl mt-1 ${mcAprovAnual<ohAnual?'text-red-400':'text-green-400'}">${fmtBRL(Math.abs(ohAnual-mcAprovAnual))}</div>
+        <div class="text-[11px] text-ink-300 mt-1">= ${Math.abs(12-mesesCobertos).toFixed(1)} meses ${mcAprovAnual<ohAnual?'de gap':'de lucro estrutural'}</div>
+      </div>
+      <div class="p-4 rounded-xl bg-ink-900 border border-ink-800">
+        <div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Potencial c/ propostas</div>
+        <div class="font-display font-bold text-xl mt-1 ${pctAnualPot>=100?'text-green-400':'text-azul-400'}">${fmtBRL(mcPotAnual)}</div>
+        <div class="text-[11px] text-ink-300 mt-1"><span class="font-bold">${pctAnualPot.toFixed(0)}%</span> · ${mesesCobertosPot.toFixed(1)} meses cobertos</div>
+      </div>
+    </div>
+
+    <details class="mt-5 text-xs text-ink-300">
+      <summary class="cursor-pointer text-ink-400 hover:text-white flex items-center gap-2 font-semibold">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        Como é calculado
+      </summary>
+      <div class="mt-2.5 space-y-1.5 leading-relaxed pl-4">
+        <div>Pra cada contrato Aprovado/Proposta: <strong>MC mensal</strong> = (EBITDA + Overhead alocado) ÷ meses do contrato.</div>
+        <div>Cada contrato é distribuído nos meses em que ele está ativo, a partir da <strong>data de início de execução</strong>.</div>
+        <div>Um projeto one-shot de 1 mês aparece <strong>só num mês</strong> (com a MC inteira ali). Um AON de 12 meses aparece em 12 meses (MC dividida).</div>
+        <div>Cada mês tem um % = MC do mês ÷ overhead mensal (R$ ${(overheadAlvo/1000).toFixed(0)}k).</div>
+        <div>"X meses cobertos" no ano = soma das MCs anuais aprovadas ÷ overhead mensal. Meta: 12.</div>
+      </div>
+    </details>
+  </div>
+  `;
 }
 
 function renderDashboard() {
@@ -683,89 +840,8 @@ function renderDashboard() {
       </div>
     </div>
 
-    <!-- COBERTURA DE OVERHEAD -->
-    <div class="card p-6 relative overflow-hidden" style="background: linear-gradient(135deg, rgba(255,87,34,.08), rgba(46,107,255,.06)); border: 1px solid rgba(255,87,34,.22);">
-      <div class="absolute top-0 right-0 w-64 h-64 bg-orange/8 rounded-full blur-3xl pointer-events-none"></div>
-      <div class="relative flex items-start justify-between gap-6 flex-wrap mb-5">
-        <div class="flex items-start gap-3">
-          <div class="w-11 h-11 rounded-xl grad-snack flex items-center justify-center text-white font-bold text-lg">⌂</div>
-          <div>
-            <div class="font-display font-bold text-xl flex items-center gap-2">
-              Cobertura de Overhead Fixo
-              <span class="pill ${pctCob>=100?'pill-green':pctCob>=80?'pill-yellow':'pill-orange'}">${pctCob.toFixed(0)}% coberto</span>
-            </div>
-            <p class="text-xs text-ink-300 mt-1">Quanto a margem de contribuição dos orçamentos cobre da estrutura fixa mensal da Snack</p>
-          </div>
-        </div>
-        <div class="flex items-center gap-2">
-          <label class="text-xs text-ink-400">Overhead fixo / mês</label>
-          <input type="number" min="0" step="10000" value="${overheadAlvo}" class="input w-36 text-right tabular-nums font-bold" oninput="atualizarPremissa('overhead_fixo_mensal', +this.value); render();">
-        </div>
-      </div>
-
-      <!-- Barra principal: aprovados + propostas -->
-      <div class="relative h-7 bg-ink-900 rounded-full overflow-hidden border border-ink-800">
-        <!-- Potencial (proposta) atrás -->
-        <div class="absolute top-0 left-0 h-full" style="width:${Math.min(100,pctCobPot).toFixed(2)}%; background: repeating-linear-gradient(45deg, rgba(46,107,255,.25), rgba(46,107,255,.25) 6px, rgba(46,107,255,.15) 6px, rgba(46,107,255,.15) 12px);"></div>
-        <!-- Aprovado na frente -->
-        <div class="absolute top-0 left-0 h-full grad-snack" style="width:${Math.min(100,pctCob).toFixed(2)}%"></div>
-        <!-- Marca 100% -->
-        <div class="absolute top-0 h-full w-px bg-white/40" style="left:${pctCob>100||pctCobPot>100?(100*100/Math.max(pctCob,pctCobPot,100)).toFixed(2):100}%"></div>
-      </div>
-
-      <div class="flex items-center justify-between mt-3 text-xs">
-        <div class="flex items-center gap-4 flex-wrap">
-          <span class="flex items-center gap-1.5">
-            <span class="w-3 h-3 rounded-sm grad-snack"></span>
-            <span class="text-ink-300">Aprovados</span>
-            <span class="font-bold tabular-nums text-white">${fmtBRL(mcMensalAprovado)}/mês</span>
-          </span>
-          <span class="flex items-center gap-1.5">
-            <span class="w-3 h-3 rounded-sm" style="background: repeating-linear-gradient(45deg, rgba(46,107,255,.6), rgba(46,107,255,.6) 3px, rgba(46,107,255,.3) 3px, rgba(46,107,255,.3) 6px);"></span>
-            <span class="text-ink-300">+ Propostas (potencial)</span>
-            <span class="font-bold tabular-nums text-white">+${fmtBRL(mcMensalProposta)}/mês</span>
-          </span>
-          <span class="flex items-center gap-1.5">
-            <span class="w-3 h-px bg-white/60"></span>
-            <span class="text-ink-300">Meta</span>
-            <span class="font-bold tabular-nums text-white">${fmtBRL(overheadAlvo)}/mês</span>
-          </span>
-        </div>
-      </div>
-
-      <!-- Detalhamento em 3 colunas -->
-      <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-5">
-        <div class="p-4 rounded-xl bg-ink-900 border border-ink-800">
-          <div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Aprovados cobrem</div>
-          <div class="font-display font-bold text-2xl mt-1 ${pctCob>=100?'text-green-400':pctCob>=80?'text-yellow-400':'text-orange'}">${fmtBRL(mcMensalAprovado)}<span class="text-sm text-ink-400 font-normal">/mês</span></div>
-          <div class="text-xs text-ink-300 mt-1">${aprovados.length} orçamento${aprovados.length===1?'':'s'} aprovado${aprovados.length===1?'':'s'} · <span class="font-bold">${pctCob.toFixed(0)}%</span> do overhead</div>
-        </div>
-        <div class="p-4 rounded-xl bg-ink-900 border border-ink-800">
-          <div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">${gapMensal>0?'Gap mensal':'Sobra mensal'}</div>
-          <div class="font-display font-bold text-2xl mt-1 ${gapMensal>0?'text-red-400':'text-green-400'}">${fmtBRL(gapMensal>0?gapMensal:(mcMensalAprovado-overheadAlvo))}<span class="text-sm text-ink-400 font-normal">/mês</span></div>
-          <div class="text-xs text-ink-300 mt-1">${gapMensal>0?'Falta cobrir pra zerar o mês':'Já sobra acima do overhead (lucro estrutural)'}</div>
-        </div>
-        <div class="p-4 rounded-xl bg-ink-900 border border-ink-800">
-          <div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Se fechar todas as propostas</div>
-          <div class="font-display font-bold text-2xl mt-1 ${pctCobPot>=100?'text-green-400':'text-azul-400'}">${fmtBRL(mcMensalPotencial)}<span class="text-sm text-ink-400 font-normal">/mês</span></div>
-          <div class="text-xs text-ink-300 mt-1">${propostas.length} proposta${propostas.length===1?'':'s'} em aberto · <span class="font-bold">${pctCobPot.toFixed(0)}%</span> do overhead</div>
-        </div>
-      </div>
-
-      <details class="mt-4 text-xs text-ink-300">
-        <summary class="cursor-pointer text-ink-400 hover:text-white flex items-center gap-2 font-semibold">
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-          O que é "cobertura" e como é calculada
-        </summary>
-        <div class="mt-2.5 space-y-1.5 leading-relaxed pl-4">
-          <div>Pra cada orçamento, somo <strong>receita líquida menos custos variáveis</strong> (squad, encargos, heads, cachês, mídia, produção, comissão). É o que sobra <strong>antes</strong> de descontar overhead.</div>
-          <div>Divido pelos meses do contrato → cobertura mensal daquele orçamento.</div>
-          <div>Somo de todos os <strong>aprovados</strong> → quanto a Snack está gerando de margem de contribuição por mês.</div>
-          <div>Comparo com o overhead fixo (R$ ${(overheadAlvo/1000).toFixed(0)}k/mês) → % coberto.</div>
-          <div class="text-ink-400 italic mt-2">Esse R$ ${(overheadAlvo/1000).toFixed(0)}k é o overhead estrutural real (aluguel, ferramentas, BI, contabilidade, etc) — não inclui salários de heads, que já estão alocados via % nos orçamentos.</div>
-        </div>
-      </details>
-    </div>
+    <!-- COBERTURA DE OVERHEAD — TIMELINE 12 MESES -->
+    ${renderTimelineOverhead(orcs, overheadAlvo)}
 
     <!-- ROW 2: SEMÁFORO + RECEITA POR TIPO -->
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -901,15 +977,17 @@ function renderListaOrcamentos() {
             <th class="text-right font-semibold">Fee/mês</th>
             <th class="text-right font-semibold">Receita</th>
             <th class="text-right font-semibold">Margem</th>
-            <th class="text-right font-semibold">MC/mês</th>
+            <th class="text-right font-semibold" title="MC total do contrato e equivalente em meses de overhead Snack coberto">MC contrato</th>
             <th class="text-center font-semibold">Saúde</th>
             <th class="text-center font-semibold pr-5">Status</th>
           </tr>
         </thead>
         <tbody>
           ${orcs.map(({o,c})=>{
-            const mc = mcMensal(o,c);
-            const mcCls = mc <= 0 ? 'text-red-400' : (c.statusMargem==='IDEAL'||c.statusMargem==='OK') ? 'text-green-400' : 'text-yellow-400';
+            const mcT = mcTotal(o,c);
+            const overheadAlvo = PREMISSAS.overhead_fixo_mensal || 1;
+            const mesesCob = mcT / overheadAlvo;
+            const mcCls = mcT <= 0 ? 'text-red-400' : (c.statusMargem==='IDEAL'||c.statusMargem==='OK') ? 'text-green-400' : 'text-yellow-400';
             return `
             <tr class="border-t border-ink-800 hover:bg-ink-850 cursor-pointer" onclick="navigate('detalhe',{id:'${o.id}'})">
               <td class="py-3.5 px-5 font-mono text-ink-300">${o.id}</td>
@@ -921,7 +999,7 @@ function renderListaOrcamentos() {
               <td class="text-right tabular-nums">${fmtBRL(o.fee_mensal)}</td>
               <td class="text-right tabular-nums font-bold">${fmtBRL(c.receitaTotal)}</td>
               <td class="text-right tabular-nums font-bold">${fmtPct(c.margem)}</td>
-              <td class="text-right tabular-nums font-bold ${mcCls}" title="Margem de contribuição mensal — quanto esse orçamento gera pra cobrir overhead">${fmtBRL(mc)}</td>
+              <td class="text-right tabular-nums font-bold ${mcCls}" title="MC total do contrato\n≈ ${mesesCob.toFixed(2)} mês${mesesCob>=2?'es':''} de overhead Snack">${fmtBRL(mcT)}<div class="text-[10px] text-ink-400 font-normal">${mesesCob.toFixed(2)} mês${mesesCob>=2?'es':''} OH</div></td>
               <td class="text-center">${statusPill(c.statusMargem)}</td>
               <td class="text-center pr-5">${statusPropostaPill(o.status)}</td>
             </tr>
@@ -972,13 +1050,14 @@ function renderNovoOrcamento(ctx) {
   } else {
     orc = {
       id: 'C' + String(STATE.nextId).padStart(3,'0'),
-      data: hoje(),
+      data: hoje(), data_inicio: hoje(),
       cliente: '', projeto: '', tipo: 'Always-On', status: 'Rascunho',
       meses: 6, caches: 0, midia: 0, producao: 0, fee_mensal: 100000,
       squad: [], gov_upsell: 0.05
     };
   }
   if (!orc.data) orc.data = hoje();
+  if (!orc.data_inicio) orc.data_inicio = orc.data || hoje();
   CURRENT_ORC = orc;
 
   const areasUnicas = [...new Set(CARGOS.map(c=>c.area))].sort();
@@ -1010,7 +1089,7 @@ function renderNovoOrcamento(ctx) {
           </div>
         </div>
 
-        <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+        <div class="grid grid-cols-2 md:grid-cols-6 gap-4">
           <div>
             <label class="label">Cliente</label>
             <input id="i-cliente" class="input" placeholder="Ex: BIC Soleil" value="${orc.cliente}" oninput="onChange('cliente', this.value)">
@@ -1018,6 +1097,10 @@ function renderNovoOrcamento(ctx) {
           <div>
             <label class="label">Data</label>
             <input id="i-data" type="date" class="input" value="${orc.data}" oninput="onChangeData(this.value)">
+          </div>
+          <div>
+            <label class="label" title="Quando o contrato começa a rodar de fato">Início execução</label>
+            <input id="i-data-inicio" type="date" class="input" value="${orc.data_inicio}" oninput="onChange('data_inicio', this.value)">
           </div>
           <div>
             <label class="label">Tipo</label>
@@ -1185,12 +1268,14 @@ function renderNovoOrcamento(ctx) {
         </div>
         <div class="grid grid-cols-2 gap-3 mt-3">
           <div>
-            <div class="text-[10px] uppercase tracking-wider text-ink-400">MC / mês</div>
-            <div id="display-mc" class="text-xl font-bold tabular-nums">—</div>
+            <div class="text-[10px] uppercase tracking-wider text-ink-400">MC total do contrato</div>
+            <div id="display-mc-total" class="text-xl font-bold tabular-nums">—</div>
+            <div id="display-mc-meses" class="text-[11px] text-ink-400 mt-0.5">—</div>
           </div>
           <div>
-            <div class="text-[10px] uppercase tracking-wider text-ink-400">% do overhead</div>
-            <div id="display-mc-pct" class="text-xl font-bold tabular-nums">—</div>
+            <div class="text-[10px] uppercase tracking-wider text-ink-400">MC mensal (média)</div>
+            <div id="display-mc" class="text-xl font-bold tabular-nums">—</div>
+            <div id="display-mc-pct" class="text-[11px] text-ink-400 mt-0.5">—</div>
           </div>
         </div>
         <div id="mc-veredito" class="mt-3 p-3 rounded-lg text-xs leading-relaxed border"></div>
@@ -1556,37 +1641,38 @@ function recalc(){
 
   // Contribuição pra cobertura de overhead
   const mc = mcMensal(CURRENT_ORC, c);
+  const mcT = mcTotal(CURRENT_ORC, c);
   const overheadAlvo = PREMISSAS.overhead_fixo_mensal || 1;
   const pctOH = (mc / overheadAlvo) * 100;
-  document.getElementById('display-mc').textContent = fmtBRL(mc) + '/mês';
-  document.getElementById('display-mc-pct').textContent = pctOH.toFixed(1)+'%';
+  const mesesCob = mcT / overheadAlvo;
+  document.getElementById('display-mc-total').textContent = fmtBRL(mcT);
+  document.getElementById('display-mc-meses').textContent = '≈ ' + mesesCob.toFixed(2) + ' mês' + (mesesCob>=2?'es':'') + ' de overhead';
+  document.getElementById('display-mc').textContent = fmtBRL(mc);
+  document.getElementById('display-mc-pct').textContent = pctOH.toFixed(1) + '% do overhead/mês';
 
   const mcVer = document.getElementById('mc-veredito');
   const mcPill = document.getElementById('mc-pill');
   const painelMC = document.getElementById('painel-mc');
   painelMC.classList.remove('border-green-500/40','border-yellow-500/40','border-orange/40','border-red-500/40');
 
-  if (mc <= 0) {
-    // Não cobre nem custos variáveis — destruidor de valor
+  if (mcT <= 0) {
     mcPill.className = 'pill pill-red';
     mcPill.textContent = '❌ Não';
     painelMC.classList.add('border-red-500/40');
     mcVer.className = 'mt-3 p-3 rounded-lg text-xs leading-relaxed border border-red-500/30 bg-red-500/5 text-red-100';
-    mcVer.innerHTML = '<strong>Recusar.</strong> Esse orçamento não cobre nem os custos variáveis dele mesmo. Aceitar significa pagar pra trabalhar.';
+    mcVer.innerHTML = '<strong>Recusar.</strong> Esse contrato não cobre nem os custos variáveis dele mesmo. Aceitar significa pagar pra trabalhar.';
   } else if (c.statusMargem === 'IDEAL' || c.statusMargem === 'OK') {
-    // Cobre custos E tem margem dentro da faixa aceitável
     mcPill.className = 'pill pill-green';
     mcPill.textContent = '✓ Saudável';
     painelMC.classList.add('border-green-500/40');
     mcVer.className = 'mt-3 p-3 rounded-lg text-xs leading-relaxed border border-green-500/30 bg-green-500/5 text-green-100';
-    mcVer.innerHTML = `<strong>Aceitar.</strong> Margem dentro da faixa e cobre <strong>${pctOH.toFixed(1)}%</strong> do overhead mensal. Esse é o tipo de orçamento que paga a estrutura e ainda sobra.`;
+    mcVer.innerHTML = `<strong>Aceitar.</strong> Margem dentro da faixa e contribui <strong>${fmtBRL(mcT)}</strong> de MC total — equivale a <strong>${mesesCob.toFixed(2)} mês${mesesCob>=2?'es':''}</strong> de overhead Snack coberto.`;
   } else {
-    // Margem ruim (abaixo do mín ou prejuízo no EBITDA) — mas MC positiva
     mcPill.className = 'pill pill-yellow';
     mcPill.textContent = '⚠ Pensa';
     painelMC.classList.add('border-yellow-500/40');
     mcVer.className = 'mt-3 p-3 rounded-lg text-xs leading-relaxed border border-yellow-500/30 bg-yellow-500/5 text-yellow-100';
-    mcVer.innerHTML = `<strong>Caso a caso.</strong> Margem abaixo do alvo, mas ainda contribui <strong>${fmtBRL(mc)}/mês</strong> (${pctOH.toFixed(1)}% do overhead). Aceitar se: o squad estaria ocioso. Recusar se: tem outro cliente disputando o mesmo squad com margem melhor.`;
+    mcVer.innerHTML = `<strong>Caso a caso.</strong> Margem abaixo do alvo, mas contribui <strong>${fmtBRL(mcT)}</strong> de MC total (= <strong>${mesesCob.toFixed(2)} mês${mesesCob>=2?'es':''}</strong> de overhead). Aceitar se: o squad estaria ocioso. Recusar se: tem outro cliente disputando o mesmo squad com margem melhor.`;
   }
 
   // Mostrar nota do tipo e governança upsell
