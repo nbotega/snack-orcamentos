@@ -309,7 +309,8 @@ async function carregarDoSupabase(){
       tipo:x.tipo, status:x.status, meses:x.meses,
       caches:Number(x.caches), midia:Number(x.midia), producao:Number(x.producao),
       fee_mensal:Number(x.fee_mensal), gov_upsell:Number(x.gov_upsell||0.05),
-      squad: squadByOrc[x.id] || []
+      squad: squadByOrc[x.id] || [],
+      volumetria: x.volumetria || {}
     }));
     // Calcular próximo ID
     let max = 0;
@@ -334,6 +335,7 @@ async function salvarOrcamentoSupabase(orc){
       tipo: orc.tipo, status: orc.status, meses: orc.meses,
       caches: orc.caches, midia: orc.midia, producao: orc.producao,
       fee_mensal: orc.fee_mensal, gov_upsell: orc.gov_upsell||0.05,
+      volumetria: orc.volumetria || {},
       updated_at: new Date().toISOString()
     });
     if (e1) throw e1;
@@ -1070,10 +1072,21 @@ function renderNovoOrcamento(ctx) {
         </div>
       </div>
 
+      <!-- VOLUMETRIA & ESCOPO -->
+      <div class="card p-6">
+        <div class="font-display font-bold text-lg mb-1 flex items-center gap-3">
+          <div class="w-7 h-7 rounded-lg bg-azul/15 border border-azul/30 flex items-center justify-center text-azul-400 text-sm font-bold">2</div>
+          Volumetria & Escopo
+        </div>
+        <p class="text-xs text-ink-400 mb-4 ml-10">Quantas entregas no contrato. Define o que está contratualizado — não afeta o cálculo de fee, mas justifica o tamanho do squad.</p>
+
+        ${renderVolumetriaBloco(orc)}
+      </div>
+
       <!-- SQUAD -->
       <div class="card p-6">
         <div class="font-display font-bold text-lg mb-1 flex items-center gap-3">
-          <div class="w-7 h-7 rounded-lg bg-orange/15 border border-orange/30 flex items-center justify-center text-orange text-sm font-bold">2</div>
+          <div class="w-7 h-7 rounded-lg bg-orange/15 border border-orange/30 flex items-center justify-center text-orange text-sm font-bold">3</div>
           Squad alocado
         </div>
         <p class="text-xs text-ink-400 mb-4 ml-10">Cargos do squad com % de alocação. O custo mensal calcula em tempo real.</p>
@@ -1112,7 +1125,7 @@ function renderNovoOrcamento(ctx) {
       <!-- SIMULADOR FEE -->
       <div class="card p-6">
         <div class="font-display font-bold text-lg mb-1 flex items-center gap-3">
-          <div class="w-7 h-7 rounded-lg bg-green-500/15 border border-green-500/30 flex items-center justify-center text-green-400 text-sm font-bold">3</div>
+          <div class="w-7 h-7 rounded-lg bg-green-500/15 border border-green-500/30 flex items-center justify-center text-green-400 text-sm font-bold">4</div>
           Fee Mensal & Simulador de Negociação
         </div>
         <p class="text-xs text-ink-400 mb-4 ml-10">Mande o Fee Ideal na proposta. Negocie até o Mínimo se precisar.</p>
@@ -1259,7 +1272,157 @@ function renderNovoOrcamento(ctx) {
   `;
 }
 
+/* =============================================================
+   VOLUMETRIA & ESCOPO
+============================================================= */
+const VOLUMETRIA_TEMPLATE = {
+  posts_originais: {
+    tiktok_videos:0, tiktok_lives:0,
+    ig_feed:0, ig_reels:0, ig_stories:0,
+    yt_vod:0, yt_shorts:0, yt_live:0,
+    linkedin_posts:0, linkedin_videos:0,
+    x_tweets:0, x_threads:0,
+    threads_posts:0
+  },
+  reposts:0,
+  responding:0,
+  relatorios: {
+    sentimento:0, midia:0, performance:0, dashboard_integrado:0,
+    plano_editorial:0, planejamento_campanha:0
+  }
+};
+
+function getVol(orc, path){
+  const parts = path.split('.');
+  let v = orc.volumetria || {};
+  for (const p of parts){ v = v?.[p]; if (v==null) return 0; }
+  return Number(v) || 0;
+}
+
+function setVol(path, value){
+  if (!CURRENT_ORC.volumetria) CURRENT_ORC.volumetria = JSON.parse(JSON.stringify(VOLUMETRIA_TEMPLATE));
+  const parts = path.split('.');
+  let obj = CURRENT_ORC.volumetria;
+  for (let i=0; i<parts.length-1; i++){
+    if (!obj[parts[i]]) obj[parts[i]] = {};
+    obj = obj[parts[i]];
+  }
+  obj[parts[parts.length-1]] = Number(value) || 0;
+  atualizarVolumetriaTotais();
+}
+
+function totalVolumetria(orc){
+  const v = orc.volumetria || {};
+  const po = Object.values(v.posts_originais||{}).reduce((s,x)=>s+(Number(x)||0),0);
+  const rep = Number(v.reposts)||0;
+  const resp = Number(v.responding)||0;
+  const rel = Object.values(v.relatorios||{}).reduce((s,x)=>s+(Number(x)||0),0);
+  return { posts_originais:po, reposts:rep, responding:resp, relatorios:rel, total: po+rep+resp+rel };
+}
+
+function atualizarVolumetriaTotais(){
+  const t = totalVolumetria(CURRENT_ORC);
+  const tot = document.getElementById('vol-total');
+  if (tot) tot.textContent = t.total.toLocaleString('pt-BR');
+  const po = document.getElementById('vol-total-posts');
+  if (po) po.textContent = t.posts_originais.toLocaleString('pt-BR');
+}
+
+// Plataforma helper: cor + nome + lista de itens
+const PLATAFORMAS = [
+  { id:'tiktok', nome:'TikTok', cor:'#FF0050', fundo:'rgba(255,0,80,.10)', borda:'rgba(255,0,80,.35)', sigla:'T',
+    itens:[ ['tiktok_videos','Vídeos'], ['tiktok_lives','Lives'] ] },
+  { id:'instagram', nome:'Instagram', cor:'#E1306C', fundo:'rgba(225,48,108,.10)', borda:'rgba(225,48,108,.35)', sigla:'IG',
+    gradient:'linear-gradient(135deg,#FFDC80,#F77737,#E1306C,#8134AF)',
+    itens:[ ['ig_feed','Carrossel / Estático'], ['ig_reels','Reels'], ['ig_stories','Stories'] ] },
+  { id:'youtube', nome:'YouTube', cor:'#FF0000', fundo:'rgba(255,0,0,.10)', borda:'rgba(255,0,0,.35)', sigla:'YT',
+    itens:[ ['yt_vod','VOD'], ['yt_shorts','Shorts'], ['yt_live','Live'] ] },
+  { id:'linkedin', nome:'LinkedIn', cor:'#0A66C2', fundo:'rgba(10,102,194,.10)', borda:'rgba(10,102,194,.35)', sigla:'in',
+    itens:[ ['linkedin_posts','Posts'], ['linkedin_videos','Vídeos'] ] },
+  { id:'x', nome:'Twitter / X', cor:'#FFFFFF', fundo:'rgba(255,255,255,.05)', borda:'rgba(255,255,255,.25)', sigla:'𝕏',
+    itens:[ ['x_tweets','Tweets'], ['x_threads','Threads'] ] },
+  { id:'threads', nome:'Threads', cor:'#D9D9D9', fundo:'rgba(217,217,217,.06)', borda:'rgba(217,217,217,.25)', sigla:'@',
+    itens:[ ['threads_posts','Posts'] ] },
+];
+
+function renderVolumetriaBloco(orc){
+  return `
+    <!-- 1. POSTS ORIGINAIS -->
+    <div class="mb-4">
+      <div class="flex items-center justify-between mb-3">
+        <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">1 · Posts Originais por plataforma</div>
+        <div class="text-xs text-ink-400">Subtotal: <span id="vol-total-posts" class="font-bold text-white">${totalVolumetria(orc).posts_originais.toLocaleString('pt-BR')}</span></div>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        ${PLATAFORMAS.map(pl=>{
+          const itens = pl.itens.map(([k,label])=>{
+            const v = getVol(orc, 'posts_originais.'+k);
+            return `<div class="flex items-center justify-between gap-2 py-1">
+              <span class="text-sm text-ink-200 flex-1 min-w-0 truncate">${label}</span>
+              <input type="number" min="0" step="1" value="${v}" class="input w-20 text-right text-sm py-1.5" oninput="setVol('posts_originais.${k}', this.value)">
+            </div>`;
+          }).join('');
+          const bgIcon = pl.gradient || pl.cor;
+          return `<div class="rounded-xl p-3 border" style="background: ${pl.fundo}; border-color: ${pl.borda};">
+            <div class="flex items-center gap-2 mb-2">
+              <div class="w-7 h-7 rounded-lg flex items-center justify-center font-black text-xs" style="background:${bgIcon}; color:${pl.id==='x'||pl.id==='threads'?'#000':'#fff'};">${pl.sigla}</div>
+              <div class="font-display font-bold text-sm">${pl.nome}</div>
+            </div>
+            ${itens}
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+
+    <!-- 2. REPOSTS + 3. RESPONDING -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+      <div class="rounded-xl p-4 border border-ink-700 bg-ink-900">
+        <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold mb-2">2 · Reposts</div>
+        <div class="flex items-center gap-3">
+          <input type="number" min="0" step="1" value="${getVol(orc,'reposts')}" class="input flex-1 text-2xl font-display font-bold tabular-nums text-center py-2" oninput="setVol('reposts', this.value)">
+          <span class="text-xs text-ink-400">conteúdos repostados</span>
+        </div>
+      </div>
+      <div class="rounded-xl p-4 border border-ink-700 bg-ink-900">
+        <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold mb-2">3 · Responding</div>
+        <div class="flex items-center gap-3">
+          <input type="number" min="0" step="1" value="${getVol(orc,'responding')}" class="input flex-1 text-2xl font-display font-bold tabular-nums text-center py-2" oninput="setVol('responding', this.value)">
+          <span class="text-xs text-ink-400">respostas / interações</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 4. RELATÓRIOS & PLANEJAMENTO -->
+    <div class="rounded-xl p-4 border border-ink-700 bg-ink-900">
+      <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold mb-3">4 · Relatórios & Planejamento</div>
+      <div class="grid grid-cols-2 md:grid-cols-3 gap-3">
+        ${[
+          ['sentimento','Sentimento'],
+          ['midia','Mídia'],
+          ['performance','Performance'],
+          ['dashboard_integrado','Dashboard Integrado'],
+          ['plano_editorial','Plano editorial'],
+          ['planejamento_campanha','Planejamento de campanha'],
+        ].map(([k,label])=>{
+          const v = getVol(orc, 'relatorios.'+k);
+          return `<div class="flex items-center justify-between gap-2">
+            <span class="text-sm text-ink-200 flex-1 min-w-0 truncate" title="${label}">${label}</span>
+            <input type="number" min="0" step="1" value="${v}" class="input w-20 text-right text-sm py-1.5" oninput="setVol('relatorios.${k}', this.value)">
+          </div>`;
+        }).join('')}
+      </div>
+    </div>
+
+    <!-- TOTAL -->
+    <div class="mt-4 p-3 rounded-xl grad-snack-soft border border-ink-700 flex items-center justify-between">
+      <span class="text-sm text-ink-300 font-semibold">Total de entregas no contrato</span>
+      <span id="vol-total" class="font-display font-bold text-2xl">${totalVolumetria(orc).total.toLocaleString('pt-BR')}</span>
+    </div>
+  `;
+}
+
 function bindNovoOrcamento(){
+  if (!CURRENT_ORC.volumetria) CURRENT_ORC.volumetria = JSON.parse(JSON.stringify(VOLUMETRIA_TEMPLATE));
   renderSquadRows();
   recalc();
 }
