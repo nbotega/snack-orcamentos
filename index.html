@@ -620,16 +620,17 @@ function renderTimelineOverhead(orcs, overheadAlvo){
   const ano = STATE.timelineAno || anoAtual;
   STATE.timelineAno = ano;
 
-  // Construir matriz de cobertura mês a mês
-  const mesesAno = Array.from({length:12}, (_,i)=>({ mes:i+1, aprovado:0, proposta:0 }));
+  // Construir matriz de cobertura mês a mês — com lista detalhada por contrato
+  const mesesAno = Array.from({length:12}, (_,i)=>({ mes:i+1, aprovado:0, proposta:0, contribs:[] }));
   orcs.forEach(({o,c})=>{
-    if (o.status === 'Perdida') return;
+    if (o.status === 'Perdida' || o.status === 'Rascunho') return;
     const dist = distribuirMcPorMes(o, c);
     dist.forEach(d=>{
       if (d.ano !== ano) return;
       const slot = mesesAno[d.mes-1];
       if (o.status === 'Aprovada') slot.aprovado += d.mc;
       else if (o.status === 'Proposta') slot.proposta += d.mc;
+      slot.contribs.push({ orc:o, mc:d.mc });
     });
   });
 
@@ -653,7 +654,7 @@ function renderTimelineOverhead(orcs, overheadAlvo){
   }
 
   return `
-  <div class="card p-6 relative overflow-hidden" style="background: linear-gradient(135deg, rgba(255,87,34,.08), rgba(46,107,255,.06)); border: 1px solid rgba(255,87,34,.22);">
+  <div class="card p-6 relative" style="background: linear-gradient(135deg, rgba(255,87,34,.08), rgba(46,107,255,.06)); border: 1px solid rgba(255,87,34,.22);">
     <div class="absolute top-0 right-0 w-64 h-64 bg-orange/8 rounded-full blur-3xl pointer-events-none"></div>
 
     <div class="relative flex items-start justify-between gap-6 flex-wrap mb-5">
@@ -681,27 +682,68 @@ function renderTimelineOverhead(orcs, overheadAlvo){
     </div>
 
     <!-- TIMELINE 12 MESES -->
-    <div class="grid grid-cols-12 gap-2 mt-4">
-      ${mesesAno.map(m=>{
+    <div class="grid grid-cols-12 gap-2 mt-4" style="overflow:visible;">
+      ${mesesAno.map((m, idx)=>{
         const pctApr = overheadAlvo>0 ? (m.aprovado/overheadAlvo)*100 : 0;
         const pctPot = overheadAlvo>0 ? ((m.aprovado+m.proposta)/overheadAlvo)*100 : 0;
         const alturaApr = Math.min(100, pctApr);
         const alturaPot = Math.min(100, pctPot);
         const mesAtual = (ano===anoAtual && m.mes===new Date().getMonth()+1);
-        return `<div class="relative flex flex-col items-center gap-1 ${mesAtual?'':''}">
+        // Posicionamento do tooltip: pontas alinhadas à esquerda/direita
+        const tipPos = idx <= 1 ? 'left-0' : idx >= 10 ? 'right-0' : 'left-1/2 -translate-x-1/2';
+        // Contribs ordenadas: aprovados primeiro, depois propostas, depois por MC desc
+        const sortedContribs = m.contribs.slice().sort((a,b)=>{
+          if (a.orc.status !== b.orc.status){
+            if (a.orc.status === 'Aprovada') return -1;
+            if (b.orc.status === 'Aprovada') return 1;
+          }
+          return b.mc - a.mc;
+        });
+        const gap = Math.max(0, overheadAlvo - m.aprovado);
+        return `<div class="group relative flex flex-col items-center gap-1">
           <!-- Bar container -->
-          <div class="relative w-full h-32 bg-ink-900 rounded-md overflow-hidden border ${mesAtual?'border-orange/60':'border-ink-800'}">
+          <div class="relative w-full h-32 bg-ink-900 rounded-md overflow-hidden border ${mesAtual?'border-orange/60':'border-ink-800'} cursor-help group-hover:border-orange transition">
             <!-- Linha 100% (meta overhead) -->
             <div class="absolute left-0 right-0 border-t border-dashed border-white/30" style="bottom: 100%"></div>
             <!-- Proposta atrás (potencial) -->
             <div class="absolute bottom-0 left-0 right-0" style="height:${alturaPot}%; background: repeating-linear-gradient(45deg, rgba(46,107,255,.35), rgba(46,107,255,.35) 4px, rgba(46,107,255,.15) 4px, rgba(46,107,255,.15) 8px);"></div>
             <!-- Aprovado na frente -->
             <div class="absolute bottom-0 left-0 right-0 ${corBarra(pctApr)}" style="height:${alturaApr}%; transition: height .3s ease;"></div>
-            <!-- % label dentro/acima da barra -->
+            <!-- % label -->
             ${pctApr > 12 ? `<div class="absolute bottom-1 left-0 right-0 text-center text-[10px] font-bold text-white">${pctApr.toFixed(0)}%</div>` : pctApr>0 ? `<div class="absolute top-1 left-0 right-0 text-center text-[10px] font-bold text-ink-300">${pctApr.toFixed(0)}%</div>` : ''}
           </div>
           <div class="text-[11px] font-bold ${mesAtual?'text-orange':'text-ink-300'}">${MESES_BR[m.mes-1]}</div>
-          <div class="text-[10px] text-ink-400 tabular-nums" title="Aprovado: ${fmtBRL(m.aprovado)}\nProposta: ${fmtBRL(m.proposta)}\nOverhead: ${fmtBRL(overheadAlvo)}">${fmtBRL(m.aprovado)}</div>
+          <div class="text-[10px] text-ink-400 tabular-nums">${fmtBRL(m.aprovado)}</div>
+
+          <!-- TOOLTIP -->
+          <div class="hidden group-hover:block absolute bottom-full ${tipPos} mb-3 z-50 w-72 p-3 rounded-xl shadow-2xl pointer-events-none" style="background:#0A0A12; border:1px solid #2F2F3D;">
+            <div class="flex items-center justify-between pb-2 border-b border-ink-800 mb-2">
+              <div class="font-display font-bold text-sm">${MESES_BR[m.mes-1]} · ${ano}</div>
+              <div class="text-[10px] ${pctApr>=100?'text-green-400':pctApr>=80?'text-yellow-400':pctApr>=50?'text-orange':'text-red-400'} font-bold">${pctApr.toFixed(0)}% coberto</div>
+            </div>
+            ${sortedContribs.length === 0
+              ? '<div class="text-xs text-ink-400 italic py-3 text-center">Nenhum contrato ativo neste mês.</div>'
+              : '<div class="space-y-1.5 max-h-48 overflow-y-auto pr-1">' + sortedContribs.map(co=>{
+                const pillCls = co.orc.status==='Aprovada' ? 'bg-green-500/15 text-green-300 border-green-500/30' : 'bg-azul/15 text-azul-400 border-azul/30';
+                return `<div class="flex items-start justify-between gap-2 text-xs py-1">
+                  <div class="min-w-0 flex-1">
+                    <div class="font-semibold text-white truncate">${co.orc.cliente}</div>
+                    <div class="text-[10px] text-ink-400 truncate">${co.orc.projeto || co.orc.tipo}</div>
+                  </div>
+                  <div class="flex flex-col items-end">
+                    <span class="pill border ${pillCls}" style="font-size:9px; padding:1px 6px;">${co.orc.status}</span>
+                    <span class="font-bold tabular-nums text-[11px] mt-0.5">${fmtBRL(co.mc)}</span>
+                  </div>
+                </div>`;
+              }).join('') + '</div>'
+            }
+            <div class="mt-2 pt-2 border-t border-ink-800 space-y-0.5 text-[11px]">
+              <div class="flex justify-between"><span class="text-ink-400">Aprovados</span><span class="font-bold tabular-nums text-green-300">${fmtBRL(m.aprovado)}</span></div>
+              ${m.proposta>0 ? `<div class="flex justify-between"><span class="text-ink-400">Propostas (potencial)</span><span class="font-bold tabular-nums text-azul-400">+${fmtBRL(m.proposta)}</span></div>` : ''}
+              <div class="flex justify-between"><span class="text-ink-400">Overhead alvo</span><span class="font-bold tabular-nums text-white">${fmtBRL(overheadAlvo)}</span></div>
+              <div class="flex justify-between pt-1 mt-1 border-t border-ink-800/60"><span class="text-ink-300 font-semibold">${gap>0?'Gap':'Sobra'}</span><span class="font-bold tabular-nums ${gap>0?'text-red-400':'text-green-400'}">${fmtBRL(Math.abs(gap||(m.aprovado-overheadAlvo)))}</span></div>
+            </div>
+          </div>
         </div>`;
       }).join('')}
     </div>
