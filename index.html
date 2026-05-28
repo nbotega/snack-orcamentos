@@ -309,7 +309,8 @@ async function carregarDoSupabase(){
       fee_mensal:Number(x.fee_mensal), gov_upsell:Number(x.gov_upsell||0.05),
       squad: squadByOrc[x.id] || [],
       volumetria: x.volumetria || {},
-      carta_ia: x.carta_ia || null
+      carta_ia: x.carta_ia || null,
+      carta_overrides: x.carta_overrides || null
     }));
     // Calcular próximo ID
     let max = 0;
@@ -337,6 +338,7 @@ async function salvarOrcamentoSupabase(orc){
       fee_mensal: orc.fee_mensal, gov_upsell: orc.gov_upsell||0.05,
       volumetria: orc.volumetria || {},
       carta_ia: orc.carta_ia || null,
+      carta_overrides: orc.carta_overrides || null,
       updated_at: new Date().toISOString()
     });
     if (e1) throw e1;
@@ -2117,16 +2119,31 @@ function renderCarta(ctx){
   if (!orc) return `<div class="card p-8 text-center text-ink-400">Orçamento não encontrado.</div>`;
   const c = calcular(orc);
 
-  // Cálculo da carta — o total é fee_mensal × meses (o que o cliente paga)
-  // Dentro desse total já estão embutidos: cachês, produção, mídia, impostos.
-  // O "Fee Snack" puro é o que sobra dessa subtração.
-  const totalCarta = orc.fee_mensal * orc.meses;
-  const cachesT = orc.caches || 0;
-  const midiaT = orc.midia || 0;
-  const producaoT = orc.producao || 0;
-  const impostoCarta = totalCarta * (PREMISSAS.imposto_carta || 0.1425);
-  const feeSnackPuro = Math.max(0, totalCarta - cachesT - midiaT - producaoT - impostoCarta);
+  // Cálculo da carta — com overrides editáveis
+  const ovr = orc.carta_overrides || {};
+  const ovrVals = ovr.vals || {};
+  const totalCarta = ovrVals.total ?? (orc.fee_mensal * orc.meses);
+  const cachesT = ovrVals.caches ?? (orc.caches || 0);
+  const midiaT = ovrVals.midia ?? (orc.midia || 0);
+  const producaoT = ovrVals.producao ?? (orc.producao || 0);
+
+  // Em Influ-repasse e UGC simples, cachês são PASS-THROUGH (cliente paga creators direto,
+  // sem NF Snack). Imposto incide só sobre o que entra na NF Snack.
+  const tipoObj = TIPOS.find(t => t.tipo === orc.tipo);
+  const cachePassThrough = tipoObj && !tipoObj.cache_na_receita;
+  const baseImposto = cachePassThrough ? Math.max(0, totalCarta - cachesT) : totalCarta;
+  const impostoPctCarta = PREMISSAS.imposto_carta || 0.1425;
+  const impostoCarta = ovrVals.impostos ?? (baseImposto * impostoPctCarta);
+  const feeSnackPuro = ovrVals.fee_snack ?? Math.max(0, totalCarta - cachesT - midiaT - producaoT - impostoCarta);
   const totalMensal = totalCarta / Math.max(1, orc.meses);
+  const somaComposicao = cachesT + midiaT + producaoT + impostoCarta + feeSnackPuro;
+  const inconsistente = Math.abs(somaComposicao - totalCarta) > 1;
+
+  const hasOverrides = ovr.intro || (ovr.sinopses && Object.keys(ovr.sinopses).length) || (ovr.vals && Object.keys(ovr.vals).length);
+
+  // Helpers de edição
+  const editVal = (campo, val) => `<span contenteditable="true" class="editable-num focus:outline-none focus:bg-orange/10 focus:px-2 focus:rounded transition-all" data-id="${orc.id}" data-campo="${campo}" onblur="editarValorCarta(this.dataset.id, this.dataset.campo, this.innerText)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}" title="Click pra editar">${fmtBRL(val)}</span>`;
+  const editText = (path, txt) => `<span contenteditable="true" class="editable-txt focus:outline-none focus:bg-orange/10 focus:px-1.5 focus:rounded transition-all" data-id="${orc.id}" data-path="${path}" onblur="editarTextoCarta(this.dataset.id, this.dataset.path, this.innerText)" title="Click pra editar">${txt}</span>`;
 
   // Áreas com cargo alocado nesse orçamento — soma alocação por cargo (sem nível)
   // Estrutura: { area: { cargo: alocacaoSomada } }
@@ -2179,7 +2196,11 @@ function renderCarta(ctx){
       .carta-wrap { padding: 0 !important; }
       .carta-card { background: white !important; color: black !important; border-color: #ddd !important; box-shadow: none !important; }
       .carta-card * { color: black !important; }
+      .editable-num, .editable-txt { border-bottom: none !important; }
     }
+    .editable-num, .editable-txt { cursor: text; border-bottom: 1px dashed transparent; transition: border-color .15s ease; }
+    .carta-card:hover .editable-num, .carta-card:hover .editable-txt { border-bottom-color: rgba(255,87,34,.22); }
+    .editable-num:focus, .editable-txt:focus { border-bottom-color: rgba(255,87,34,.7) !important; }
   </style>
   <div class="carta-wrap max-w-4xl mx-auto space-y-4 fade-in">
     <!-- TOOLBAR -->
@@ -2194,6 +2215,10 @@ function renderCarta(ctx){
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
           Voltar ao padrão
         </button>` : ''}
+        ${hasOverrides ? `<button class="btn btn-ghost text-xs" onclick="limparTodosOverridesCarta('${orc.id}')" title="Apagar minhas edições manuais">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg>
+          Limpar edições
+        </button>` : ''}
         <button class="btn btn-ghost" onclick="window.print()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
           Imprimir / PDF
@@ -2204,7 +2229,8 @@ function renderCarta(ctx){
         </button>
       </div>
     </div>
-    ${orc.carta_ia ? '<div class="text-[11px] text-azul-400 flex items-center gap-1.5 no-print"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> Texto personalizado pelo Claude. Click "Regenerar" pra trocar ou "Voltar ao padrão" pra usar o template.</div>' : ''}
+    ${orc.carta_ia ? '<div class="text-[11px] text-azul-400 flex items-center gap-1.5 no-print"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> Texto gerado pelo Claude. Click "Regenerar" pra trocar ou "Voltar ao padrão" pra usar o template.</div>' : ''}
+    ${hasOverrides ? '<div class="text-[11px] text-orange flex items-center gap-1.5 no-print"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Texto/valores foram editados manualmente. Esses overrides têm prioridade sobre o cálculo automático.</div>' : '<div class="text-[11px] text-ink-500 flex items-center gap-1.5 no-print"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Dica: click em qualquer texto ou valor pra editar inline.</div>'}
 
     <!-- CARTA -->
     <div class="carta-card card p-10" style="background: linear-gradient(180deg, #14141C 0%, #0E0E14 100%);">
@@ -2232,7 +2258,7 @@ function renderCarta(ctx){
               <div class="text-[11px] uppercase tracking-widest text-ink-300 font-semibold">Investimento total do contrato</div>
               <div class="text-xs text-ink-400 mt-1">${fmtBRL(totalMensal)}/mês × ${orc.meses} ${orc.meses===1?'mês':'meses'}</div>
             </div>
-            <div class="font-display font-black text-4xl tabular-nums text-orange">${fmtBRL(totalCarta)}</div>
+            <div class="font-display font-black text-4xl tabular-nums text-orange">${editVal('total', totalCarta)}</div>
           </div>
         </div>
 
@@ -2244,12 +2270,12 @@ function renderCarta(ctx){
         <div class="space-y-2">
           ${cachesT>0 ? `<div class="flex items-baseline justify-between py-3 border-b border-ink-800">
             <div>
-              <div class="font-semibold text-base">Cachês</div>
-              <div class="text-xs text-ink-400 mt-0.5">Investimento em creators / talentos</div>
+              <div class="font-semibold text-base">Cachês${cachePassThrough ? ' <span class="text-[10px] uppercase tracking-wider text-azul-400 font-bold ml-1">pass-through</span>' : ''}</div>
+              <div class="text-xs text-ink-400 mt-0.5">${cachePassThrough ? 'Pagos direto pelos creators — não passam pela NF Snack' : 'Investimento em creators / talentos'}</div>
             </div>
             <div class="flex items-baseline gap-3">
               <div class="text-xs text-ink-400 tabular-nums">${(cachesT/totalCarta*100).toFixed(1).replace('.',',')}%</div>
-              <div class="font-display font-bold text-lg tabular-nums w-36 text-right">${fmtBRL(cachesT)}</div>
+              <div class="font-display font-bold text-lg tabular-nums w-36 text-right">${editVal('caches', cachesT)}</div>
             </div>
           </div>` : ''}
 
@@ -2260,7 +2286,7 @@ function renderCarta(ctx){
             </div>
             <div class="flex items-baseline gap-3">
               <div class="text-xs text-ink-400 tabular-nums">${(producaoT/totalCarta*100).toFixed(1).replace('.',',')}%</div>
-              <div class="font-display font-bold text-lg tabular-nums w-36 text-right">${fmtBRL(producaoT)}</div>
+              <div class="font-display font-bold text-lg tabular-nums w-36 text-right">${editVal('producao', producaoT)}</div>
             </div>
           </div>` : ''}
 
@@ -2271,18 +2297,18 @@ function renderCarta(ctx){
             </div>
             <div class="flex items-baseline gap-3">
               <div class="text-xs text-ink-400 tabular-nums">${(midiaT/totalCarta*100).toFixed(1).replace('.',',')}%</div>
-              <div class="font-display font-bold text-lg tabular-nums w-36 text-right">${fmtBRL(midiaT)}</div>
+              <div class="font-display font-bold text-lg tabular-nums w-36 text-right">${editVal('midia', midiaT)}</div>
             </div>
           </div>` : ''}
 
           <div class="flex items-baseline justify-between py-3 border-b border-ink-800">
             <div>
               <div class="font-semibold text-base">Impostos</div>
-              <div class="text-xs text-ink-400 mt-0.5">${(PREMISSAS.imposto_carta*100).toFixed(2).replace('.',',')}% sobre o investimento total</div>
+              <div class="text-xs text-ink-400 mt-0.5">${(impostoPctCarta*100).toFixed(2).replace('.',',')}% sobre ${cachePassThrough ? `<span class="text-azul-400 font-semibold">o fee Snack</span> (${fmtBRL(baseImposto)}) — cachês não incidem` : 'o investimento total'}</div>
             </div>
             <div class="flex items-baseline gap-3">
               <div class="text-xs text-ink-400 tabular-nums">${(impostoCarta/totalCarta*100).toFixed(1).replace('.',',')}%</div>
-              <div class="font-display font-bold text-lg tabular-nums w-36 text-right">${fmtBRL(impostoCarta)}</div>
+              <div class="font-display font-bold text-lg tabular-nums w-36 text-right">${editVal('impostos', impostoCarta)}</div>
             </div>
           </div>
 
@@ -2293,9 +2319,14 @@ function renderCarta(ctx){
             </div>
             <div class="flex items-baseline gap-3">
               <div class="text-xs text-orange/80 tabular-nums">${(feeSnackPuro/totalCarta*100).toFixed(1).replace('.',',')}%</div>
-              <div class="font-display font-bold text-xl tabular-nums text-orange w-36 text-right">${fmtBRL(feeSnackPuro)}</div>
+              <div class="font-display font-bold text-xl tabular-nums text-orange w-36 text-right">${editVal('fee_snack', feeSnackPuro)}</div>
             </div>
           </div>
+
+          ${inconsistente ? `<div class="mt-2 text-xs text-yellow-400 flex items-center gap-1.5 no-print">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+            Composição não soma exato com o total (diferença de ${fmtBRL(Math.abs(somaComposicao-totalCarta))}). Edita os valores ou reseta.
+          </div>` : ''}
         </div>
       </div>
 
@@ -2303,18 +2334,19 @@ function renderCarta(ctx){
       <div class="mb-10">
         <div class="text-[11px] uppercase tracking-widest text-orange font-bold mb-4">2 · O que a Snack entrega</div>
 
-        ${(orc.carta_ia?.introducao
-          ? orc.carta_ia.introducao.split(/\n\n+/).map(p=>`<p class="text-sm text-ink-200 leading-relaxed mb-3">${p.trim()}</p>`).join('')
-          : `<p class="text-sm text-ink-300 leading-relaxed mb-6">A Snack atua como time dedicado de criação e produção pra ${orc.cliente}, com squad organizado em áreas complementares. Tudo integrado, sem custos abertos por função — você contrata <strong class="text-white">o output</strong>, não o tempo.</p>`)}
+        ${(()=>{
+          const introTxt = ovr.intro || orc.carta_ia?.introducao || `A Snack atua como time dedicado de criação e produção pra ${orc.cliente}, com squad organizado em áreas complementares. Tudo integrado, sem custos abertos por função — você contrata o output, não o tempo.`;
+          return `<div class="text-sm text-ink-200 leading-relaxed mb-6" style="white-space: pre-wrap;">${editText('intro', introTxt)}</div>`;
+        })()}
 
         <div class="space-y-5 mt-5">
           ${ordemAreas.map(area=>{
             const sa = slugArea(area);
             const cargosAloc = Object.entries(areasAlocadas[area]).sort(([a],[b])=>a.localeCompare(b));
-            const sinopse = orc.carta_ia?.sinopses?.[area] || SINOPSES_AREA[area] || 'Time dedicado ao projeto.';
+            const sinopse = ovr.sinopses?.[area] || orc.carta_ia?.sinopses?.[area] || SINOPSES_AREA[area] || 'Time dedicado ao projeto.';
             return `<div class="row-area-${sa} p-4 rounded-r-lg" style="background: rgba(255,255,255,.02);">
               <div class="font-display font-bold text-base">${area === 'HEADS' ? 'Heads' : area === 'GP' ? 'Gestão de Projetos' : area}</div>
-              <p class="text-sm text-ink-200 mt-1.5 leading-relaxed">${sinopse}</p>
+              <p class="text-sm text-ink-200 mt-1.5 leading-relaxed">${editText('sinopses.'+area, sinopse)}</p>
               <div class="mt-2.5 flex flex-wrap gap-1.5">
                 ${cargosAloc.map(([cargo, aloc])=>{
                   const pct = Math.round(aloc*100);
@@ -2413,6 +2445,58 @@ async function gerarCartaIA(id){
     btn.disabled = false;
     btn.innerHTML = original;
   }
+}
+
+// Parser BR pra valor monetário ("R$ 1.234,56" → 1234.56)
+function parseBRL(str){
+  if (str == null) return null;
+  const s = String(str).replace(/[^0-9,.-]/g,'').replace(/\./g,'').replace(',','.');
+  const n = parseFloat(s);
+  return isNaN(n) ? null : n;
+}
+
+async function salvarOverrideCarta(id, path, valor){
+  const orc = STATE.orcamentos.find(o=>o.id===id);
+  if (!orc) return;
+  if (!orc.carta_overrides) orc.carta_overrides = {};
+  const partes = path.split('.');
+  let obj = orc.carta_overrides;
+  for (let i=0; i<partes.length-1; i++){
+    if (!obj[partes[i]]) obj[partes[i]] = {};
+    obj = obj[partes[i]];
+  }
+  // Se valor está vazio/null, remove o override (volta ao padrão)
+  if (valor === '' || valor === null || valor === undefined || (typeof valor === 'number' && isNaN(valor))){
+    delete obj[partes[partes.length-1]];
+  } else {
+    obj[partes[partes.length-1]] = valor;
+  }
+  await salvarOrcamentoSupabase(orc);
+  navigate('carta', { id });
+}
+
+async function editarTextoCarta(id, path, novoTexto){
+  // Só salva se for diferente do default
+  await salvarOverrideCarta(id, path, novoTexto.trim());
+}
+
+async function editarValorCarta(id, campo, novoTexto){
+  const n = parseBRL(novoTexto);
+  if (n === null) {
+    alert('Valor inválido. Use formato tipo "R$ 1.234,56".');
+    navigate('carta', { id });
+    return;
+  }
+  await salvarOverrideCarta(id, 'vals.'+campo, n);
+}
+
+async function limparTodosOverridesCarta(id){
+  if (!confirm('Apagar todas as edições manuais da carta? Textos e valores voltam ao padrão.')) return;
+  const orc = STATE.orcamentos.find(o=>o.id===id);
+  if (!orc) return;
+  orc.carta_overrides = null;
+  await salvarOrcamentoSupabase(orc);
+  navigate('carta', { id });
 }
 
 async function limparCartaIA(id){
