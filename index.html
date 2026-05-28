@@ -487,11 +487,18 @@ function calcular(orc) {
   // Receita
   const V = K;
   const W = U + V;
-  const X = W * (1 - p.imposto) * p.comissao;
-  const Y = W * (1 - p.imposto) - Q - X;
-  const Z = W>0 ? Y / W : 0;
 
-  // Fee mínimo / ideal (replicando fórmula linear do Excel)
+  // Em Influ-repasse / UGC, cachês são pass-through (creators recebem direto, sem NF Snack).
+  // Imposto incide só sobre a parte que vira receita Snack de fato.
+  const cachePassThrough = tipo && !tipo.cache_na_receita;
+  const baseImposto = cachePassThrough ? Math.max(0, W - (orc.caches||0)) : W;
+  const impostoCalc = baseImposto * p.imposto;
+  const receitaLiq = W - impostoCalc;
+  const X = receitaLiq * p.comissao;        // comissão sobre receita líquida
+  const Y = receitaLiq - Q - X;             // EBITDA
+  const Z = W > 0 ? Y / W : 0;              // margem (sempre sobre W bruto)
+
+  // Fee mínimo / ideal — fórmula linear, ajustada pra pass-through
   function feeAlvo(alvo){
     if (isUpsell) {
       const gov = orc.gov_upsell || 0;
@@ -503,7 +510,11 @@ function calcular(orc) {
     }
     const den = 1 - alvo - p.imposto - (1-p.imposto)*p.comissao;
     if (den <= 0) return null;
-    const num = (J + M + N + O);
+    let num = J + M + N + O;
+    if (cachePassThrough) {
+      // Cachês não geram imposto → reduz o que precisa cobrar de fee
+      num -= (orc.caches || 0) * p.imposto * (1 - p.comissao);
+    }
     const ft = num/den - K;
     return ft / (orc.meses||1);
   }
@@ -529,14 +540,12 @@ function calcular(orc) {
     else upsellIdealAnual = (p.margem_ideal * W - Y) * 12 / orc.meses / p.margem_upsell;
   }
 
-  // Imposto e receita líquida — explícitos pra demonstrativo
-  const imposto = W * p.imposto;
-  const receitaLiquida = W * (1 - p.imposto);
-
   return {
     custoDireto:J, receitaTaxaAdmin:K, squadMensal:L, squadTotal:M, encargos:N,
     feeTotal:U, heads:P, overhead:O, govIncrUpsell:AC, custoOp:Q,
-    receitaFeeTotal:U, receitaTotal:W, imposto, receitaLiquida, comissao:X, ebitda:Y, margem:Z,
+    receitaFeeTotal:U, receitaTotal:W,
+    imposto: impostoCalc, baseImposto, cachePassThrough,
+    receitaLiquida: receitaLiq, comissao:X, ebitda:Y, margem:Z,
     feeMin, feeIdeal, statusMargem,
     upsellMinAnual, upsellIdealAnual
   };
@@ -1449,7 +1458,7 @@ function renderNovoOrcamento(ctx) {
           ['Custo Total Op','custoOp','text-orange font-semibold'],
           ['Receita Fee Total','receitaFeeTotal','text-ink-200'],
           ['Receita Total','receitaTotal','text-azul-400 font-bold'],
-          ['<span class="text-red-300">− Imposto ('+(PREMISSAS.imposto*100).toFixed(0)+'%)</span>','imposto','text-red-300'],
+          ['<span class="text-red-300">− Imposto <span id="imposto-base-tag" class="text-[10px] text-ink-400 ml-1"></span></span>','imposto','text-red-300'],
           ['Receita Líquida','receitaLiquida','text-azul-400 font-bold'],
           ['Comissão (1,5% líquida)','comissao','text-ink-300'],
         ].map(([l,k,cls])=>`<div class="flex items-center justify-between border-b border-ink-800 pb-1.5">
@@ -1806,6 +1815,15 @@ function recalc(){
   // Imposto com prefixo de menos pra deixar claro que é dedução
   const elImposto = document.getElementById('d-imposto');
   if (elImposto) elImposto.textContent = '− ' + fmtBRL(c.imposto);
+  // Tag explicativa da base do imposto (pass-through ou não)
+  const tagBaseImposto = document.getElementById('imposto-base-tag');
+  if (tagBaseImposto){
+    if (c.cachePassThrough){
+      tagBaseImposto.innerHTML = `(${(PREMISSAS.imposto*100).toFixed(0)}% sobre <span class="text-azul-400">${fmtBRL(c.baseImposto)}</span>, cachês PT)`;
+    } else {
+      tagBaseImposto.textContent = `(${(PREMISSAS.imposto*100).toFixed(0)}% sobre receita)`;
+    }
+  }
 
   // Contribuição pra cobertura de overhead
   const mc = mcMensal(CURRENT_ORC, c);
@@ -2307,7 +2325,7 @@ function renderCarta(ctx){
               <div class="text-xs text-ink-400 mt-0.5">${(impostoPctCarta*100).toFixed(2).replace('.',',')}% sobre ${cachePassThrough ? `<span class="text-azul-400 font-semibold">o fee Snack</span> (${fmtBRL(baseImposto)}) — cachês não incidem` : 'o investimento total'}</div>
             </div>
             <div class="flex items-baseline gap-3">
-              <div class="text-xs text-ink-400 tabular-nums">${(impostoCarta/totalCarta*100).toFixed(1).replace('.',',')}%</div>
+              ${cachePassThrough ? '' : `<div class="text-xs text-ink-400 tabular-nums">${(impostoCarta/totalCarta*100).toFixed(1).replace('.',',')}%</div>`}
               <div class="font-display font-bold text-lg tabular-nums w-36 text-right">${editVal('impostos', impostoCarta)}</div>
             </div>
           </div>
