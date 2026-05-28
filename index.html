@@ -308,7 +308,8 @@ async function carregarDoSupabase(){
       caches:Number(x.caches), midia:Number(x.midia), producao:Number(x.producao),
       fee_mensal:Number(x.fee_mensal), gov_upsell:Number(x.gov_upsell||0.05),
       squad: squadByOrc[x.id] || [],
-      volumetria: x.volumetria || {}
+      volumetria: x.volumetria || {},
+      carta_ia: x.carta_ia || null
     }));
     // Calcular próximo ID
     let max = 0;
@@ -335,6 +336,7 @@ async function salvarOrcamentoSupabase(orc){
       caches: orc.caches, midia: orc.midia, producao: orc.producao,
       fee_mensal: orc.fee_mensal, gov_upsell: orc.gov_upsell||0.05,
       volumetria: orc.volumetria || {},
+      carta_ia: orc.carta_ia || null,
       updated_at: new Date().toISOString()
     });
     if (e1) throw e1;
@@ -2179,9 +2181,17 @@ function renderCarta(ctx){
   </style>
   <div class="carta-wrap max-w-4xl mx-auto space-y-4 fade-in">
     <!-- TOOLBAR -->
-    <div class="flex items-center justify-between no-print">
+    <div class="flex items-center justify-between no-print flex-wrap gap-2">
       <button class="text-sm text-orange hover:text-orange-400 font-semibold" onclick="navigate('detalhe',{id:'${orc.id}'})">← Voltar pro orçamento interno</button>
       <div class="flex items-center gap-2">
+        <button id="btn-gerar-ia" class="btn btn-primary" onclick="gerarCartaIA('${orc.id}')" title="Gerar introdução e sinopses customizadas com Claude">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+          ${orc.carta_ia ? 'Regenerar com IA' : 'Personalizar com IA'}
+        </button>
+        ${orc.carta_ia ? `<button class="btn btn-ghost text-xs" onclick="limparCartaIA('${orc.id}')" title="Voltar pros textos padrão">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
+          Voltar ao padrão
+        </button>` : ''}
         <button class="btn btn-ghost" onclick="window.print()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
           Imprimir / PDF
@@ -2192,6 +2202,7 @@ function renderCarta(ctx){
         </button>
       </div>
     </div>
+    ${orc.carta_ia ? '<div class="text-[11px] text-azul-400 flex items-center gap-1.5 no-print"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> Texto personalizado pelo Claude. Click "Regenerar" pra trocar ou "Voltar ao padrão" pra usar o template.</div>' : ''}
 
     <!-- CARTA -->
     <div class="carta-card card p-10" style="background: linear-gradient(180deg, #14141C 0%, #0E0E14 100%);">
@@ -2269,17 +2280,18 @@ function renderCarta(ctx){
       <div class="mb-10">
         <div class="text-[11px] uppercase tracking-widest text-orange font-bold mb-4">2 · O que a Snack entrega</div>
 
-        <p class="text-sm text-ink-300 leading-relaxed mb-6">
-          A Snack atua como time dedicado de criação e produção pra ${orc.cliente}, com squad organizado em áreas complementares. Tudo integrado, sem custos abertos por função — você contrata <strong class="text-white">o output</strong>, não o tempo.
-        </p>
+        ${(orc.carta_ia?.introducao
+          ? orc.carta_ia.introducao.split(/\n\n+/).map(p=>`<p class="text-sm text-ink-200 leading-relaxed mb-3">${p.trim()}</p>`).join('')
+          : `<p class="text-sm text-ink-300 leading-relaxed mb-6">A Snack atua como time dedicado de criação e produção pra ${orc.cliente}, com squad organizado em áreas complementares. Tudo integrado, sem custos abertos por função — você contrata <strong class="text-white">o output</strong>, não o tempo.</p>`)}
 
-        <div class="space-y-5">
+        <div class="space-y-5 mt-5">
           ${ordemAreas.map(area=>{
             const sa = slugArea(area);
             const cargosUnicos = [...areasAlocadas[area]].sort();
+            const sinopse = orc.carta_ia?.sinopses?.[area] || SINOPSES_AREA[area] || 'Time dedicado ao projeto.';
             return `<div class="row-area-${sa} p-4 rounded-r-lg" style="background: rgba(255,255,255,.02);">
               <div class="font-display font-bold text-base">${area === 'HEADS' ? 'Heads' : area === 'GP' ? 'Gestão de Projetos' : area}</div>
-              <p class="text-sm text-ink-200 mt-1.5 leading-relaxed">${SINOPSES_AREA[area] || 'Time dedicado ao projeto.'}</p>
+              <p class="text-sm text-ink-200 mt-1.5 leading-relaxed">${sinopse}</p>
               <div class="mt-2.5 flex flex-wrap gap-1.5">
                 ${cargosUnicos.map(c=>`<span class="pill pill-ink" style="font-size:11px;">${c}</span>`).join('')}
               </div>
@@ -2312,6 +2324,76 @@ function renderCarta(ctx){
   `;
 }
 
+async function gerarCartaIA(id){
+  const orc = STATE.orcamentos.find(o=>o.id===id);
+  if (!orc) return;
+  const btn = document.getElementById('btn-gerar-ia');
+  const original = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Claude pensando...';
+
+  // Monta payload
+  const areasMap = {};
+  (orc.squad||[]).forEach(l=>{
+    const cg = CARGOS.find(c=>c.id===l.cargo_id);
+    if (!cg) return;
+    if (!areasMap[cg.area]) areasMap[cg.area] = new Set();
+    areasMap[cg.area].add(cg.cargo);
+  });
+  const areas = Object.entries(areasMap).map(([area, set])=>({ area, cargos: [...set].sort() }));
+
+  const vol = orc.volumetria || {};
+  const po = vol.posts_originais || {};
+  const itemMap = {
+    tiktok_videos:'TikTok Vídeos', tiktok_lives:'TikTok Lives',
+    ig_feed:'Instagram Carrossel/Estático', ig_reels:'Instagram Reels', ig_stories:'Instagram Stories',
+    yt_vod:'YouTube VOD', yt_shorts:'YouTube Shorts', yt_live:'YouTube Live',
+    linkedin_posts:'LinkedIn Posts', linkedin_videos:'LinkedIn Vídeos',
+    x_tweets:'Twitter/X Tweets', x_threads:'Twitter/X Threads',
+    threads_posts:'Threads Posts'
+  };
+  const volumetria = [];
+  Object.entries(itemMap).forEach(([k,label])=>{ if (po[k]>0) volumetria.push({label, qtd:po[k]}); });
+  if (vol.reposts>0) volumetria.push({label:'Reposts', qtd:vol.reposts});
+  if (vol.responding>0) volumetria.push({label:'Responding (interações)', qtd:vol.responding});
+  const rel = vol.relatorios || {};
+  const relMap = {sentimento:'Relatório de Sentimento', midia:'Relatório de Mídia', performance:'Relatório de Performance', dashboard_integrado:'Dashboard Integrado', plano_editorial:'Plano Editorial', planejamento_campanha:'Planejamento de Campanha'};
+  Object.entries(relMap).forEach(([k,label])=>{ if (rel[k]>0) volumetria.push({label, qtd:rel[k]}); });
+
+  try {
+    const { data, error } = await sb.functions.invoke('gerar-carta', {
+      body: {
+        cliente: orc.cliente,
+        projeto: orc.projeto || '',
+        tipo: orc.tipo,
+        meses: orc.meses,
+        areas, volumetria,
+      }
+    });
+    if (error) throw error;
+    if (data.error) throw new Error(data.error + (data.detail ? ': '+data.detail : ''));
+    if (!data.introducao || !data.sinopses) throw new Error('Resposta da IA incompleta.');
+
+    orc.carta_ia = { introducao: data.introducao, sinopses: data.sinopses };
+    await salvarOrcamentoSupabase(orc);
+    navigate('carta', { id: orc.id });  // re-render
+  } catch(e){
+    console.error(e);
+    alert('Erro ao gerar carta com IA:\n\n' + (e.message || e));
+    btn.disabled = false;
+    btn.innerHTML = original;
+  }
+}
+
+async function limparCartaIA(id){
+  if (!confirm('Voltar pros textos padrão? Os textos gerados pela IA vão ser apagados.')) return;
+  const orc = STATE.orcamentos.find(o=>o.id===id);
+  if (!orc) return;
+  orc.carta_ia = null;
+  await salvarOrcamentoSupabase(orc);
+  navigate('carta', { id: orc.id });
+}
+
 function copiarCarta(id){
   const orc = STATE.orcamentos.find(o=>o.id===id);
   if (!orc) return;
@@ -2341,9 +2423,11 @@ function copiarCarta(id){
   txt += `Impostos (${(PREMISSAS.imposto_carta*100).toFixed(2).replace('.',',')}%)        ${fmtBRL(impostoCarta)}\n`;
   txt += `TOTAL                   ${fmtBRL(totalCarta)}\n\n`;
   txt += `=== 2 · O QUE A SNACK ENTREGA ===\n\n`;
+  if (orc.carta_ia?.introducao){ txt += orc.carta_ia.introducao + '\n\n'; }
   ordemAreas.forEach(area=>{
     txt += `${area === 'HEADS' ? 'HEADS' : area}\n`;
-    txt += `${SINOPSES_AREA[area]||''}\n`;
+    const sin = orc.carta_ia?.sinopses?.[area] || SINOPSES_AREA[area] || '';
+    txt += `${sin}\n`;
     txt += `Equipe: ${[...areasAlocadas[area]].sort().join(', ')}\n\n`;
   });
   navigator.clipboard.writeText(txt).then(()=>alert('Texto da carta copiado.'));
