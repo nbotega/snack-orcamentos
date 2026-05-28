@@ -2117,15 +2117,16 @@ function renderCarta(ctx){
   if (!orc) return `<div class="card p-8 text-center text-ink-400">Orçamento não encontrado.</div>`;
   const c = calcular(orc);
 
-  // Cálculo da carta — usa imposto_carta (14,25%) sobre TUDO
-  const orcamentoFee = orc.fee_mensal * orc.meses;
+  // Cálculo da carta — o total é fee_mensal × meses (o que o cliente paga)
+  // Dentro desse total já estão embutidos: cachês, produção, mídia, impostos.
+  // O "Fee Snack" puro é o que sobra dessa subtração.
+  const totalCarta = orc.fee_mensal * orc.meses;
   const cachesT = orc.caches || 0;
   const midiaT = orc.midia || 0;
   const producaoT = orc.producao || 0;
-  const subtotal = orcamentoFee + cachesT + midiaT + producaoT;
-  const impostoCarta = subtotal * (PREMISSAS.imposto_carta || 0.1425);
-  const totalCarta = subtotal + impostoCarta;
-  const feeMensalLiquido = orcamentoFee / Math.max(1, orc.meses);
+  const impostoCarta = totalCarta * (PREMISSAS.imposto_carta || 0.1425);
+  const feeSnackPuro = Math.max(0, totalCarta - cachesT - midiaT - producaoT - impostoCarta);
+  const totalMensal = totalCarta / Math.max(1, orc.meses);
 
   // Áreas com cargo alocado nesse orçamento (com cargos únicos por área, sem nível)
   const areasAlocadas = {};
@@ -2223,55 +2224,58 @@ function renderCarta(ctx){
       <div class="mb-10">
         <div class="text-[11px] uppercase tracking-widest text-orange font-bold mb-4">1 · Investimento</div>
 
-        <div class="space-y-3">
-          <div class="flex items-baseline justify-between py-3 border-b border-ink-800">
+        <!-- TOTAL EM DESTAQUE -->
+        <div class="rounded-xl px-6 py-5 mb-5" style="background: linear-gradient(135deg, rgba(255,87,34,.14), rgba(46,107,255,.10)); border: 1px solid rgba(255,87,34,.32);">
+          <div class="flex items-baseline justify-between">
             <div>
-              <div class="font-display font-bold text-base">Orçamento Snack</div>
-              <div class="text-xs text-ink-400 mt-0.5">${fmtBRL(feeMensalLiquido)}/mês × ${orc.meses} ${orc.meses===1?'mês':'meses'}</div>
+              <div class="text-[11px] uppercase tracking-widest text-ink-300 font-semibold">Investimento total do contrato</div>
+              <div class="text-xs text-ink-400 mt-1">${fmtBRL(totalMensal)}/mês × ${orc.meses} ${orc.meses===1?'mês':'meses'}</div>
             </div>
-            <div class="font-display font-bold text-xl tabular-nums">${fmtBRL(orcamentoFee)}</div>
+            <div class="font-display font-black text-4xl tabular-nums text-orange">${fmtBRL(totalCarta)}</div>
           </div>
+        </div>
 
+        <!-- DECOMPOSIÇÃO -->
+        <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold mb-3">Composição</div>
+        <div class="space-y-2">
           ${cachesT>0 ? `<div class="flex items-baseline justify-between py-3 border-b border-ink-800">
             <div>
-              <div class="font-display font-bold text-base">Cachês</div>
+              <div class="font-semibold text-base">Cachês</div>
               <div class="text-xs text-ink-400 mt-0.5">Investimento em creators / talentos</div>
             </div>
-            <div class="font-display font-bold text-xl tabular-nums">${fmtBRL(cachesT)}</div>
+            <div class="font-display font-bold text-lg tabular-nums">${fmtBRL(cachesT)}</div>
           </div>` : ''}
 
           ${producaoT>0 ? `<div class="flex items-baseline justify-between py-3 border-b border-ink-800">
             <div>
-              <div class="font-display font-bold text-base">Produção</div>
+              <div class="font-semibold text-base">Produção</div>
               <div class="text-xs text-ink-400 mt-0.5">Custos de produção audiovisual</div>
             </div>
-            <div class="font-display font-bold text-xl tabular-nums">${fmtBRL(producaoT)}</div>
+            <div class="font-display font-bold text-lg tabular-nums">${fmtBRL(producaoT)}</div>
           </div>` : ''}
 
           ${midiaT>0 ? `<div class="flex items-baseline justify-between py-3 border-b border-ink-800">
             <div>
-              <div class="font-display font-bold text-base">Mídia</div>
+              <div class="font-semibold text-base">Mídia</div>
               <div class="text-xs text-ink-400 mt-0.5">Investimento em mídia paga</div>
             </div>
-            <div class="font-display font-bold text-xl tabular-nums">${fmtBRL(midiaT)}</div>
+            <div class="font-display font-bold text-lg tabular-nums">${fmtBRL(midiaT)}</div>
           </div>` : ''}
 
           <div class="flex items-baseline justify-between py-3 border-b border-ink-800">
-            <div class="text-sm text-ink-300">Subtotal</div>
-            <div class="font-display font-bold text-base tabular-nums">${fmtBRL(subtotal)}</div>
-          </div>
-
-          <div class="flex items-baseline justify-between py-3 border-b border-ink-800">
             <div>
-              <div class="text-sm text-ink-300">Impostos</div>
-              <div class="text-xs text-ink-400 mt-0.5">${(PREMISSAS.imposto_carta*100).toFixed(2).replace('.',',')}% sobre o subtotal</div>
+              <div class="font-semibold text-base">Impostos</div>
+              <div class="text-xs text-ink-400 mt-0.5">${(PREMISSAS.imposto_carta*100).toFixed(2).replace('.',',')}% sobre o investimento total</div>
             </div>
-            <div class="font-display font-bold text-base tabular-nums">${fmtBRL(impostoCarta)}</div>
+            <div class="font-display font-bold text-lg tabular-nums">${fmtBRL(impostoCarta)}</div>
           </div>
 
-          <div class="flex items-baseline justify-between py-4 mt-2 rounded-xl px-4" style="background: linear-gradient(135deg, rgba(255,87,34,.12), rgba(46,107,255,.10)); border: 1px solid rgba(255,87,34,.30);">
-            <div class="font-display font-bold text-xl">Investimento total do contrato</div>
-            <div class="font-display font-black text-3xl tabular-nums text-orange">${fmtBRL(totalCarta)}</div>
+          <div class="flex items-baseline justify-between py-3.5 px-4 rounded-lg mt-1" style="background: rgba(255,87,34,.08); border: 1px solid rgba(255,87,34,.25);">
+            <div>
+              <div class="font-display font-bold text-base text-orange">Fee Snack</div>
+              <div class="text-xs text-ink-400 mt-0.5">Gestão estratégica, criativa e operacional</div>
+            </div>
+            <div class="font-display font-bold text-xl tabular-nums text-orange">${fmtBRL(feeSnackPuro)}</div>
           </div>
         </div>
       </div>
@@ -2397,10 +2401,9 @@ async function limparCartaIA(id){
 function copiarCarta(id){
   const orc = STATE.orcamentos.find(o=>o.id===id);
   if (!orc) return;
-  const orcamentoFee = orc.fee_mensal * orc.meses;
-  const subtotal = orcamentoFee + (orc.caches||0) + (orc.midia||0) + (orc.producao||0);
-  const impostoCarta = subtotal * (PREMISSAS.imposto_carta || 0.1425);
-  const totalCarta = subtotal + impostoCarta;
+  const totalCarta = orc.fee_mensal * orc.meses;
+  const impostoCarta = totalCarta * (PREMISSAS.imposto_carta || 0.1425);
+  const feeSnackPuro = Math.max(0, totalCarta - (orc.caches||0) - (orc.midia||0) - (orc.producao||0) - impostoCarta);
 
   const areasAlocadas = {};
   (orc.squad||[]).forEach(l=>{
@@ -2415,13 +2418,14 @@ function copiarCarta(id){
   if (orc.projeto) txt += `${orc.projeto.replace(' (cópia)','')}\n`;
   txt += `${orc.tipo} · ${orc.meses} ${orc.meses===1?'mês':'meses'} · Início ${fmtData(orc.data_inicio)}\n\n`;
   txt += `=== 1 · INVESTIMENTO ===\n`;
-  txt += `Orçamento Snack         ${fmtBRL(orcamentoFee)}\n`;
-  if (orc.caches>0) txt += `Cachês                  ${fmtBRL(orc.caches)}\n`;
-  if (orc.producao>0) txt += `Produção                ${fmtBRL(orc.producao)}\n`;
-  if (orc.midia>0) txt += `Mídia                   ${fmtBRL(orc.midia)}\n`;
-  txt += `Subtotal                ${fmtBRL(subtotal)}\n`;
-  txt += `Impostos (${(PREMISSAS.imposto_carta*100).toFixed(2).replace('.',',')}%)        ${fmtBRL(impostoCarta)}\n`;
-  txt += `TOTAL                   ${fmtBRL(totalCarta)}\n\n`;
+  txt += `INVESTIMENTO TOTAL DO CONTRATO   ${fmtBRL(totalCarta)}\n`;
+  txt += `(${fmtBRL(totalCarta/Math.max(1,orc.meses))}/mês × ${orc.meses} ${orc.meses===1?'mês':'meses'})\n\n`;
+  txt += `Composição:\n`;
+  if (orc.caches>0) txt += `  Cachês                          ${fmtBRL(orc.caches)}\n`;
+  if (orc.producao>0) txt += `  Produção                        ${fmtBRL(orc.producao)}\n`;
+  if (orc.midia>0) txt += `  Mídia                           ${fmtBRL(orc.midia)}\n`;
+  txt += `  Impostos (${(PREMISSAS.imposto_carta*100).toFixed(2).replace('.',',')}%)                ${fmtBRL(impostoCarta)}\n`;
+  txt += `  Fee Snack (gestão e operação)   ${fmtBRL(feeSnackPuro)}\n\n`;
   txt += `=== 2 · O QUE A SNACK ENTREGA ===\n\n`;
   if (orc.carta_ia?.introducao){ txt += orc.carta_ia.introducao + '\n\n'; }
   ordemAreas.forEach(area=>{
