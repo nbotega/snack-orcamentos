@@ -2128,13 +2128,14 @@ function renderCarta(ctx){
   const feeSnackPuro = Math.max(0, totalCarta - cachesT - midiaT - producaoT - impostoCarta);
   const totalMensal = totalCarta / Math.max(1, orc.meses);
 
-  // Áreas com cargo alocado nesse orçamento (com cargos únicos por área, sem nível)
+  // Áreas com cargo alocado nesse orçamento — soma alocação por cargo (sem nível)
+  // Estrutura: { area: { cargo: alocacaoSomada } }
   const areasAlocadas = {};
   (orc.squad||[]).forEach(l=>{
     const cargo = CARGOS.find(c=>c.id===l.cargo_id);
     if (!cargo) return;
-    if (!areasAlocadas[cargo.area]) areasAlocadas[cargo.area] = new Set();
-    areasAlocadas[cargo.area].add(cargo.cargo);
+    if (!areasAlocadas[cargo.area]) areasAlocadas[cargo.area] = {};
+    areasAlocadas[cargo.area][cargo.cargo] = (areasAlocadas[cargo.area][cargo.cargo] || 0) + (l.alocacao || 0);
   });
   // Ordem: HEADS primeiro, depois alfabético
   const ordemAreas = Object.keys(areasAlocadas).sort((a,b)=>{
@@ -2236,14 +2237,20 @@ function renderCarta(ctx){
         </div>
 
         <!-- DECOMPOSIÇÃO -->
-        <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold mb-3">Composição</div>
+        <div class="flex items-end justify-between mb-3">
+          <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">Composição</div>
+          <div class="text-[10px] uppercase tracking-wider text-ink-500">% do total</div>
+        </div>
         <div class="space-y-2">
           ${cachesT>0 ? `<div class="flex items-baseline justify-between py-3 border-b border-ink-800">
             <div>
               <div class="font-semibold text-base">Cachês</div>
               <div class="text-xs text-ink-400 mt-0.5">Investimento em creators / talentos</div>
             </div>
-            <div class="font-display font-bold text-lg tabular-nums">${fmtBRL(cachesT)}</div>
+            <div class="flex items-baseline gap-3">
+              <div class="text-xs text-ink-400 tabular-nums">${(cachesT/totalCarta*100).toFixed(1).replace('.',',')}%</div>
+              <div class="font-display font-bold text-lg tabular-nums w-36 text-right">${fmtBRL(cachesT)}</div>
+            </div>
           </div>` : ''}
 
           ${producaoT>0 ? `<div class="flex items-baseline justify-between py-3 border-b border-ink-800">
@@ -2251,7 +2258,10 @@ function renderCarta(ctx){
               <div class="font-semibold text-base">Produção</div>
               <div class="text-xs text-ink-400 mt-0.5">Custos de produção audiovisual</div>
             </div>
-            <div class="font-display font-bold text-lg tabular-nums">${fmtBRL(producaoT)}</div>
+            <div class="flex items-baseline gap-3">
+              <div class="text-xs text-ink-400 tabular-nums">${(producaoT/totalCarta*100).toFixed(1).replace('.',',')}%</div>
+              <div class="font-display font-bold text-lg tabular-nums w-36 text-right">${fmtBRL(producaoT)}</div>
+            </div>
           </div>` : ''}
 
           ${midiaT>0 ? `<div class="flex items-baseline justify-between py-3 border-b border-ink-800">
@@ -2259,7 +2269,10 @@ function renderCarta(ctx){
               <div class="font-semibold text-base">Mídia</div>
               <div class="text-xs text-ink-400 mt-0.5">Investimento em mídia paga</div>
             </div>
-            <div class="font-display font-bold text-lg tabular-nums">${fmtBRL(midiaT)}</div>
+            <div class="flex items-baseline gap-3">
+              <div class="text-xs text-ink-400 tabular-nums">${(midiaT/totalCarta*100).toFixed(1).replace('.',',')}%</div>
+              <div class="font-display font-bold text-lg tabular-nums w-36 text-right">${fmtBRL(midiaT)}</div>
+            </div>
           </div>` : ''}
 
           <div class="flex items-baseline justify-between py-3 border-b border-ink-800">
@@ -2267,7 +2280,10 @@ function renderCarta(ctx){
               <div class="font-semibold text-base">Impostos</div>
               <div class="text-xs text-ink-400 mt-0.5">${(PREMISSAS.imposto_carta*100).toFixed(2).replace('.',',')}% sobre o investimento total</div>
             </div>
-            <div class="font-display font-bold text-lg tabular-nums">${fmtBRL(impostoCarta)}</div>
+            <div class="flex items-baseline gap-3">
+              <div class="text-xs text-ink-400 tabular-nums">${(impostoCarta/totalCarta*100).toFixed(1).replace('.',',')}%</div>
+              <div class="font-display font-bold text-lg tabular-nums w-36 text-right">${fmtBRL(impostoCarta)}</div>
+            </div>
           </div>
 
           <div class="flex items-baseline justify-between py-3.5 px-4 rounded-lg mt-1" style="background: rgba(255,87,34,.08); border: 1px solid rgba(255,87,34,.25);">
@@ -2275,7 +2291,10 @@ function renderCarta(ctx){
               <div class="font-display font-bold text-base text-orange">Fee Snack</div>
               <div class="text-xs text-ink-400 mt-0.5">Gestão estratégica, criativa e operacional</div>
             </div>
-            <div class="font-display font-bold text-xl tabular-nums text-orange">${fmtBRL(feeSnackPuro)}</div>
+            <div class="flex items-baseline gap-3">
+              <div class="text-xs text-orange/80 tabular-nums">${(feeSnackPuro/totalCarta*100).toFixed(1).replace('.',',')}%</div>
+              <div class="font-display font-bold text-xl tabular-nums text-orange w-36 text-right">${fmtBRL(feeSnackPuro)}</div>
+            </div>
           </div>
         </div>
       </div>
@@ -2291,13 +2310,20 @@ function renderCarta(ctx){
         <div class="space-y-5 mt-5">
           ${ordemAreas.map(area=>{
             const sa = slugArea(area);
-            const cargosUnicos = [...areasAlocadas[area]].sort();
+            const cargosAloc = Object.entries(areasAlocadas[area]).sort(([a],[b])=>a.localeCompare(b));
             const sinopse = orc.carta_ia?.sinopses?.[area] || SINOPSES_AREA[area] || 'Time dedicado ao projeto.';
             return `<div class="row-area-${sa} p-4 rounded-r-lg" style="background: rgba(255,255,255,.02);">
               <div class="font-display font-bold text-base">${area === 'HEADS' ? 'Heads' : area === 'GP' ? 'Gestão de Projetos' : area}</div>
               <p class="text-sm text-ink-200 mt-1.5 leading-relaxed">${sinopse}</p>
               <div class="mt-2.5 flex flex-wrap gap-1.5">
-                ${cargosUnicos.map(c=>`<span class="pill pill-ink" style="font-size:11px;">${c}</span>`).join('')}
+                ${cargosAloc.map(([cargo, aloc])=>{
+                  const pct = Math.round(aloc*100);
+                  const isFull = pct >= 100;
+                  return `<span class="pill pill-ink" style="font-size:11px;">
+                    ${cargo}
+                    <span class="ml-1.5 font-bold ${isFull?'text-orange':'text-azul-400'}">${pct}%</span>
+                  </span>`;
+                }).join('')}
               </div>
             </div>`;
           }).join('')}
@@ -2409,10 +2435,11 @@ function copiarCarta(id){
   (orc.squad||[]).forEach(l=>{
     const cg = CARGOS.find(c=>c.id===l.cargo_id);
     if (!cg) return;
-    if (!areasAlocadas[cg.area]) areasAlocadas[cg.area] = new Set();
-    areasAlocadas[cg.area].add(cg.cargo);
+    if (!areasAlocadas[cg.area]) areasAlocadas[cg.area] = {};
+    areasAlocadas[cg.area][cg.cargo] = (areasAlocadas[cg.area][cg.cargo]||0) + (l.alocacao||0);
   });
   const ordemAreas = Object.keys(areasAlocadas).sort((a,b)=>a==='HEADS'?-1:b==='HEADS'?1:a.localeCompare(b));
+  const pct = v => totalCarta>0 ? (v/totalCarta*100).toFixed(1).replace('.',',')+'%' : '';
 
   let txt = `PROPOSTA COMERCIAL — SNACK CONTENT\n${orc.cliente}\n`;
   if (orc.projeto) txt += `${orc.projeto.replace(' (cópia)','')}\n`;
@@ -2420,19 +2447,21 @@ function copiarCarta(id){
   txt += `=== 1 · INVESTIMENTO ===\n`;
   txt += `INVESTIMENTO TOTAL DO CONTRATO   ${fmtBRL(totalCarta)}\n`;
   txt += `(${fmtBRL(totalCarta/Math.max(1,orc.meses))}/mês × ${orc.meses} ${orc.meses===1?'mês':'meses'})\n\n`;
-  txt += `Composição:\n`;
-  if (orc.caches>0) txt += `  Cachês                          ${fmtBRL(orc.caches)}\n`;
-  if (orc.producao>0) txt += `  Produção                        ${fmtBRL(orc.producao)}\n`;
-  if (orc.midia>0) txt += `  Mídia                           ${fmtBRL(orc.midia)}\n`;
-  txt += `  Impostos (${(PREMISSAS.imposto_carta*100).toFixed(2).replace('.',',')}%)                ${fmtBRL(impostoCarta)}\n`;
-  txt += `  Fee Snack (gestão e operação)   ${fmtBRL(feeSnackPuro)}\n\n`;
+  txt += `Composição (% do total):\n`;
+  if (orc.caches>0) txt += `  Cachês                          ${fmtBRL(orc.caches).padStart(16)}   ${pct(orc.caches)}\n`;
+  if (orc.producao>0) txt += `  Produção                        ${fmtBRL(orc.producao).padStart(16)}   ${pct(orc.producao)}\n`;
+  if (orc.midia>0) txt += `  Mídia                           ${fmtBRL(orc.midia).padStart(16)}   ${pct(orc.midia)}\n`;
+  txt += `  Impostos (${(PREMISSAS.imposto_carta*100).toFixed(2).replace('.',',')}%)                ${fmtBRL(impostoCarta).padStart(16)}   ${pct(impostoCarta)}\n`;
+  txt += `  Fee Snack (gestão e operação)   ${fmtBRL(feeSnackPuro).padStart(16)}   ${pct(feeSnackPuro)}\n\n`;
   txt += `=== 2 · O QUE A SNACK ENTREGA ===\n\n`;
   if (orc.carta_ia?.introducao){ txt += orc.carta_ia.introducao + '\n\n'; }
   ordemAreas.forEach(area=>{
     txt += `${area === 'HEADS' ? 'HEADS' : area}\n`;
     const sin = orc.carta_ia?.sinopses?.[area] || SINOPSES_AREA[area] || '';
     txt += `${sin}\n`;
-    txt += `Equipe: ${[...areasAlocadas[area]].sort().join(', ')}\n\n`;
+    const equipe = Object.entries(areasAlocadas[area]).sort(([a],[b])=>a.localeCompare(b))
+      .map(([c,a])=>`${c} ${Math.round(a*100)}%`).join(', ');
+    txt += `Equipe: ${equipe}\n\n`;
   });
   navigator.clipboard.writeText(txt).then(()=>alert('Texto da carta copiado.'));
 }
