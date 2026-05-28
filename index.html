@@ -282,7 +282,11 @@ async function carregarDoSupabase(){
     const squadByOrc = {};
     (sq.data||[]).forEach(s=>{
       if(!squadByOrc[s.orcamento_id]) squadByOrc[s.orcamento_id] = [];
-      squadByOrc[s.orcamento_id].push({cargo_id:s.cargo_id, alocacao:Number(s.alocacao)});
+      squadByOrc[s.orcamento_id].push({
+        cargo_id: s.cargo_id,
+        alocacao: Number(s.alocacao),
+        salario_override: s.salario_override != null ? Number(s.salario_override) : null
+      });
     });
     STATE.orcamentos = (o.data||[]).map(x=>({
       id:x.id, data:x.data, data_inicio:x.data_inicio||x.data,
@@ -325,7 +329,10 @@ async function salvarOrcamentoSupabase(orc){
     await sb.from('orcamento_squad').delete().eq('orcamento_id', orc.id);
     if (orc.squad && orc.squad.length){
       const linhas = orc.squad.filter(s=>s.cargo_id && s.cargo_id !== '_FAKE').map(s=>({
-        orcamento_id: orc.id, cargo_id: s.cargo_id, alocacao: s.alocacao
+        orcamento_id: orc.id,
+        cargo_id: s.cargo_id,
+        alocacao: s.alocacao,
+        salario_override: (s.salario_override != null && s.salario_override !== '') ? Number(s.salario_override) : null
       }));
       if (linhas.length){
         const { error: e2 } = await sb.from('orcamento_squad').insert(linhas);
@@ -416,10 +423,19 @@ function fmtData(s){ if(!s) return '—'; const [y,m,d]=s.split('-'); return `${
 /* =============================================================
    ENGINE DE CÁLCULO (1:1 com o Excel)
 ============================================================= */
+function salarioEfetivo(linha, cargo){
+  // Usa override se preenchido (>0), senão usa salário do catálogo
+  if (linha && linha.salario_override != null && linha.salario_override !== '' && Number(linha.salario_override) >= 0) {
+    return Number(linha.salario_override);
+  }
+  return cargo ? cargo.salario : 0;
+}
+
 function squadCustoMensal(orc){
   return (orc.squad||[]).reduce((s,l)=>{
     const c = CARGOS.find(x=>x.id===l.cargo_id);
-    return s + (c ? c.salario * (l.alocacao||0) : 0);
+    if (!c) return s;
+    return s + salarioEfetivo(l, c) * (l.alocacao||0);
   }, 0);
 }
 
@@ -1642,17 +1658,42 @@ function alterarAlocacao(idx, val){
   recalc();
 }
 
+function alterarSalarioOverride(idx, val){
+  const cargo = CARGOS.find(c=>c.id===CURRENT_ORC.squad[idx].cargo_id);
+  const n = val === '' ? null : Number(val);
+  // Se o valor for igual ao do catálogo, limpa o override
+  if (n === null || (cargo && n === cargo.salario)) {
+    CURRENT_ORC.squad[idx].salario_override = null;
+  } else {
+    CURRENT_ORC.squad[idx].salario_override = n;
+  }
+  recalc();
+}
+
+function resetSalarioOverride(idx){
+  CURRENT_ORC.squad[idx].salario_override = null;
+  renderSquadRows();
+  recalc();
+}
+
 function renderLinhaSquad(l, i){
   const cargo = CARGOS.find(c=>c.id===l.cargo_id);
   if (!cargo) return '';
   const isHead = cargo.area === 'HEADS';
   const sa = slugArea(cargo.area);
-  const custo = cargo.salario * (l.alocacao||0);
+  const salEf = salarioEfetivo(l, cargo);
+  const custo = salEf * (l.alocacao||0);
+  const isOverride = l.salario_override != null && l.salario_override !== '';
   return `<div class="${isHead?'':'row-area-'+sa} bg-ink-900 hover:bg-ink-850 rounded-lg flex items-center gap-3 px-3 py-2" ${isHead?'style="border-left: 3px solid #2E6BFF;"':''}>
     <span class="area-tag" ${isHead?'style="background:rgba(46,107,255,.18); color:#A8C0FF;"':`class="area-tag area-${sa}"`}>${isHead?'HEAD':cargo.area.split(' ')[0]}</span>
     <div class="flex-1 min-w-0">
       <div class="font-semibold text-sm truncate">${cargo.cargo} <span class="text-ink-400 font-normal">${cargo.nivel}</span></div>
-      <div class="text-xs text-ink-400">${fmtBRL(cargo.salario)}/mês integral</div>
+      <div class="flex items-center gap-1.5 mt-0.5">
+        <span class="text-[10px] uppercase tracking-wider text-ink-500">salário</span>
+        <input type="number" min="0" step="500" value="${salEf}" class="input py-0.5 px-2 w-24 text-xs tabular-nums ${isOverride?'border-orange/60 text-orange':'border-transparent text-ink-400'}" oninput="alterarSalarioOverride(${i}, this.value)" title="${isOverride?`Override desse orçamento. Salário do catálogo: ${fmtBRL(cargo.salario)}`:'Salário do catálogo. Edite pra sobrescrever só nesse orçamento.'}">
+        <span class="text-[10px] text-ink-500">/mês</span>
+        ${isOverride ? `<button class="text-[10px] text-orange hover:text-white font-semibold ml-1" onclick="resetSalarioOverride(${i})" title="Voltar ao salário do catálogo (${fmtBRL(cargo.salario)})">reset</button>` : ''}
+      </div>
     </div>
     <div class="flex items-center gap-2">
       <input type="number" min="0" max="2" step="0.1" value="${l.alocacao}" class="input w-20 text-center" oninput="alterarAlocacao(${i}, +this.value)">
