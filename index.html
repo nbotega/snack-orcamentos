@@ -512,10 +512,14 @@ function calcular(orc) {
     else upsellIdealAnual = (p.margem_ideal * W - Y) * 12 / orc.meses / p.margem_upsell;
   }
 
+  // Imposto e receita líquida — explícitos pra demonstrativo
+  const imposto = W * p.imposto;
+  const receitaLiquida = W * (1 - p.imposto);
+
   return {
     custoDireto:J, receitaTaxaAdmin:K, squadMensal:L, squadTotal:M, encargos:N,
     feeTotal:U, heads:P, overhead:O, govIncrUpsell:AC, custoOp:Q,
-    receitaFeeTotal:U, receitaTotal:W, comissao:X, ebitda:Y, margem:Z,
+    receitaFeeTotal:U, receitaTotal:W, imposto, receitaLiquida, comissao:X, ebitda:Y, margem:Z,
     feeMin, feeIdeal, statusMargem,
     upsellMinAnual, upsellIdealAnual
   };
@@ -1423,6 +1427,8 @@ function renderNovoOrcamento(ctx) {
           ['Custo Total Op','custoOp','text-orange font-semibold'],
           ['Receita Fee Total','receitaFeeTotal','text-ink-200'],
           ['Receita Total','receitaTotal','text-azul-400 font-bold'],
+          ['<span class="text-red-300">− Imposto ('+(PREMISSAS.imposto*100).toFixed(0)+'%)</span>','imposto','text-red-300'],
+          ['Receita Líquida','receitaLiquida','text-azul-400 font-bold'],
           ['Comissão (1,5% líquida)','comissao','text-ink-300'],
         ].map(([l,k,cls])=>`<div class="flex items-center justify-between border-b border-ink-800 pb-1.5">
           <span class="text-ink-400">${l}</span>
@@ -1772,9 +1778,12 @@ function recalc(){
   else if (c.statusMargem==='ABAIXO_MIN') painel.classList.add('border-orange');
   else painel.classList.add('border-red-500');
 
-  Object.entries({custoDireto:c.custoDireto,receitaTaxaAdmin:c.receitaTaxaAdmin,squadMensal:c.squadMensal,squadTotal:c.squadTotal,encargos:c.encargos,overhead:c.overhead,custoOp:c.custoOp,receitaFeeTotal:c.receitaFeeTotal,receitaTotal:c.receitaTotal,comissao:c.comissao}).forEach(([k,v])=>{
+  Object.entries({custoDireto:c.custoDireto,receitaTaxaAdmin:c.receitaTaxaAdmin,squadMensal:c.squadMensal,squadTotal:c.squadTotal,encargos:c.encargos,overhead:c.overhead,custoOp:c.custoOp,receitaFeeTotal:c.receitaFeeTotal,receitaTotal:c.receitaTotal,receitaLiquida:c.receitaLiquida,comissao:c.comissao}).forEach(([k,v])=>{
     const el = document.getElementById('d-'+k); if (el) el.textContent = fmtBRL(v);
   });
+  // Imposto com prefixo de menos pra deixar claro que é dedução
+  const elImposto = document.getElementById('d-imposto');
+  if (elImposto) elImposto.textContent = '− ' + fmtBRL(c.imposto);
 
   // Contribuição pra cobertura de overhead
   const mc = mcMensal(CURRENT_ORC, c);
