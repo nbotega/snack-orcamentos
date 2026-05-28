@@ -223,8 +223,21 @@ let PREMISSAS = {
   margem_min: 0.20, margem_ideal: 0.30,
   overhead_fixo_mensal: 600000, // overhead estrutural real da Snack: aluguel, ferramentas, BI, contabilidade, etc
   handling_upsell_pct: 0.20,
-  margem_upsell: 0.40
+  margem_upsell: 0.40,
+  imposto_carta: 0.1425  // imposto mostrado na carta pro cliente (≠ do imposto interno)
   // Heads agora são cargos do squad — não há mais % automático.
+};
+
+// Sinopses fixas por área — usadas na carta pro cliente
+const SINOPSES_AREA = {
+  'HEADS': 'Diretores sêniores alocados estrategicamente no seu projeto pra garantir consistência criativa, calibre estratégico e qualidade da entrega.',
+  'CONTEÚDO': 'Time dedicado a pensar, criar e produzir conteúdo nativo pras suas plataformas — sempre alinhado às tendências, sem perder a marca de vista.',
+  'PRODUÇÃO': 'Estrutura completa de produção audiovisual e gráfica pra entregar ritmo, qualidade e volume nas redes.',
+  'INTELIGÊNCIA E MÍDIA': 'Performance em tempo real: leitura de dados, calibragem de mídia paga e dashboards pra decisão semanal.',
+  'ATENDIMENTO': 'Ponto único de contato com o seu time, traduzindo briefing em entrega e mantendo o ritmo do projeto.',
+  'GP': 'Gestão de prazos, fluxos e entregas pra garantir que tudo sai no tempo e no escopo combinado.',
+  'CASTING': 'Curadoria e gestão de creators alinhados ao DNA da sua marca e à audiência que importa.',
+  'COMMERCE': 'Operação de social commerce e gestão de afiliados pra transformar conteúdo em conversão direta.'
 };
 
 /* =============================================================
@@ -559,7 +572,7 @@ const VIEW_TITLES = {
   dashboard:'Dashboard', orcamentos:'Orçamentos', novo:'Novo Orçamento',
   comparador:'Comparador de Cenários', clientes:'Clientes',
   premissas:'Premissas', cargos:'Cargos & Salários', tipos:'Tipos de Orçamento',
-  detalhe:'Orçamento', cliente:'Cliente'
+  detalhe:'Orçamento', cliente:'Cliente', carta:'Carta pro Cliente'
 };
 
 function navigate(r, ctx) {
@@ -587,6 +600,7 @@ function render() {
   else if (r==='comparador') { el.innerHTML = renderComparador(); bindComparador(); }
   else if (r==='clientes') el.innerHTML = renderClientes();
   else if (r==='cliente') el.innerHTML = renderClienteDetalhe(STATE.ctx);
+  else if (r==='carta') el.innerHTML = renderCarta(STATE.ctx);
   else if (r==='premissas') { el.innerHTML = renderPremissas(); bindPremissas(); }
   else if (r==='cargos') el.innerHTML = renderCargos();
   else if (r==='tipos') el.innerHTML = renderTipos();
@@ -1120,6 +1134,10 @@ function renderNovoOrcamento(ctx) {
             ${ctx?.id ? `<button class="btn btn-ghost" onclick="duplicarOrcamento('${ctx.id}')" title="Criar uma cópia desse orçamento">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
               Duplicar
+            </button>` : ''}
+            ${ctx?.id ? `<button class="btn btn-secondary" onclick="navigate('carta',{id:'${ctx.id}'})" title="Visão da proposta pro cliente — limpa, sem custos internos">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+              Carta cliente
             </button>` : ''}
             <button class="btn btn-ghost" onclick="abrirModalPDF()">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
@@ -2089,6 +2107,248 @@ function renderClientes() {
   `;
 }
 
+/* =============================================================
+   VIEW: CARTA PRO CLIENTE
+============================================================= */
+function renderCarta(ctx){
+  const orc = STATE.orcamentos.find(o=>o.id===ctx?.id);
+  if (!orc) return `<div class="card p-8 text-center text-ink-400">Orçamento não encontrado.</div>`;
+  const c = calcular(orc);
+
+  // Cálculo da carta — usa imposto_carta (14,25%) sobre TUDO
+  const orcamentoFee = orc.fee_mensal * orc.meses;
+  const cachesT = orc.caches || 0;
+  const midiaT = orc.midia || 0;
+  const producaoT = orc.producao || 0;
+  const subtotal = orcamentoFee + cachesT + midiaT + producaoT;
+  const impostoCarta = subtotal * (PREMISSAS.imposto_carta || 0.1425);
+  const totalCarta = subtotal + impostoCarta;
+  const feeMensalLiquido = orcamentoFee / Math.max(1, orc.meses);
+
+  // Áreas com cargo alocado nesse orçamento (com cargos únicos por área, sem nível)
+  const areasAlocadas = {};
+  (orc.squad||[]).forEach(l=>{
+    const cargo = CARGOS.find(c=>c.id===l.cargo_id);
+    if (!cargo) return;
+    if (!areasAlocadas[cargo.area]) areasAlocadas[cargo.area] = new Set();
+    areasAlocadas[cargo.area].add(cargo.cargo);
+  });
+  // Ordem: HEADS primeiro, depois alfabético
+  const ordemAreas = Object.keys(areasAlocadas).sort((a,b)=>{
+    if (a === 'HEADS') return -1;
+    if (b === 'HEADS') return 1;
+    return a.localeCompare(b);
+  });
+
+  // Volumetria — agrupa por plataforma só itens > 0
+  const vol = orc.volumetria || {};
+  const po = vol.posts_originais || {};
+  const entregas = [];
+  const itemMap = {
+    tiktok_videos:'TikTok · Vídeos', tiktok_lives:'TikTok · Lives',
+    ig_feed:'Instagram · Carrossel / Estático', ig_reels:'Instagram · Reels', ig_stories:'Instagram · Stories',
+    yt_vod:'YouTube · VOD', yt_shorts:'YouTube · Shorts', yt_live:'YouTube · Live',
+    linkedin_posts:'LinkedIn · Posts', linkedin_videos:'LinkedIn · Vídeos',
+    x_tweets:'Twitter/X · Tweets', x_threads:'Twitter/X · Threads',
+    threads_posts:'Threads · Posts'
+  };
+  Object.entries(itemMap).forEach(([k,label])=>{
+    if (po[k] && po[k]>0) entregas.push({label, qtd:po[k]});
+  });
+  if (vol.reposts>0) entregas.push({label:'Reposts', qtd:vol.reposts});
+  if (vol.responding>0) entregas.push({label:'Responding (interações)', qtd:vol.responding});
+  const rel = vol.relatorios || {};
+  const relMap = {
+    sentimento:'Relatório de Sentimento', midia:'Relatório de Mídia',
+    performance:'Relatório de Performance', dashboard_integrado:'Dashboard Integrado',
+    plano_editorial:'Plano Editorial', planejamento_campanha:'Planejamento de Campanha'
+  };
+  Object.entries(relMap).forEach(([k,label])=>{
+    if (rel[k] && rel[k]>0) entregas.push({label, qtd:rel[k]});
+  });
+
+  return `
+  <style>
+    @media print {
+      body { background: white !important; color: black !important; }
+      aside, .topbar-row, #topbar-title, .no-print, button { display: none !important; }
+      .carta-wrap { padding: 0 !important; }
+      .carta-card { background: white !important; color: black !important; border-color: #ddd !important; box-shadow: none !important; }
+      .carta-card * { color: black !important; }
+    }
+  </style>
+  <div class="carta-wrap max-w-4xl mx-auto space-y-4 fade-in">
+    <!-- TOOLBAR -->
+    <div class="flex items-center justify-between no-print">
+      <button class="text-sm text-orange hover:text-orange-400 font-semibold" onclick="navigate('detalhe',{id:'${orc.id}'})">← Voltar pro orçamento interno</button>
+      <div class="flex items-center gap-2">
+        <button class="btn btn-ghost" onclick="window.print()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+          Imprimir / PDF
+        </button>
+        <button class="btn btn-ghost" onclick="copiarCarta('${orc.id}')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+          Copiar texto
+        </button>
+      </div>
+    </div>
+
+    <!-- CARTA -->
+    <div class="carta-card card p-10" style="background: linear-gradient(180deg, #14141C 0%, #0E0E14 100%);">
+
+      <!-- Header -->
+      <div class="text-center mb-8 pb-6 border-b border-ink-800">
+        <div class="inline-flex items-center gap-2 mb-4">
+          <div class="w-9 h-9 rounded-xl grad-snack flex items-center justify-center text-white font-black">S</div>
+          <div class="font-display font-bold text-lg">snack<span class="text-orange">.</span></div>
+        </div>
+        <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">Proposta comercial</div>
+        <div class="font-display font-bold text-3xl mt-2">${orc.cliente}</div>
+        ${orc.projeto ? `<div class="text-orange text-lg mt-1">${orc.projeto.replace(' (cópia)','')}</div>` : ''}
+        <div class="text-xs text-ink-400 mt-3">${orc.tipo} · ${orc.meses} ${orc.meses===1?'mês':'meses'} · Início ${fmtData(orc.data_inicio)}</div>
+      </div>
+
+      <!-- 1. INVESTIMENTO -->
+      <div class="mb-10">
+        <div class="text-[11px] uppercase tracking-widest text-orange font-bold mb-4">1 · Investimento</div>
+
+        <div class="space-y-3">
+          <div class="flex items-baseline justify-between py-3 border-b border-ink-800">
+            <div>
+              <div class="font-display font-bold text-base">Orçamento Snack</div>
+              <div class="text-xs text-ink-400 mt-0.5">${fmtBRL(feeMensalLiquido)}/mês × ${orc.meses} ${orc.meses===1?'mês':'meses'}</div>
+            </div>
+            <div class="font-display font-bold text-xl tabular-nums">${fmtBRL(orcamentoFee)}</div>
+          </div>
+
+          ${cachesT>0 ? `<div class="flex items-baseline justify-between py-3 border-b border-ink-800">
+            <div>
+              <div class="font-display font-bold text-base">Cachês</div>
+              <div class="text-xs text-ink-400 mt-0.5">Investimento em creators / talentos</div>
+            </div>
+            <div class="font-display font-bold text-xl tabular-nums">${fmtBRL(cachesT)}</div>
+          </div>` : ''}
+
+          ${producaoT>0 ? `<div class="flex items-baseline justify-between py-3 border-b border-ink-800">
+            <div>
+              <div class="font-display font-bold text-base">Produção</div>
+              <div class="text-xs text-ink-400 mt-0.5">Custos de produção audiovisual</div>
+            </div>
+            <div class="font-display font-bold text-xl tabular-nums">${fmtBRL(producaoT)}</div>
+          </div>` : ''}
+
+          ${midiaT>0 ? `<div class="flex items-baseline justify-between py-3 border-b border-ink-800">
+            <div>
+              <div class="font-display font-bold text-base">Mídia</div>
+              <div class="text-xs text-ink-400 mt-0.5">Investimento em mídia paga</div>
+            </div>
+            <div class="font-display font-bold text-xl tabular-nums">${fmtBRL(midiaT)}</div>
+          </div>` : ''}
+
+          <div class="flex items-baseline justify-between py-3 border-b border-ink-800">
+            <div class="text-sm text-ink-300">Subtotal</div>
+            <div class="font-display font-bold text-base tabular-nums">${fmtBRL(subtotal)}</div>
+          </div>
+
+          <div class="flex items-baseline justify-between py-3 border-b border-ink-800">
+            <div>
+              <div class="text-sm text-ink-300">Impostos</div>
+              <div class="text-xs text-ink-400 mt-0.5">${(PREMISSAS.imposto_carta*100).toFixed(2).replace('.',',')}% sobre o subtotal</div>
+            </div>
+            <div class="font-display font-bold text-base tabular-nums">${fmtBRL(impostoCarta)}</div>
+          </div>
+
+          <div class="flex items-baseline justify-between py-4 mt-2 rounded-xl px-4" style="background: linear-gradient(135deg, rgba(255,87,34,.12), rgba(46,107,255,.10)); border: 1px solid rgba(255,87,34,.30);">
+            <div class="font-display font-bold text-xl">Investimento total do contrato</div>
+            <div class="font-display font-black text-3xl tabular-nums text-orange">${fmtBRL(totalCarta)}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. ESCOPO -->
+      <div class="mb-10">
+        <div class="text-[11px] uppercase tracking-widest text-orange font-bold mb-4">2 · O que a Snack entrega</div>
+
+        <p class="text-sm text-ink-300 leading-relaxed mb-6">
+          A Snack atua como time dedicado de criação e produção pra ${orc.cliente}, com squad organizado em áreas complementares. Tudo integrado, sem custos abertos por função — você contrata <strong class="text-white">o output</strong>, não o tempo.
+        </p>
+
+        <div class="space-y-5">
+          ${ordemAreas.map(area=>{
+            const sa = slugArea(area);
+            const cargosUnicos = [...areasAlocadas[area]].sort();
+            return `<div class="row-area-${sa} p-4 rounded-r-lg" style="background: rgba(255,255,255,.02);">
+              <div class="font-display font-bold text-base">${area === 'HEADS' ? 'Heads' : area === 'GP' ? 'Gestão de Projetos' : area}</div>
+              <p class="text-sm text-ink-200 mt-1.5 leading-relaxed">${SINOPSES_AREA[area] || 'Time dedicado ao projeto.'}</p>
+              <div class="mt-2.5 flex flex-wrap gap-1.5">
+                ${cargosUnicos.map(c=>`<span class="pill pill-ink" style="font-size:11px;">${c}</span>`).join('')}
+              </div>
+            </div>`;
+          }).join('')}
+          ${ordemAreas.length === 0 ? '<div class="text-sm text-ink-400 italic p-4 text-center border border-dashed border-ink-700 rounded-lg">Sem squad alocado no orçamento.</div>' : ''}
+        </div>
+      </div>
+
+      <!-- 3. ENTREGAS (volumetria) -->
+      ${entregas.length > 0 ? `<div class="mb-6">
+        <div class="text-[11px] uppercase tracking-widest text-orange font-bold mb-4">3 · Entregas do contrato</div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-2">
+          ${entregas.map(e=>`<div class="flex items-baseline justify-between py-2 border-b border-ink-800/70">
+            <span class="text-sm text-ink-200">${e.label}</span>
+            <span class="font-display font-bold tabular-nums">${e.qtd}</span>
+          </div>`).join('')}
+        </div>
+      </div>` : ''}
+
+      <!-- Footer -->
+      <div class="mt-10 pt-6 border-t border-ink-800 text-center">
+        <div class="text-xs text-ink-400 leading-relaxed max-w-xl mx-auto">
+          Proposta válida por 30 dias a partir da data de envio.<br>
+          Snack Content · ${fmtData(orc.data)}
+        </div>
+      </div>
+    </div>
+  </div>
+  `;
+}
+
+function copiarCarta(id){
+  const orc = STATE.orcamentos.find(o=>o.id===id);
+  if (!orc) return;
+  const orcamentoFee = orc.fee_mensal * orc.meses;
+  const subtotal = orcamentoFee + (orc.caches||0) + (orc.midia||0) + (orc.producao||0);
+  const impostoCarta = subtotal * (PREMISSAS.imposto_carta || 0.1425);
+  const totalCarta = subtotal + impostoCarta;
+
+  const areasAlocadas = {};
+  (orc.squad||[]).forEach(l=>{
+    const cg = CARGOS.find(c=>c.id===l.cargo_id);
+    if (!cg) return;
+    if (!areasAlocadas[cg.area]) areasAlocadas[cg.area] = new Set();
+    areasAlocadas[cg.area].add(cg.cargo);
+  });
+  const ordemAreas = Object.keys(areasAlocadas).sort((a,b)=>a==='HEADS'?-1:b==='HEADS'?1:a.localeCompare(b));
+
+  let txt = `PROPOSTA COMERCIAL — SNACK CONTENT\n${orc.cliente}\n`;
+  if (orc.projeto) txt += `${orc.projeto.replace(' (cópia)','')}\n`;
+  txt += `${orc.tipo} · ${orc.meses} ${orc.meses===1?'mês':'meses'} · Início ${fmtData(orc.data_inicio)}\n\n`;
+  txt += `=== 1 · INVESTIMENTO ===\n`;
+  txt += `Orçamento Snack         ${fmtBRL(orcamentoFee)}\n`;
+  if (orc.caches>0) txt += `Cachês                  ${fmtBRL(orc.caches)}\n`;
+  if (orc.producao>0) txt += `Produção                ${fmtBRL(orc.producao)}\n`;
+  if (orc.midia>0) txt += `Mídia                   ${fmtBRL(orc.midia)}\n`;
+  txt += `Subtotal                ${fmtBRL(subtotal)}\n`;
+  txt += `Impostos (${(PREMISSAS.imposto_carta*100).toFixed(2).replace('.',',')}%)        ${fmtBRL(impostoCarta)}\n`;
+  txt += `TOTAL                   ${fmtBRL(totalCarta)}\n\n`;
+  txt += `=== 2 · O QUE A SNACK ENTREGA ===\n\n`;
+  ordemAreas.forEach(area=>{
+    txt += `${area === 'HEADS' ? 'HEADS' : area}\n`;
+    txt += `${SINOPSES_AREA[area]||''}\n`;
+    txt += `Equipe: ${[...areasAlocadas[area]].sort().join(', ')}\n\n`;
+  });
+  navigator.clipboard.writeText(txt).then(()=>alert('Texto da carta copiado.'));
+}
+
 function renderClienteDetalhe(ctx) {
   const nome = ctx?.nome;
   const orcs = STATE.orcamentos.filter(o=>o.cliente===nome).map(o=>({o,c:calcular(o)}));
@@ -2184,7 +2444,8 @@ function renderClienteDetalhe(ctx) {
    VIEW: PREMISSAS
 ============================================================= */
 const PREMISSAS_LABELS = {
-  imposto:['Imposto','sobre faturamento'],
+  imposto:['Imposto (interno)','usado no cálculo de margem/EBITDA'],
+  imposto_carta:['Imposto (carta cliente)','% mostrado na carta — diferente do interno'],
   encargo:['Encargos sobre folha','férias, 13º, dissídio'],
   comissao:['Comissão de venda','% sobre receita líquida'],
   taxa_admin:['Taxa Admin','markup sobre Cachês+Mídia+Produção'],
