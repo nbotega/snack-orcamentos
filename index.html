@@ -309,6 +309,7 @@ async function carregarDoSupabase(){
       fee_mensal:Number(x.fee_mensal), gov_upsell:Number(x.gov_upsell||0.05),
       squad: squadByOrc[x.id] || [],
       volumetria: x.volumetria || {},
+      frilas: x.frilas || [],
       carta_ia: x.carta_ia || null,
       carta_overrides: x.carta_overrides || null
     }));
@@ -337,6 +338,7 @@ async function salvarOrcamentoSupabase(orc){
       caches: orc.caches, midia: orc.midia, producao: orc.producao,
       fee_mensal: orc.fee_mensal, gov_upsell: orc.gov_upsell||0.05,
       volumetria: orc.volumetria || {},
+      frilas: orc.frilas || [],
       carta_ia: orc.carta_ia || null,
       carta_overrides: orc.carta_overrides || null,
       updated_at: new Date().toISOString()
@@ -462,7 +464,8 @@ function calcular(orc) {
   const isUpsell = orc.tipo === 'Upsell em AON';
   const isSemCache = orc.tipo === 'Influ - repasse' || orc.tipo === 'UGC simples';
 
-  const J = (orc.caches||0) + (orc.midia||0) + (orc.producao||0);            // custo direto total
+  const totalFrilas = (orc.frilas||[]).reduce((s,f)=>s + (Number(f.valor)||0), 0);
+  const J = (orc.caches||0) + (orc.midia||0) + (orc.producao||0) + totalFrilas; // custo direto total
   const K = isUpsell ? J * p.handling_upsell_pct : J * p.taxa_admin;          // receita taxa admin / handling
   const L = squadCustoMensal(orc);                                            // squad mensal
   const M = L * (orc.meses||0);                                               // squad total
@@ -541,7 +544,7 @@ function calcular(orc) {
   }
 
   return {
-    custoDireto:J, receitaTaxaAdmin:K, squadMensal:L, squadTotal:M, encargos:N,
+    custoDireto:J, totalFrilas, receitaTaxaAdmin:K, squadMensal:L, squadTotal:M, encargos:N,
     feeTotal:U, heads:P, overhead:O, govIncrUpsell:AC, custoOp:Q,
     receitaFeeTotal:U, receitaTotal:W,
     imposto: impostoCalc, baseImposto, cachePassThrough,
@@ -1116,11 +1119,12 @@ function renderNovoOrcamento(ctx) {
       data: hoje(), data_inicio: hoje(),
       cliente: '', projeto: '', tipo: 'Always-On', status: 'Rascunho',
       meses: 6, caches: 0, midia: 0, producao: 0, fee_mensal: 100000,
-      squad: [], gov_upsell: 0.05
+      squad: [], frilas: [], gov_upsell: 0.05
     };
   }
   if (!orc.data) orc.data = hoje();
   if (!orc.data_inicio) orc.data_inicio = orc.data || hoje();
+  if (!orc.frilas) orc.frilas = [];
   CURRENT_ORC = orc;
 
   const areasUnicas = [...new Set(CARGOS.map(c=>c.area))].sort();
@@ -1223,6 +1227,36 @@ function renderNovoOrcamento(ctx) {
           <label class="label">Governança Incremental (Upsell) — % sobre receita líquida</label>
           <input id="i-gov" type="number" min="0" max="0.15" step="0.005" class="input max-w-xs" value="${orc.gov_upsell}" oninput="onChange('gov_upsell', +this.value)">
           <p class="text-xs text-ink-400 mt-1.5">0 a 15%. Default 5%.</p>
+        </div>
+
+        <!-- FRILAS -->
+        <div class="mt-5 rounded-xl p-4" style="background: rgba(168,85,247,.05); border: 1px solid rgba(168,85,247,.25);">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <div class="text-[11px] uppercase tracking-widest font-semibold" style="color:#D8B4FE;">Frilas (freelancers)</div>
+              <div class="text-xs text-ink-400 mt-0.5">Pessoas contratadas pra esse projeto especifico. Soma entra em custos diretos.</div>
+            </div>
+            <div class="text-sm">
+              <span class="text-ink-400">Total:</span>
+              <span id="display-frilas-total" class="font-display font-bold ml-2" style="color:#D8B4FE;">R$ 0</span>
+            </div>
+          </div>
+
+          <div id="frilas-rows" class="space-y-2"></div>
+
+          <div class="mt-3 grid grid-cols-1 md:grid-cols-[1fr,auto] gap-3 items-end">
+            <div>
+              <label class="label">Adicionar frila</label>
+              <select id="add-frila" class="input">
+                <option value="">Escolha um cargo...</option>
+                ${CARGOS.slice().sort((a,b)=>a.area.localeCompare(b.area)||a.cargo.localeCompare(b.cargo)||a.nivel.localeCompare(b.nivel)).map(c=>`<option value="${c.id}">${c.area === 'HEADS' ? 'HEAD · ' : c.area + ' · '}${c.cargo}${c.nivel && c.nivel !== 'Head' ? ' ('+c.nivel+')' : ''}</option>`).join('')}
+              </select>
+            </div>
+            <button class="btn btn-ghost" style="background:rgba(168,85,247,.15); border-color:rgba(168,85,247,.4); color:#D8B4FE;" onclick="addFrila()">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Adicionar frila
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1622,9 +1656,61 @@ function renderVolumetriaBloco(orc){
   `;
 }
 
+function addFrila(){
+  const id = document.getElementById('add-frila').value;
+  if (!id) { alert('Escolha um cargo primeiro.'); return; }
+  CURRENT_ORC.frilas = CURRENT_ORC.frilas || [];
+  CURRENT_ORC.frilas.push({ cargo_id: id, valor: 0 });
+  document.getElementById('add-frila').value = '';
+  renderFrilas();
+  recalc();
+}
+
+function removerFrila(idx){
+  CURRENT_ORC.frilas.splice(idx, 1);
+  renderFrilas();
+  recalc();
+}
+
+function alterarValorFrila(idx, val){
+  CURRENT_ORC.frilas[idx].valor = Number(val) || 0;
+  recalc();
+}
+
+function renderFrilas(){
+  const cont = document.getElementById('frilas-rows');
+  if (!cont) return;
+  const lista = CURRENT_ORC.frilas || [];
+  if (!lista.length){
+    cont.innerHTML = '<div class="text-xs text-ink-400 italic p-3 text-center">Nenhum frila adicionado.</div>';
+    return;
+  }
+  cont.innerHTML = lista.map((f, i)=>{
+    const cargo = CARGOS.find(c=>c.id===f.cargo_id);
+    if (!cargo) return '';
+    const isHead = cargo.area === 'HEADS';
+    return `<div class="bg-ink-900 hover:bg-ink-850 rounded-lg flex items-center gap-3 px-3 py-2" style="border-left: 3px solid #A855F7;">
+      <span class="area-tag" style="background:rgba(168,85,247,.18); color:#D8B4FE;">${isHead?'HEAD':cargo.area.split(' ')[0]}</span>
+      <div class="flex-1 min-w-0">
+        <div class="font-semibold text-sm truncate">${cargo.cargo}${cargo.nivel && cargo.nivel!=='Head' ? ' <span class="text-ink-400 font-normal">'+cargo.nivel+'</span>' : ''}</div>
+        <div class="text-[11px] text-ink-400">Frila · valor total no contrato</div>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="text-xs text-ink-400">R$</span>
+        <input type="number" min="0" step="500" value="${f.valor}" class="input w-32 text-right tabular-nums font-bold" oninput="alterarValorFrila(${i}, this.value)">
+      </div>
+      <button class="text-ink-500 hover:text-red-400 p-1" onclick="removerFrila(${i})" title="Remover frila">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg>
+      </button>
+    </div>`;
+  }).join('');
+}
+
 function bindNovoOrcamento(){
   if (!CURRENT_ORC.volumetria) CURRENT_ORC.volumetria = JSON.parse(JSON.stringify(VOLUMETRIA_TEMPLATE));
+  if (!CURRENT_ORC.frilas) CURRENT_ORC.frilas = [];
   renderSquadRows();
+  renderFrilas();
   recalc();
 }
 
@@ -1793,6 +1879,10 @@ function recalc(){
   const squadOpEl = document.getElementById('display-squad-op-mensal');
   if (headsEl) headsEl.textContent = fmtBRL(headsMensal)+'/mês';
   if (squadOpEl) squadOpEl.textContent = fmtBRL(squadOpMensal)+'/mês';
+
+  // Total de frilas
+  const frilasEl = document.getElementById('display-frilas-total');
+  if (frilasEl) frilasEl.textContent = fmtBRL(c.totalFrilas || 0);
   document.getElementById('display-fee-min').textContent = c.feeMin==null ? 'Inviável' : fmtBRL(c.feeMin);
   document.getElementById('display-fee-ideal').textContent = c.feeIdeal==null ? 'Inviável' : fmtBRL(c.feeIdeal);
 
@@ -2248,7 +2338,31 @@ function renderCarta(ctx){
       </div>
     </div>
     ${orc.carta_ia ? '<div class="text-[11px] text-azul-400 flex items-center gap-1.5 no-print"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg> Texto gerado pelo Claude. Click "Regenerar" pra trocar ou "Voltar ao padrão" pra usar o template.</div>' : ''}
-    ${hasOverrides ? '<div class="text-[11px] text-orange flex items-center gap-1.5 no-print"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Texto/valores foram editados manualmente. Esses overrides têm prioridade sobre o cálculo automático.</div>' : '<div class="text-[11px] text-ink-500 flex items-center gap-1.5 no-print"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Dica: click em qualquer texto ou valor pra editar inline.</div>'}
+    ${hasOverrides ? (()=>{
+      const labelsVals = {total:'total', caches:'cachês', producao:'produção', midia:'mídia', impostos:'impostos', fee_snack:'fee Snack'};
+      const camposVals = ovr.vals ? Object.keys(ovr.vals).map(k=>labelsVals[k]||k) : [];
+      const temIntro = !!ovr.intro;
+      const sinopsesEditadas = ovr.sinopses ? Object.keys(ovr.sinopses) : [];
+      const todosLabels = [];
+      if (temIntro) todosLabels.push('introdução');
+      camposVals.forEach(c=>todosLabels.push(c));
+      sinopsesEditadas.forEach(a=>todosLabels.push('sinopse '+a));
+      const botoesReset = [];
+      if (ovr.vals){
+        Object.keys(ovr.vals).forEach(k=>{
+          botoesReset.push(`<button class="underline hover:text-white" onclick="salvarOverrideCarta('${orc.id}', 'vals.${k}', null)" title="Voltar ao valor calculado">resetar ${labelsVals[k]||k}</button>`);
+        });
+      }
+      return `<div class="rounded-lg border border-orange/40 bg-orange/5 px-3 py-2.5 no-print">
+        <div class="text-[12px] text-orange flex items-start gap-2">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="mt-0.5 flex-shrink-0"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          <div class="flex-1">
+            <strong>Atenção:</strong> esses campos foram editados manualmente e <strong>não recalculam</strong> quando você muda o orçamento interno: <span class="font-bold">${todosLabels.join(', ')}</span>.
+            ${botoesReset.length ? '<div class="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-orange/80">'+botoesReset.join(' · ')+'</div>' : ''}
+          </div>
+        </div>
+      </div>`;
+    })() : '<div class="text-[11px] text-ink-500 flex items-center gap-1.5 no-print"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Dica: click em qualquer texto ou valor pra editar inline.</div>'}
 
     <!-- CARTA -->
     <div class="carta-card card p-10" style="background: linear-gradient(180deg, #14141C 0%, #0E0E14 100%);">
