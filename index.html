@@ -231,6 +231,7 @@ let PREMISSAS = {
 // Sinopses fixas por área — usadas na carta pro cliente
 const SINOPSES_AREA = {
   'HEADS': 'Diretores sêniores alocados estrategicamente no seu projeto pra garantir consistência criativa, calibre estratégico e qualidade da entrega.',
+  'LIDERANÇA': 'Diretores sêniores alocados estrategicamente no seu projeto pra garantir consistência criativa, calibre estratégico e qualidade da entrega.',
   'CONTEÚDO': 'Time dedicado a pensar, criar e produzir conteúdo nativo pras suas plataformas — sempre alinhado às tendências, sem perder a marca de vista.',
   'PRODUÇÃO': 'Estrutura completa de produção audiovisual e gráfica pra entregar ritmo, qualidade e volume nas redes.',
   'INTELIGÊNCIA E MÍDIA': 'Performance em tempo real: leitura de dados, calibragem de mídia paga e dashboards pra decisão semanal.',
@@ -2282,19 +2283,46 @@ function renderCarta(ctx){
 
   // Áreas com cargo alocado nesse orçamento — soma alocação por cargo (sem nível)
   // Estrutura: { area: { cargo: alocacaoSomada } }
+  // ATENÇÃO: na carta cliente, Heads viram "Diretor de X" e se fundem na área natural.
+  // Frilas também entram como parte da equipe — cliente não vê distinção.
+  const HEAD_TO_AREA = {
+    'Criação':       { area: 'CONTEÚDO', cargo: 'Diretor de Criação' },
+    'Produção':      { area: 'PRODUÇÃO', cargo: 'Diretor de Produção' },
+    'Edição':        { area: 'PRODUÇÃO', cargo: 'Diretor de Edição' },
+    'Atendimento':   { area: 'ATENDIMENTO', cargo: 'Diretor de Atendimento' },
+    'Inteligência':  { area: 'INTELIGÊNCIA E MÍDIA', cargo: 'Diretor de Inteligência' },
+    'Planejamento': { area: 'CONTEÚDO', cargo: 'Diretor de Planejamento' },
+  };
   const areasAlocadas = {};
+  function addAreaCargo(area, cargo, aloc){
+    if (!areasAlocadas[area]) areasAlocadas[area] = {};
+    areasAlocadas[area][cargo] = (areasAlocadas[area][cargo] || 0) + aloc;
+  }
   (orc.squad||[]).forEach(l=>{
     const cargo = CARGOS.find(c=>c.id===l.cargo_id);
     if (!cargo) return;
-    if (!areasAlocadas[cargo.area]) areasAlocadas[cargo.area] = {};
-    areasAlocadas[cargo.area][cargo.cargo] = (areasAlocadas[cargo.area][cargo.cargo] || 0) + (l.alocacao || 0);
+    if (cargo.area === 'HEADS'){
+      const map = HEAD_TO_AREA[cargo.cargo];
+      if (map) addAreaCargo(map.area, map.cargo, l.alocacao || 0);
+      else addAreaCargo('LIDERANÇA', 'Diretor de '+cargo.cargo, l.alocacao || 0);
+    } else {
+      addAreaCargo(cargo.area, cargo.cargo, l.alocacao || 0);
+    }
   });
-  // Ordem: HEADS primeiro, depois alfabético
-  const ordemAreas = Object.keys(areasAlocadas).sort((a,b)=>{
-    if (a === 'HEADS') return -1;
-    if (b === 'HEADS') return 1;
-    return a.localeCompare(b);
+  // Frilas: entram com alocação 100% por convenção (cliente vê como parte da equipe)
+  (orc.frilas||[]).forEach(f=>{
+    const cargo = CARGOS.find(c=>c.id===f.cargo_id);
+    if (!cargo) return;
+    if (cargo.area === 'HEADS'){
+      const map = HEAD_TO_AREA[cargo.cargo];
+      if (map) addAreaCargo(map.area, map.cargo, 1.0);
+      else addAreaCargo('LIDERANÇA', 'Diretor de '+cargo.cargo, 1.0);
+    } else {
+      addAreaCargo(cargo.area, cargo.cargo, 1.0);
+    }
   });
+  // Ordem alfabética — sem mais bloco especial de HEADS
+  const ordemAreas = Object.keys(areasAlocadas).sort();
 
   // Volumetria — agrupa por plataforma só itens > 0
   const vol = orc.volumetria || {};
@@ -2504,7 +2532,7 @@ function renderCarta(ctx){
             const cargosAloc = Object.entries(areasAlocadas[area]).sort(([a],[b])=>a.localeCompare(b));
             const sinopse = ovr.sinopses?.[area] || orc.carta_ia?.sinopses?.[area] || SINOPSES_AREA[area] || 'Time dedicado ao projeto.';
             return `<div class="row-area-${sa} p-4 rounded-r-lg" style="background: rgba(255,255,255,.02);">
-              <div class="font-display font-bold text-base">${area === 'HEADS' ? 'Heads' : area === 'GP' ? 'Gestão de Projetos' : area}</div>
+              <div class="font-display font-bold text-base">${area === 'GP' ? 'Gestão de Projetos' : area === 'LIDERANÇA' ? 'Liderança' : area}</div>
               <p class="text-sm text-ink-200 mt-1.5 leading-relaxed">${editText('sinopses.'+area, sinopse)}</p>
               <div class="mt-2.5 flex flex-wrap gap-1.5">
                 ${cargosAloc.map(([cargo, aloc])=>{
@@ -2674,14 +2702,29 @@ function copiarCarta(id){
   const impostoCarta = totalCarta * (PREMISSAS.imposto_carta || 0.1425);
   const feeSnackPuro = Math.max(0, totalCarta - (orc.caches||0) - (orc.midia||0) - (orc.producao||0) - impostoCarta);
 
+  const HEAD_TO_AREA = {
+    'Criação': {area:'CONTEÚDO',cargo:'Diretor de Criação'},
+    'Produção': {area:'PRODUÇÃO',cargo:'Diretor de Produção'},
+    'Edição': {area:'PRODUÇÃO',cargo:'Diretor de Edição'},
+    'Atendimento': {area:'ATENDIMENTO',cargo:'Diretor de Atendimento'},
+    'Inteligência': {area:'INTELIGÊNCIA E MÍDIA',cargo:'Diretor de Inteligência'},
+    'Planejamento': {area:'CONTEÚDO',cargo:'Diretor de Planejamento'},
+  };
   const areasAlocadas = {};
+  function _add(a,c,al){if(!areasAlocadas[a])areasAlocadas[a]={};areasAlocadas[a][c]=(areasAlocadas[a][c]||0)+al;}
   (orc.squad||[]).forEach(l=>{
     const cg = CARGOS.find(c=>c.id===l.cargo_id);
     if (!cg) return;
-    if (!areasAlocadas[cg.area]) areasAlocadas[cg.area] = {};
-    areasAlocadas[cg.area][cg.cargo] = (areasAlocadas[cg.area][cg.cargo]||0) + (l.alocacao||0);
+    if (cg.area==='HEADS'){ const m=HEAD_TO_AREA[cg.cargo]; if(m) _add(m.area,m.cargo,l.alocacao||0); else _add('LIDERANÇA','Diretor de '+cg.cargo,l.alocacao||0); }
+    else _add(cg.area, cg.cargo, l.alocacao||0);
   });
-  const ordemAreas = Object.keys(areasAlocadas).sort((a,b)=>a==='HEADS'?-1:b==='HEADS'?1:a.localeCompare(b));
+  (orc.frilas||[]).forEach(f=>{
+    const cg = CARGOS.find(c=>c.id===f.cargo_id);
+    if (!cg) return;
+    if (cg.area==='HEADS'){ const m=HEAD_TO_AREA[cg.cargo]; if(m) _add(m.area,m.cargo,1.0); else _add('LIDERANÇA','Diretor de '+cg.cargo,1.0); }
+    else _add(cg.area, cg.cargo, 1.0);
+  });
+  const ordemAreas = Object.keys(areasAlocadas).sort();
   const pct = v => totalCarta>0 ? (v/totalCarta*100).toFixed(1).replace('.',',')+'%' : '';
 
   let txt = `PROPOSTA COMERCIAL — SNACK CONTENT\n${orc.cliente}\n`;
@@ -2699,7 +2742,7 @@ function copiarCarta(id){
   txt += `=== 2 · O QUE A SNACK ENTREGA ===\n\n`;
   if (orc.carta_ia?.introducao){ txt += orc.carta_ia.introducao + '\n\n'; }
   ordemAreas.forEach(area=>{
-    txt += `${area === 'HEADS' ? 'HEADS' : area}\n`;
+    txt += `${area === 'LIDERANÇA' ? 'LIDERANÇA' : area}\n`;
     const sin = orc.carta_ia?.sinopses?.[area] || SINOPSES_AREA[area] || '';
     txt += `${sin}\n`;
     const equipe = Object.entries(areasAlocadas[area]).sort(([a],[b])=>a.localeCompare(b))
