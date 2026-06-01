@@ -2258,6 +2258,8 @@ function renderCarta(ctx){
   // Cálculo da carta — com overrides editáveis
   const ovr = orc.carta_overrides || {};
   const ovrVals = ovr.vals || {};
+  // Default: mostrar % alocação. Cliente pode esconder por orçamento.
+  const mostrarAlocacao = ovr.mostrarAlocacao !== false;
   const totalCarta = ovrVals.total ?? (orc.fee_mensal * orc.meses);
   const cachesT = ovrVals.caches ?? (orc.caches || 0);
   const midiaT = ovrVals.midia ?? (orc.midia || 0);
@@ -2275,7 +2277,8 @@ function renderCarta(ctx){
   const somaComposicao = cachesT + midiaT + producaoT + impostoCarta + feeSnackPuro;
   const inconsistente = Math.abs(somaComposicao - totalCarta) > 1;
 
-  const hasOverrides = ovr.intro || (ovr.sinopses && Object.keys(ovr.sinopses).length) || (ovr.vals && Object.keys(ovr.vals).length);
+  // hasOverrides ignora 'mostrarAlocacao' (é configuração de display, não edição de conteúdo)
+  const hasOverrides = !!(ovr.intro || (ovr.sinopses && Object.keys(ovr.sinopses).length) || (ovr.vals && Object.keys(ovr.vals).length));
 
   // Helpers de edição
   const editVal = (campo, val) => `<span contenteditable="true" class="editable-num focus:outline-none focus:bg-orange/10 focus:px-2 focus:rounded transition-all" data-id="${orc.id}" data-campo="${campo}" onblur="editarValorCarta(this.dataset.id, this.dataset.campo, this.innerText)" onkeydown="if(event.key==='Enter'){event.preventDefault();this.blur();}" title="Click pra editar">${fmtBRL(val)}</span>`;
@@ -2382,6 +2385,10 @@ function renderCarta(ctx){
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg>
           Limpar edições
         </button>` : ''}
+        <label class="flex items-center gap-2 cursor-pointer bg-ink-900 border border-ink-700 hover:border-orange/40 rounded-lg px-3 py-1.5 transition" title="Alguns clientes exigem ver, outros nao precisam. Voce decide.">
+          <input type="checkbox" ${mostrarAlocacao?'checked':''} class="accent-orange" onchange="toggleMostrarAlocacao('${orc.id}', this.checked)">
+          <span class="text-xs font-semibold ${mostrarAlocacao?'text-orange':'text-ink-300'}">% por cargo</span>
+        </label>
         <button class="btn btn-ghost" onclick="window.print()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
           Imprimir / PDF
@@ -2539,8 +2546,7 @@ function renderCarta(ctx){
                   const pct = Math.round(aloc*100);
                   const isFull = pct >= 100;
                   return `<span class="pill pill-ink" style="font-size:11px;">
-                    ${cargo}
-                    <span class="ml-1.5 font-bold ${isFull?'text-orange':'text-azul-400'}">${pct}%</span>
+                    ${cargo}${mostrarAlocacao ? `<span class="ml-1.5 font-bold ${isFull?'text-orange':'text-azul-400'}">${pct}%</span>` : ''}
                   </span>`;
                 }).join('')}
               </div>
@@ -2675,6 +2681,15 @@ async function editarValorCarta(id, campo, novoTexto){
     return;
   }
   await salvarOverrideCarta(id, 'vals.'+campo, n);
+}
+
+async function toggleMostrarAlocacao(id, mostrar){
+  const orc = STATE.orcamentos.find(o=>o.id===id);
+  if (!orc) return;
+  if (!orc.carta_overrides) orc.carta_overrides = {};
+  orc.carta_overrides.mostrarAlocacao = !!mostrar;
+  await salvarOrcamentoSupabase(orc);
+  navigate('carta', { id });
 }
 
 async function limparTodosOverridesCarta(id){
