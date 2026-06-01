@@ -310,6 +310,7 @@ async function carregarDoSupabase(){
       squad: squadByOrc[x.id] || [],
       volumetria: x.volumetria || {},
       frilas: x.frilas || [],
+      custos_mensais: !!x.custos_mensais,
       carta_ia: x.carta_ia || null,
       carta_overrides: x.carta_overrides || null
     }));
@@ -339,6 +340,7 @@ async function salvarOrcamentoSupabase(orc){
       fee_mensal: orc.fee_mensal, gov_upsell: orc.gov_upsell||0.05,
       volumetria: orc.volumetria || {},
       frilas: orc.frilas || [],
+      custos_mensais: !!orc.custos_mensais,
       carta_ia: orc.carta_ia || null,
       carta_overrides: orc.carta_overrides || null,
       updated_at: new Date().toISOString()
@@ -464,8 +466,10 @@ function calcular(orc) {
   const isUpsell = orc.tipo === 'Upsell em AON';
   const isSemCache = orc.tipo === 'Influ - repasse' || orc.tipo === 'UGC simples';
 
-  const totalFrilas = (orc.frilas||[]).reduce((s,f)=>s + (Number(f.valor)||0), 0);
-  const J = (orc.caches||0) + (orc.midia||0) + (orc.producao||0) + totalFrilas; // custo direto total
+  // Quando custos_mensais = true, os valores digitados são POR MÊS — multiplica pelos meses
+  const mult = orc.custos_mensais ? (orc.meses||1) : 1;
+  const totalFrilas = (orc.frilas||[]).reduce((s,f)=>s + (Number(f.valor)||0) * mult, 0);
+  const J = ((orc.caches||0) + (orc.midia||0) + (orc.producao||0)) * mult + totalFrilas; // custo direto total
   const K = isUpsell ? J * p.handling_upsell_pct : J * p.taxa_admin;          // receita taxa admin / handling
   const L = squadCustoMensal(orc);                                            // squad mensal
   const M = L * (orc.meses||0);                                               // squad total
@@ -1111,9 +1115,14 @@ let CURRENT_ORC = null;
 
 function renderNovoOrcamento(ctx) {
   let orc;
-  if (ctx && ctx.id) {
-    orc = JSON.parse(JSON.stringify(STATE.orcamentos.find(o=>o.id===ctx.id)));
-  } else {
+  if (ctx && ctx._editing) {
+    // Re-render preservando edição em andamento (ex: ao mudar toggle)
+    orc = ctx._editing;
+  } else if (ctx && ctx.id) {
+    const found = STATE.orcamentos.find(o=>o.id===ctx.id);
+    if (found) orc = JSON.parse(JSON.stringify(found));
+  }
+  if (!orc) {
     orc = {
       id: 'C' + String(STATE.nextId).padStart(3,'0'),
       data: hoje(), data_inicio: hoje(),
@@ -1201,25 +1210,36 @@ function renderNovoOrcamento(ctx) {
 
       <!-- DURAÇÃO E CUSTOS DIRETOS -->
       <div class="card p-6">
-        <div class="font-display font-bold text-lg mb-5 flex items-center gap-3">
-          <div class="w-7 h-7 rounded-lg bg-azul/15 border border-azul/30 flex items-center justify-center text-azul-400 text-sm font-bold">1</div>
-          Duração & custos diretos
+        <div class="flex items-center justify-between mb-5 flex-wrap gap-3">
+          <div class="font-display font-bold text-lg flex items-center gap-3">
+            <div class="w-7 h-7 rounded-lg bg-azul/15 border border-azul/30 flex items-center justify-center text-azul-400 text-sm font-bold">1</div>
+            Duração & custos diretos
+          </div>
+          ${(orc.meses||0) > 1 ? `<label class="flex items-center gap-2 cursor-pointer bg-ink-900 border border-ink-700 hover:border-azul/40 rounded-lg px-3 py-1.5 transition" title="Quando ligado, você preenche os custos por mês e a plataforma multiplica pelos ${orc.meses} meses">
+            <input type="checkbox" ${orc.custos_mensais?'checked':''} class="accent-azul" onchange="onChange('custos_mensais', this.checked)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+            <span class="text-xs font-semibold ${orc.custos_mensais?'text-azul-400':'text-ink-300'}">Valores por mês</span>
+          </label>` : ''}
         </div>
+        ${orc.custos_mensais && (orc.meses||0) > 1 ? `<div class="mb-4 text-[11px] text-azul-400 flex items-center gap-1.5">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          Cachês, mídia, produção e frilas serão multiplicados por ${orc.meses} meses no cálculo.
+        </div>` : ''}
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
             <label class="label">Meses</label>
             <input id="i-meses" type="number" min="1" class="input" value="${orc.meses}" oninput="onChange('meses', +this.value)">
           </div>
           <div>
-            <label class="label">Cachês R$ (total)</label>
+            <label class="label">Cachês R$ ${orc.custos_mensais?'(/mês)':'(total)'}</label>
             <input id="i-caches" type="number" min="0" step="1000" class="input" value="${orc.caches}" oninput="onChange('caches', +this.value)">
           </div>
           <div>
-            <label class="label">Mídia R$ (total)</label>
+            <label class="label">Mídia R$ ${orc.custos_mensais?'(/mês)':'(total)'}</label>
             <input id="i-midia" type="number" min="0" step="1000" class="input" value="${orc.midia}" oninput="onChange('midia', +this.value)">
           </div>
           <div>
-            <label class="label">Produção R$ (total)</label>
+            <label class="label">Produção R$ ${orc.custos_mensais?'(/mês)':'(total)'}</label>
             <input id="i-producao" type="number" min="0" step="1000" class="input" value="${orc.producao}" oninput="onChange('producao', +this.value)">
           </div>
         </div>
@@ -1717,6 +1737,13 @@ function bindNovoOrcamento(){
 function onChange(k,v){
   CURRENT_ORC[k] = v;
   if (k==='cliente') document.getElementById('display-cliente').textContent = v || 'Sem cliente';
+  // Mudar essas chaves afeta labels do form — re-renderiza preservando CURRENT_ORC
+  if (k==='custos_mensais' || k==='meses'){
+    // Re-renderiza a view sem perder o CURRENT_ORC (que pode ainda não estar no STATE)
+    document.getElementById('view').innerHTML = renderNovoOrcamento({id: CURRENT_ORC.id, _editing: CURRENT_ORC});
+    bindNovoOrcamento();
+    return;
+  }
   recalc();
 }
 
