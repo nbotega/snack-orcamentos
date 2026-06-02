@@ -2260,10 +2260,12 @@ function renderCarta(ctx){
   const ovrVals = ovr.vals || {};
   // Default: mostrar % alocação. Cliente pode esconder por orçamento.
   const mostrarAlocacao = ovr.mostrarAlocacao !== false;
+  // Quando custos_mensais = true, os valores digitados são POR MÊS — multiplica pelos meses
+  const cMult = orc.custos_mensais ? (orc.meses||1) : 1;
   const totalCarta = ovrVals.total ?? (orc.fee_mensal * orc.meses);
-  const cachesT = ovrVals.caches ?? (orc.caches || 0);
-  const midiaT = ovrVals.midia ?? (orc.midia || 0);
-  const producaoT = ovrVals.producao ?? (orc.producao || 0);
+  const cachesT = ovrVals.caches ?? ((orc.caches || 0) * cMult);
+  const midiaT = ovrVals.midia ?? ((orc.midia || 0) * cMult);
+  const producaoT = ovrVals.producao ?? ((orc.producao || 0) * cMult);
 
   // Em Influ-repasse e UGC simples, cachês são PASS-THROUGH (cliente paga creators direto,
   // sem NF Snack). Imposto incide só sobre o que entra na NF Snack.
