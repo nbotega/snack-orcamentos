@@ -2980,50 +2980,55 @@ function fmtNumBR(n, decimals){
   return Number(n).toLocaleString('pt-BR', { minimumFractionDigits: decimals||0, maximumFractionDigits: decimals||0 });
 }
 
-// Aplica máscara BRL num <input type="text"> — formata enquanto digita, retorna número via .dataset.numericValue
+// Aplica máscara BRL num <input type="text">
+// Durante digitação: aceita formato BR (pontos como milhar, vírgula como decimal) e extrai o número
+// No blur: reformata bonitão com separadores de milhar e decimais corretos
+// O valor numérico fica em input.dataset.numericValue
 function bindInputBRL(input, decimals){
-  decimals = decimals == null ? 0 : decimals;
   if (!input || input.dataset.brlBound === '1') return;
   input.dataset.brlBound = '1';
-  // Valor inicial: pega do value (numérico) e formata
-  const initial = Number(input.value || 0);
+  decimals = decimals == null ? 0 : decimals;
+
+  // Inicialização: valor cru → numérico → formatado
+  const initial = Number(input.value || 0) || 0;
   input.dataset.numericValue = String(initial);
   input.value = fmtNumBR(initial, decimals);
   input.setAttribute('inputmode','decimal');
+  input.setAttribute('autocomplete','off');
 
-  const handler = (e)=>{
-    const cursor = input.selectionStart;
-    const oldLen = input.value.length;
-    // Limpa pra só dígitos e vírgula
-    let raw = input.value.replace(/[^0-9,]/g,'');
-    // Garante só uma vírgula
-    const firstComma = raw.indexOf(',');
-    if (firstComma !== -1) raw = raw.slice(0, firstComma+1) + raw.slice(firstComma+1).replace(/,/g,'');
-    // Limita decimais
-    if (decimals === 0) raw = raw.replace(',', '');
-    else if (firstComma !== -1){
-      const partes = raw.split(',');
-      raw = partes[0] + ',' + (partes[1]||'').slice(0, decimals);
+  // Parse BR: "1.234.567,89" → 1234567.89
+  function parseBR(str){
+    if (!str) return 0;
+    // Mantém só dígitos, pontos e vírgula
+    let s = String(str).replace(/[^0-9.,]/g, '');
+    // Heurística: a vírgula é separador decimal. Pontos são separadores de milhar.
+    if (s.indexOf(',') !== -1){
+      // Tem vírgula: pontos = milhar (remover), vírgula = decimal (virar ponto)
+      s = s.replace(/\./g, '').replace(',', '.');
+    } else {
+      // Sem vírgula: pontos são separadores de milhar — remover
+      s = s.replace(/\./g, '');
     }
-    // Converte pra número
-    const num = parseFloat(raw.replace(/\./g,'').replace(',', '.')) || 0;
-    input.dataset.numericValue = String(num);
-    // Reformata com separador de milhar mantendo o que o usuário tá digitando após vírgula
-    const partes = raw.split(',');
-    const intPart = partes[0].replace(/\D/g,'');
-    const intFormatado = intPart === '' ? '' : Number(intPart).toLocaleString('pt-BR');
-    const novoValor = partes.length > 1 ? intFormatado + ',' + partes[1] : intFormatado;
-    input.value = novoValor;
-    // Reposiciona cursor mantendo posição relativa
-    const newLen = input.value.length;
-    input.setSelectionRange(cursor + (newLen - oldLen), cursor + (newLen - oldLen));
-    // Dispara evento custom pra quem ouvir
-    input.dispatchEvent(new CustomEvent('brlchange', { detail: { value: num } }));
-  };
-  input.addEventListener('input', handler);
-  input.addEventListener('blur', ()=>{
-    const num = parseFloat(input.dataset.numericValue || '0') || 0;
-    input.value = fmtNumBR(num, decimals);
+    const n = parseFloat(s);
+    return isNaN(n) ? 0 : n;
+  }
+
+  input.addEventListener('input', function(){
+    const num = parseBR(this.value);
+    this.dataset.numericValue = String(num);
+    // Não reformata enquanto digita — mantém o que o user vê
+    // Dispara evento pra atualizar cálculos
+    this.dispatchEvent(new CustomEvent('brlchange', { detail: { value: num } }));
+  });
+
+  input.addEventListener('focus', function(){
+    // Ao focar, seleciona tudo pra facilitar substituição
+    setTimeout(()=>this.select(), 10);
+  });
+
+  input.addEventListener('blur', function(){
+    const num = parseFloat(this.dataset.numericValue || '0') || 0;
+    this.value = fmtNumBR(num, decimals);
   });
 }
 
