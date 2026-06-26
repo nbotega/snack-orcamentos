@@ -63,6 +63,7 @@ tailwind.config = {
   .row-area-INTELIGENCIA { border-left: 3px solid #2E6BFF; }
   .row-area-CONTEUDO { border-left: 3px solid #FF5722; }
   .row-area-PRODUCAO { border-left: 3px solid #A855F7; }
+  .row-area-EDICAO { border-left: 3px solid #6366F1; }
   .row-area-ATENDIMENTO { border-left: 3px solid #22C55E; }
   .row-area-GP { border-left: 3px solid #EAB308; }
   .row-area-CASTING { border-left: 3px solid #EC4899; }
@@ -71,6 +72,7 @@ tailwind.config = {
   .area-INTELIGENCIA { background: rgba(46,107,255,.16); color: #93B4FF; }
   .area-CONTEUDO { background: rgba(255,87,34,.16); color: #FFB199; }
   .area-PRODUCAO { background: rgba(168,85,247,.16); color: #D8B4FE; }
+  .area-EDICAO { background: rgba(99,102,241,.16); color: #A5B4FC; }
   .area-ATENDIMENTO { background: rgba(34,197,94,.16); color: #86EFAC; }
   .area-GP { background: rgba(234,179,8,.16); color: #FDE68A; }
   .area-CASTING { background: rgba(236,72,153,.16); color: #F9A8D4; }
@@ -234,6 +236,7 @@ const SINOPSES_AREA = {
   'LIDERANÇA': 'Diretores sêniores alocados estrategicamente no seu projeto pra garantir consistência criativa, calibre estratégico e qualidade da entrega.',
   'CONTEÚDO': 'Time dedicado a pensar, criar e produzir conteúdo nativo pras suas plataformas — sempre alinhado às tendências, sem perder a marca de vista.',
   'PRODUÇÃO': 'Estrutura completa de produção audiovisual e gráfica pra entregar ritmo, qualidade e volume nas redes.',
+  'EDIÇÃO': 'Time de pós-produção dedicado ao ritmo do feed — corte, motion, finalização e versões pra cada plataforma.',
   'INTELIGÊNCIA E MÍDIA': 'Performance em tempo real: leitura de dados, calibragem de mídia paga e dashboards pra decisão semanal.',
   'ATENDIMENTO': 'Ponto único de contato com o seu time, traduzindo briefing em entrega e mantendo o ritmo do projeto.',
   'GP': 'Gestão de prazos, fluxos e entregas pra garantir que tudo sai no tempo e no escopo combinado.',
@@ -311,6 +314,8 @@ async function carregarDoSupabase(){
       squad: squadByOrc[x.id] || [],
       volumetria: x.volumetria || {},
       frilas: x.frilas || [],
+      producao_itens: x.producao_itens || [],
+      caches_itens: x.caches_itens || [],
       custos_mensais: !!x.custos_mensais,
       carta_ia: x.carta_ia || null,
       carta_overrides: x.carta_overrides || null
@@ -341,6 +346,8 @@ async function salvarOrcamentoSupabase(orc){
       fee_mensal: orc.fee_mensal, gov_upsell: orc.gov_upsell||0.05,
       volumetria: orc.volumetria || {},
       frilas: orc.frilas || [],
+      producao_itens: orc.producao_itens || [],
+      caches_itens: orc.caches_itens || [],
       custos_mensais: !!orc.custos_mensais,
       carta_ia: orc.carta_ia || null,
       carta_overrides: orc.carta_overrides || null,
@@ -582,7 +589,7 @@ function statusPropostaPill(s) {
 }
 
 const slugArea = a => {
-  const m={'INTELIGÊNCIA E MÍDIA':'INTELIGENCIA','CONTEÚDO':'CONTEUDO','PRODUÇÃO':'PRODUCAO'};
+  const m={'INTELIGÊNCIA E MÍDIA':'INTELIGENCIA','CONTEÚDO':'CONTEUDO','PRODUÇÃO':'PRODUCAO','EDIÇÃO':'EDICAO'};
   return m[a]||a;
 };
 
@@ -625,6 +632,8 @@ function render() {
   else if (r==='premissas') { el.innerHTML = renderPremissas(); bindPremissas(); }
   else if (r==='cargos') el.innerHTML = renderCargos();
   else if (r==='tipos') el.innerHTML = renderTipos();
+  // Aplica formatação BRL em todos inputs marcados depois do render
+  aplicarBRLEmTodos();
 }
 
 async function entrar(){
@@ -731,7 +740,7 @@ function renderTimelineOverhead(orcs, overheadAlvo){
         </div>
         <div class="flex items-center gap-2">
           <label class="text-xs text-ink-400">Overhead / mês</label>
-          <input type="number" min="0" step="10000" value="${overheadAlvo}" class="input w-32 text-right tabular-nums font-bold" oninput="atualizarPremissa('overhead_fixo_mensal', +this.value); render();">
+          <input type="text" inputmode="decimal" class="input input-brl w-32 text-right tabular-nums font-bold" data-brl-decimals="0" value="${overheadAlvo}" oninput="atualizarPremissa('overhead_fixo_mensal', parseFloat(this.dataset.numericValue||0)); render();">
         </div>
       </div>
     </div>
@@ -1135,6 +1144,8 @@ function renderNovoOrcamento(ctx) {
   if (!orc.data) orc.data = hoje();
   if (!orc.data_inicio) orc.data_inicio = orc.data || hoje();
   if (!orc.frilas) orc.frilas = [];
+  if (!orc.producao_itens) orc.producao_itens = [];
+  if (!orc.caches_itens) orc.caches_itens = [];
   CURRENT_ORC = orc;
 
   const areasUnicas = [...new Set(CARGOS.map(c=>c.area))].sort();
@@ -1236,18 +1247,27 @@ function renderNovoOrcamento(ctx) {
             <input id="i-meses" type="number" min="1" class="input" value="${orc.meses}" oninput="onChange('meses', +this.value)">
           </div>
           <div>
-            <label class="label">Cachês R$ ${orc.custos_mensais?'(/mês)':'(total)'}</label>
-            <input id="i-caches" type="number" min="0" step="1000" class="input" value="${orc.caches}" oninput="onChange('caches', +this.value)">
+            <div class="flex items-center justify-between mb-1.5">
+              <label class="label mb-0">Cachês R$ ${orc.custos_mensais?'(/mês)':'(total)'}</label>
+              ${(orc.caches_itens||[]).length === 0 ? `<button class="text-[10px] text-azul-400 hover:text-azul font-semibold" onclick="abrirDetalheCustos('caches')" type="button">+ detalhar</button>` : ''}
+            </div>
+            <input id="i-caches" type="text" inputmode="decimal" class="input input-brl" data-brl-decimals="2" value="${orc.caches}" oninput="onChange('caches', parseFloat(this.dataset.numericValue||0))" ${(orc.caches_itens||[]).length>0?'readonly title="Valor calculado dos sub-itens"':''}>
           </div>
           <div>
             <label class="label">Mídia R$ ${orc.custos_mensais?'(/mês)':'(total)'}</label>
-            <input id="i-midia" type="number" min="0" step="1000" class="input" value="${orc.midia}" oninput="onChange('midia', +this.value)">
+            <input id="i-midia" type="text" inputmode="decimal" class="input input-brl" data-brl-decimals="2" value="${orc.midia}" oninput="onChange('midia', parseFloat(this.dataset.numericValue||0))">
           </div>
           <div>
-            <label class="label">Produção R$ ${orc.custos_mensais?'(/mês)':'(total)'}</label>
-            <input id="i-producao" type="number" min="0" step="1000" class="input" value="${orc.producao}" oninput="onChange('producao', +this.value)">
+            <div class="flex items-center justify-between mb-1.5">
+              <label class="label mb-0">Produção R$ ${orc.custos_mensais?'(/mês)':'(total)'}</label>
+              ${(orc.producao_itens||[]).length === 0 ? `<button class="text-[10px] text-azul-400 hover:text-azul font-semibold" onclick="abrirDetalheCustos('producao')" type="button">+ detalhar</button>` : ''}
+            </div>
+            <input id="i-producao" type="text" inputmode="decimal" class="input input-brl" data-brl-decimals="2" value="${orc.producao}" oninput="onChange('producao', parseFloat(this.dataset.numericValue||0))" ${(orc.producao_itens||[]).length>0?'readonly title="Valor calculado dos sub-itens"':''}>
           </div>
         </div>
+
+        ${(orc.caches_itens||[]).length > 0 ? renderDetalheCustos(orc, 'caches') : ''}
+        ${(orc.producao_itens||[]).length > 0 ? renderDetalheCustos(orc, 'producao') : ''}
         <div id="upsell-extra" class="mt-4 hidden">
           <label class="label">Governança Incremental (Upsell) — % sobre receita líquida</label>
           <input id="i-gov" type="number" min="0" max="0.15" step="0.005" class="input max-w-xs" value="${orc.gov_upsell}" oninput="onChange('gov_upsell', +this.value)">
@@ -1258,8 +1278,8 @@ function renderNovoOrcamento(ctx) {
         <div class="mt-5 rounded-xl p-4" style="background: rgba(168,85,247,.05); border: 1px solid rgba(168,85,247,.25);">
           <div class="flex items-center justify-between mb-3">
             <div>
-              <div class="text-[11px] uppercase tracking-widest font-semibold" style="color:#D8B4FE;">Frilas (freelancers)</div>
-              <div class="text-xs text-ink-400 mt-0.5">Pessoas contratadas pra esse projeto especifico. Soma entra em custos diretos.</div>
+              <div class="text-[11px] uppercase tracking-widest font-semibold" style="color:#D8B4FE;">Freelas <span class="text-ink-500 font-normal normal-case ml-1">(ou frilas)</span></div>
+              <div class="text-xs text-ink-400 mt-0.5">Pessoas contratadas pra esse projeto específico. Soma entra em custos diretos.</div>
             </div>
             <div class="text-sm">
               <span class="text-ink-400">Total:</span>
@@ -1409,7 +1429,7 @@ function renderNovoOrcamento(ctx) {
           <span>R$ 2M</span>
         </div>
         <div class="mt-4">
-          <input id="i-fee-num" type="number" min="0" step="1000" class="input" value="${orc.fee_mensal}" oninput="onChangeFee(+this.value)">
+          <input id="i-fee-num" type="text" inputmode="decimal" class="input input-brl" data-brl-decimals="2" value="${orc.fee_mensal}" oninput="onChangeFee(parseFloat(this.dataset.numericValue||0))">
         </div>
       </div>
 
@@ -1681,6 +1701,122 @@ function renderVolumetriaBloco(orc){
   `;
 }
 
+/* =============================================================
+   SUB-ITENS DETALHADOS de Cachês e Produção
+============================================================= */
+const CATEGORIAS_PRODUCAO = ['Catering', 'Cenário', 'Viagem', 'Operador Som/Vídeo', 'Verba alimentação', 'Verba produção', 'Aluguel equipamento', 'Transporte', 'Hospedagem', 'Locação', 'Vestuário/Maquiagem'];
+const CATEGORIAS_CACHES = ['Talento principal', 'Talento coadjuvante', 'Voz', 'Figurante', 'Cessão de imagem', 'Cessão de direitos'];
+
+const LABELS_CUSTO = {
+  caches: { titulo: 'Cachês detalhados', categorias: CATEGORIAS_CACHES, datalistId: 'cats-caches', placeholderDesc: 'Nome do talento ou descrição' },
+  producao: { titulo: 'Produção detalhada', categorias: CATEGORIAS_PRODUCAO, datalistId: 'cats-producao', placeholderDesc: 'Descrição opcional' }
+};
+
+function renderDetalheCustos(orc, tipo){
+  const itens = orc[tipo+'_itens'] || [];
+  const cfg = LABELS_CUSTO[tipo];
+  const corBorda = tipo === 'caches' ? 'rgba(255,87,34,.25)' : 'rgba(168,85,247,.25)';
+  const corHeader = tipo === 'caches' ? '#FFB199' : '#D8B4FE';
+  const total = itens.reduce((s,i)=>s + (Number(i.valor)||0), 0);
+  return `
+    <div class="mt-4 rounded-xl p-4" style="background: rgba(20,20,28,.5); border: 1px solid ${corBorda};">
+      <div class="flex items-center justify-between mb-3">
+        <div>
+          <div class="text-[11px] uppercase tracking-widest font-semibold" style="color:${corHeader};">${cfg.titulo}</div>
+          <div class="text-xs text-ink-400 mt-0.5">Quebra o valor total em itens. Soma vira o campo de cima.</div>
+        </div>
+        <div class="text-sm">
+          <span class="text-ink-400">Total:</span>
+          <span class="font-display font-bold ml-2" style="color:${corHeader};">${fmtBRL(total)}</span>
+        </div>
+      </div>
+
+      <datalist id="${cfg.datalistId}">
+        ${cfg.categorias.map(c=>`<option value="${c}">`).join('')}
+      </datalist>
+
+      <div class="space-y-2">
+        ${itens.map((it, i)=>`
+          <div class="bg-ink-900 rounded-lg flex items-center gap-2 px-3 py-2">
+            <input type="text" list="${cfg.datalistId}" value="${(it.categoria||'').replace(/"/g,'&quot;')}" class="input flex-1 text-sm py-1.5" placeholder="Categoria" oninput="alterarItemCusto('${tipo}', ${i}, 'categoria', this.value)">
+            <input type="text" value="${(it.descricao||'').replace(/"/g,'&quot;')}" class="input flex-1 text-sm py-1.5" placeholder="${cfg.placeholderDesc}" oninput="alterarItemCusto('${tipo}', ${i}, 'descricao', this.value)">
+            <div class="flex items-center gap-1.5">
+              <span class="text-xs text-ink-400">R$</span>
+              <input type="text" inputmode="decimal" class="input input-brl w-28 text-right tabular-nums font-bold text-sm py-1.5" data-brl-decimals="2" value="${Number(it.valor)||0}" oninput="alterarItemCusto('${tipo}', ${i}, 'valor', parseFloat(this.dataset.numericValue||0))">
+            </div>
+            <button class="text-ink-500 hover:text-red-400 p-1" onclick="removerItemCusto('${tipo}', ${i})" title="Remover">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg>
+            </button>
+          </div>
+        `).join('')}
+      </div>
+
+      <div class="mt-3 flex items-center gap-2">
+        <button class="text-xs font-semibold px-3 py-1.5 rounded-lg border" style="border-color:${corBorda}; color:${corHeader}; background:rgba(0,0,0,.2);" onclick="addItemCusto('${tipo}')">
+          + Adicionar item
+        </button>
+        <button class="text-xs text-ink-500 hover:text-red-400 ml-auto" onclick="fecharDetalheCustos('${tipo}')" title="Remove o detalhamento — volta pro modo simples (valor único)">
+          ← Voltar ao modo simples
+        </button>
+      </div>
+    </div>
+  `;
+}
+
+function recalcTotalCusto(tipo){
+  const itens = CURRENT_ORC[tipo+'_itens'] || [];
+  const soma = itens.reduce((s,i)=>s + (Number(i.valor)||0), 0);
+  CURRENT_ORC[tipo] = soma;
+}
+
+function abrirDetalheCustos(tipo){
+  // Cria um primeiro item com o valor que tava no campo único (se houver)
+  if (!CURRENT_ORC[tipo+'_itens']) CURRENT_ORC[tipo+'_itens'] = [];
+  if (CURRENT_ORC[tipo+'_itens'].length === 0){
+    const valorAtual = Number(CURRENT_ORC[tipo])||0;
+    CURRENT_ORC[tipo+'_itens'].push({ categoria: '', descricao: '', valor: valorAtual });
+  }
+  rerenderFormCustosDiretos();
+}
+
+function fecharDetalheCustos(tipo){
+  if (!confirm('Voltar ao modo simples? Os sub-itens vão ser apagados, mas o total atual vira o valor do campo único.')) return;
+  CURRENT_ORC[tipo+'_itens'] = [];
+  // Mantém o valor total no campo único
+  rerenderFormCustosDiretos();
+}
+
+function addItemCusto(tipo){
+  if (!CURRENT_ORC[tipo+'_itens']) CURRENT_ORC[tipo+'_itens'] = [];
+  CURRENT_ORC[tipo+'_itens'].push({ categoria: '', descricao: '', valor: 0 });
+  recalcTotalCusto(tipo);
+  rerenderFormCustosDiretos();
+}
+
+function removerItemCusto(tipo, idx){
+  CURRENT_ORC[tipo+'_itens'].splice(idx, 1);
+  recalcTotalCusto(tipo);
+  rerenderFormCustosDiretos();
+}
+
+function alterarItemCusto(tipo, idx, campo, valor){
+  if (!CURRENT_ORC[tipo+'_itens'] || !CURRENT_ORC[tipo+'_itens'][idx]) return;
+  CURRENT_ORC[tipo+'_itens'][idx][campo] = valor;
+  if (campo === 'valor'){
+    recalcTotalCusto(tipo);
+    // Atualiza só o input numérico do total sem re-renderizar tudo (preserva foco)
+    const inpTotal = document.getElementById('i-'+tipo);
+    if (inpTotal){ inpTotal.value = fmtNumBR(CURRENT_ORC[tipo], 2); inpTotal.dataset.numericValue = String(CURRENT_ORC[tipo]); }
+    recalc();
+  }
+}
+
+function rerenderFormCustosDiretos(){
+  // Re-renderiza o card de Duração & custos diretos inteiro pra refletir mudanças nos sub-itens
+  document.getElementById('view').innerHTML = renderNovoOrcamento({id: CURRENT_ORC.id, _editing: CURRENT_ORC});
+  bindNovoOrcamento();
+}
+
 function addFrila(){
   const id = document.getElementById('add-frila').value;
   if (!id) { alert('Escolha um cargo primeiro.'); return; }
@@ -1705,6 +1841,8 @@ function alterarValorFrila(idx, val){
 function renderFrilas(){
   const cont = document.getElementById('frilas-rows');
   if (!cont) return;
+  // garante BRL aplicado depois do render
+  setTimeout(aplicarBRLEmTodos, 0);
   const lista = CURRENT_ORC.frilas || [];
   if (!lista.length){
     cont.innerHTML = '<div class="text-xs text-ink-400 italic p-3 text-center">Nenhum frila adicionado.</div>';
@@ -1722,7 +1860,7 @@ function renderFrilas(){
       </div>
       <div class="flex items-center gap-2">
         <span class="text-xs text-ink-400">R$</span>
-        <input type="number" min="0" step="500" value="${f.valor}" class="input w-32 text-right tabular-nums font-bold" oninput="alterarValorFrila(${i}, this.value)">
+        <input type="text" inputmode="decimal" class="input input-brl w-32 text-right tabular-nums font-bold" data-brl-decimals="2" value="${f.valor}" oninput="alterarValorFrila(${i}, parseFloat(this.dataset.numericValue||0))">
       </div>
       <button class="text-ink-500 hover:text-red-400 p-1" onclick="removerFrila(${i})" title="Remover frila">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg>
@@ -1740,6 +1878,15 @@ function bindNovoOrcamento(){
 }
 
 function onChange(k,v){
+  // Validação: não pode mudar pra "Aprovada" sem data de início da execução
+  if (k === 'status' && v === 'Aprovada' && !CURRENT_ORC.data_inicio){
+    alert('Pra aprovar esse orçamento, preencha a "Início Execução" primeiro. Esse campo é essencial pra controlar vendido vs. entregue e alimentar a pauta de faturamento.');
+    const sel = document.getElementById('i-status');
+    if (sel) sel.value = CURRENT_ORC.status || 'Rascunho';
+    const inpInicio = document.getElementById('i-data-inicio');
+    if (inpInicio) { inpInicio.focus(); inpInicio.style.borderColor = '#FF5722'; setTimeout(()=>{inpInicio.style.borderColor='';}, 2500); }
+    return;
+  }
   CURRENT_ORC[k] = v;
   if (k==='cliente') document.getElementById('display-cliente').textContent = v || 'Sem cliente';
   // Mudar essas chaves afeta labels do form — re-renderiza preservando CURRENT_ORC
@@ -1754,9 +1901,15 @@ function onChange(k,v){
 
 function onChangeFee(v){
   CURRENT_ORC.fee_mensal = v;
-  document.getElementById('i-fee').value = v;
-  document.getElementById('i-fee-num').value = v;
-  document.getElementById('display-fee-mensal').textContent = 'R$ ' + v.toLocaleString('pt-BR');
+  const slider = document.getElementById('i-fee');
+  if (slider) slider.value = v;
+  const inpNum = document.getElementById('i-fee-num');
+  if (inpNum && document.activeElement !== inpNum){
+    inpNum.value = fmtNumBR(v, 2);
+    inpNum.dataset.numericValue = String(v);
+  }
+  const disp = document.getElementById('display-fee-mensal');
+  if (disp) disp.textContent = 'R$ ' + fmtNumBR(v, 0);
   recalc();
 }
 
@@ -1845,7 +1998,7 @@ function renderLinhaSquad(l, i){
       <div class="font-semibold text-sm truncate">${cargo.cargo} <span class="text-ink-400 font-normal">${cargo.nivel}</span></div>
       <div class="flex items-center gap-1.5 mt-0.5">
         <span class="text-[10px] uppercase tracking-wider text-ink-500">salário</span>
-        <input type="number" min="0" step="500" value="${salEf}" class="input py-0.5 px-2 w-24 text-xs tabular-nums ${isOverride?'border-orange/60 text-orange':'border-transparent text-ink-400'}" oninput="alterarSalarioOverride(${i}, this.value)" title="${isOverride?`Override desse orçamento. Salário do catálogo: ${fmtBRL(cargo.salario)}`:'Salário do catálogo. Edite pra sobrescrever só nesse orçamento.'}">
+        <input type="text" inputmode="decimal" class="input input-brl py-0.5 px-2 w-24 text-xs tabular-nums ${isOverride?'border-orange/60 text-orange':'border-transparent text-ink-400'}" data-brl-decimals="2" value="${salEf}" oninput="alterarSalarioOverride(${i}, parseFloat(this.dataset.numericValue||0))" title="${isOverride?`Override desse orçamento. Salário do catálogo: ${fmtBRL(cargo.salario)}`:'Salário do catálogo. Edite pra sobrescrever só nesse orçamento.'}">
         <span class="text-[10px] text-ink-500">/mês</span>
         ${isOverride ? `<button class="text-[10px] text-orange hover:text-white font-semibold ml-1" onclick="resetSalarioOverride(${i})" title="Voltar ao salário do catálogo (${fmtBRL(cargo.salario)})">reset</button>` : ''}
       </div>
@@ -1882,6 +2035,7 @@ function renderSquadRows(){
   squad.innerHTML = squadLinhas.length
     ? squadLinhas.map(({l,i})=>renderLinhaSquad(l,i)).join('')
     : '<div class="text-xs text-ink-400 italic p-3 text-center">Nenhum cargo operacional adicionado.</div>';
+  aplicarBRLEmTodos();
 }
 
 function addHead(){
@@ -2463,7 +2617,7 @@ function renderCarta(ctx){
   const HEAD_TO_AREA = {
     'Criação':       { area: 'CONTEÚDO', cargo: 'Diretor de Criação' },
     'Produção':      { area: 'PRODUÇÃO', cargo: 'Diretor de Produção' },
-    'Edição':        { area: 'PRODUÇÃO', cargo: 'Diretor de Edição' },
+    'Edição':        { area: 'EDIÇÃO', cargo: 'Diretor de Edição' },
     'Atendimento':   { area: 'ATENDIMENTO', cargo: 'Diretor de Atendimento' },
     'Inteligência':  { area: 'INTELIGÊNCIA E MÍDIA', cargo: 'Diretor de Inteligência' },
     'Planejamento': { area: 'CONTEÚDO', cargo: 'Diretor de Planejamento' },
@@ -2820,6 +2974,67 @@ function parseBRL(str){
   return isNaN(n) ? null : n;
 }
 
+// Formata número como "1.234.567,89" — sem prefixo R$, pra usar em input
+function fmtNumBR(n, decimals){
+  if (n == null || isNaN(n)) return '';
+  return Number(n).toLocaleString('pt-BR', { minimumFractionDigits: decimals||0, maximumFractionDigits: decimals||0 });
+}
+
+// Aplica máscara BRL num <input type="text"> — formata enquanto digita, retorna número via .dataset.numericValue
+function bindInputBRL(input, decimals){
+  decimals = decimals == null ? 0 : decimals;
+  if (!input || input.dataset.brlBound === '1') return;
+  input.dataset.brlBound = '1';
+  // Valor inicial: pega do value (numérico) e formata
+  const initial = Number(input.value || 0);
+  input.dataset.numericValue = String(initial);
+  input.value = fmtNumBR(initial, decimals);
+  input.setAttribute('inputmode','decimal');
+
+  const handler = (e)=>{
+    const cursor = input.selectionStart;
+    const oldLen = input.value.length;
+    // Limpa pra só dígitos e vírgula
+    let raw = input.value.replace(/[^0-9,]/g,'');
+    // Garante só uma vírgula
+    const firstComma = raw.indexOf(',');
+    if (firstComma !== -1) raw = raw.slice(0, firstComma+1) + raw.slice(firstComma+1).replace(/,/g,'');
+    // Limita decimais
+    if (decimals === 0) raw = raw.replace(',', '');
+    else if (firstComma !== -1){
+      const partes = raw.split(',');
+      raw = partes[0] + ',' + (partes[1]||'').slice(0, decimals);
+    }
+    // Converte pra número
+    const num = parseFloat(raw.replace(/\./g,'').replace(',', '.')) || 0;
+    input.dataset.numericValue = String(num);
+    // Reformata com separador de milhar mantendo o que o usuário tá digitando após vírgula
+    const partes = raw.split(',');
+    const intPart = partes[0].replace(/\D/g,'');
+    const intFormatado = intPart === '' ? '' : Number(intPart).toLocaleString('pt-BR');
+    const novoValor = partes.length > 1 ? intFormatado + ',' + partes[1] : intFormatado;
+    input.value = novoValor;
+    // Reposiciona cursor mantendo posição relativa
+    const newLen = input.value.length;
+    input.setSelectionRange(cursor + (newLen - oldLen), cursor + (newLen - oldLen));
+    // Dispara evento custom pra quem ouvir
+    input.dispatchEvent(new CustomEvent('brlchange', { detail: { value: num } }));
+  };
+  input.addEventListener('input', handler);
+  input.addEventListener('blur', ()=>{
+    const num = parseFloat(input.dataset.numericValue || '0') || 0;
+    input.value = fmtNumBR(num, decimals);
+  });
+}
+
+// Aplica BRL em todos inputs com classe .input-brl no DOM
+function aplicarBRLEmTodos(){
+  document.querySelectorAll('input.input-brl').forEach(inp=>{
+    const decimals = inp.dataset.brlDecimals ? Number(inp.dataset.brlDecimals) : 0;
+    bindInputBRL(inp, decimals);
+  });
+}
+
 async function salvarOverrideCarta(id, path, valor){
   const orc = STATE.orcamentos.find(o=>o.id===id);
   if (!orc) return;
@@ -3060,7 +3275,7 @@ function renderPremissas() {
         </div>
         <div class="flex items-center gap-3">
           <span class="text-sm text-ink-400">R$</span>
-          <input type="number" min="0" step="10000" value="${PREMISSAS.overhead_fixo_mensal}" class="input text-right tabular-nums font-bold text-lg w-48" oninput="atualizarPremissa('overhead_fixo_mensal', +this.value)">
+          <input type="text" inputmode="decimal" class="input input-brl text-right tabular-nums font-bold text-lg w-48" data-brl-decimals="0" value="${PREMISSAS.overhead_fixo_mensal}" oninput="atualizarPremissa('overhead_fixo_mensal', parseFloat(this.dataset.numericValue||0))">
           <span class="text-sm text-ink-400">/mês</span>
         </div>
       </div>
