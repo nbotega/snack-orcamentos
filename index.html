@@ -1189,18 +1189,14 @@ function renderNovoOrcamento(ctx) {
           </div>
         </div>
 
-        <div class="grid grid-cols-2 md:grid-cols-6 gap-4">
-          <div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6 gap-4">
+          <div class="lg:col-span-1 2xl:col-span-2">
             <label class="label">Cliente</label>
             <input id="i-cliente" class="input" placeholder="Ex: BIC Soleil" value="${orc.cliente}" oninput="onChange('cliente', this.value)">
           </div>
-          <div>
-            <label class="label">Data</label>
-            <input id="i-data" type="date" class="input" value="${orc.data}" oninput="onChangeData(this.value)">
-          </div>
-          <div>
-            <label class="label" title="Quando o contrato começa a rodar de fato">Início execução</label>
-            <input id="i-data-inicio" type="date" class="input" value="${orc.data_inicio}" oninput="onChange('data_inicio', this.value)">
+          <div class="lg:col-span-1 2xl:col-span-2">
+            <label class="label">Nome do projeto</label>
+            <input id="i-projeto" class="input" placeholder="Ex: Sempre Soleil 2026" value="${orc.projeto||''}" oninput="onChangeProjeto(this.value)">
           </div>
           <div>
             <label class="label">Tipo</label>
@@ -1209,14 +1205,18 @@ function renderNovoOrcamento(ctx) {
             </select>
           </div>
           <div>
-            <label class="label">Nome do projeto</label>
-            <input id="i-projeto" class="input" placeholder="Ex: Sempre Soleil 2026" value="${orc.projeto||''}" oninput="onChangeProjeto(this.value)">
-          </div>
-          <div>
             <label class="label">Status</label>
             <select id="i-status" class="input" onchange="onChange('status', this.value)">
               ${['Rascunho','Proposta','Aprovada','Perdida'].map(s=>`<option ${s===orc.status?'selected':''}>${s}</option>`).join('')}
             </select>
+          </div>
+          <div>
+            <label class="label">Data</label>
+            <input id="i-data" type="date" class="input" value="${orc.data}" oninput="onChangeData(this.value)">
+          </div>
+          <div>
+            <label class="label" title="Quando o contrato começa a rodar de fato">Início execução</label>
+            <input id="i-data-inicio" type="date" class="input" value="${orc.data_inicio}" oninput="onChange('data_inicio', this.value)">
           </div>
         </div>
 
