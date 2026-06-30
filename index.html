@@ -221,10 +221,11 @@ const TIPOS = [
 ];
 
 let PREMISSAS = {
-  imposto: 0.10, encargo: 0.07, comissao: 0.015, taxa_admin: 0.15,
+  imposto: 0.10, encargo: 0.07, comissao: 0.015,
+  taxa_admin: 0,           // desativado — Snack não usa mais
+  handling_upsell_pct: 0,  // desativado — Snack não usa mais
   margem_min: 0.20, margem_ideal: 0.30,
   overhead_fixo_mensal: 600000, // overhead estrutural real da Snack: aluguel, ferramentas, BI, contabilidade, etc
-  handling_upsell_pct: 0.20,
   margem_upsell: 0.40,
   imposto_carta: 0.1425  // imposto mostrado na carta pro cliente (≠ do imposto interno)
   // Heads agora são cargos do squad — não há mais % automático.
@@ -317,6 +318,7 @@ async function carregarDoSupabase(){
       producao_itens: x.producao_itens || [],
       caches_itens: x.caches_itens || [],
       custos_mensais: !!x.custos_mensais,
+      observacoes: x.observacoes || '',
       carta_ia: x.carta_ia || null,
       carta_overrides: x.carta_overrides || null
     }));
@@ -349,6 +351,7 @@ async function salvarOrcamentoSupabase(orc){
       producao_itens: orc.producao_itens || [],
       caches_itens: orc.caches_itens || [],
       custos_mensais: !!orc.custos_mensais,
+      observacoes: orc.observacoes || '',
       carta_ia: orc.carta_ia || null,
       carta_overrides: orc.carta_overrides || null,
       updated_at: new Date().toISOString()
@@ -1077,9 +1080,12 @@ function renderListaOrcamentos() {
               <td class="text-right tabular-nums font-bold ${mcCls}" title="MC total do contrato\n≈ ${mesesCob.toFixed(2)} mês${mesesCob>=2?'es':''} de overhead Snack">${fmtBRL(mcT)}<div class="text-[10px] text-ink-400 font-normal">${mesesCob.toFixed(2)} mês${mesesCob>=2?'es':''} OH</div></td>
               <td class="text-center">${statusPill(c.statusMargem)}</td>
               <td class="text-center">${statusPropostaPill(o.status)}</td>
-              <td class="pr-5 text-right" onclick="event.stopPropagation()">
+              <td class="pr-5 text-right whitespace-nowrap" onclick="event.stopPropagation()">
                 <button class="text-ink-500 hover:text-orange p-1.5 rounded hover:bg-ink-800 transition" onclick="duplicarOrcamento('${o.id}')" title="Duplicar este orçamento">
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                </button>
+                <button class="text-ink-500 hover:text-red-400 p-1.5 rounded hover:bg-ink-800 transition ml-1" onclick="deletarOrcamento('${o.id}')" title="Deletar este orçamento">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
                 </button>
               </td>
             </tr>
@@ -1138,7 +1144,7 @@ function renderNovoOrcamento(ctx) {
       data: hoje(), data_inicio: hoje(),
       cliente: '', projeto: '', tipo: 'Always-On', status: 'Rascunho',
       meses: 6, caches: 0, midia: 0, producao: 0, fee_mensal: 100000,
-      squad: [], frilas: [], gov_upsell: 0.05
+      squad: [], frilas: [], gov_upsell: 0.05, observacoes: ''
     };
   }
   if (!orc.data) orc.data = hoje();
@@ -1400,10 +1406,20 @@ function renderNovoOrcamento(ctx) {
         </div>
       </div>
 
+      <!-- OBSERVAÇÕES INTERNAS -->
+      <div class="card p-6">
+        <div class="font-display font-bold text-lg mb-1 flex items-center gap-3">
+          <div class="w-7 h-7 rounded-lg bg-yellow-500/15 border border-yellow-500/30 flex items-center justify-center text-yellow-400 text-sm font-bold">!</div>
+          Observações internas
+        </div>
+        <p class="text-xs text-ink-400 mb-3 ml-10">Anotações livres pra uso interno da Snack — contexto da negociação, pendências, riscos, alertas pra diretoria. <strong>Não aparece na carta cliente.</strong></p>
+        <textarea id="i-observacoes" class="input w-full" rows="4" placeholder="Ex: cliente pediu desconto de 10%, vou aceitar só se incluir Always-On em 2027. CFO precisa aprovar antes de enviar." oninput="onChange('observacoes', this.value)">${(orc.observacoes||'').replace(/</g,'&lt;')}</textarea>
+      </div>
+
       <!-- SIMULADOR FEE -->
       <div class="card p-6">
         <div class="font-display font-bold text-lg mb-1 flex items-center gap-3">
-          <div class="w-7 h-7 rounded-lg bg-green-500/15 border border-green-500/30 flex items-center justify-center text-green-400 text-sm font-bold">4</div>
+          <div class="w-7 h-7 rounded-lg bg-green-500/15 border border-green-500/30 flex items-center justify-center text-green-400 text-sm font-bold">5</div>
           Fee Mensal & Simulador de Negociação
         </div>
         <p class="text-xs text-ink-400 mb-4 ml-10">Mande o Fee Ideal na proposta. Negocie até o Mínimo se precisar.</p>
@@ -1529,7 +1545,6 @@ function renderNovoOrcamento(ctx) {
         <div class="font-display font-bold mb-2">Demonstrativo</div>
         ${[
           ['Custo direto total','custoDireto','text-ink-300'],
-          ['Taxa Admin (receita)','receitaTaxaAdmin','text-ink-300'],
           ['Squad mensal','squadMensal','text-ink-300'],
           ['Squad total','squadTotal','text-ink-300'],
           ['Encargos','encargos','text-ink-300'],
@@ -2346,6 +2361,21 @@ async function enviarPerguntaIA(){
   } finally {
     if (btn) btn.disabled = false;
   }
+}
+
+async function deletarOrcamento(id){
+  const orc = STATE.orcamentos.find(o=>o.id===id);
+  if (!orc) return;
+  const aviso = orc.status === 'Aprovada'
+    ? `⚠ Esse orçamento está APROVADO! Tem certeza que quer DELETAR o ${id} (${orc.cliente})? Essa ação não pode ser desfeita.`
+    : `Deletar o orçamento ${id} (${orc.cliente})? Essa ação não pode ser desfeita.`;
+  if (!confirm(aviso)) return;
+  // Confirmação dupla pra Aprovada
+  if (orc.status === 'Aprovada' && !confirm('Confirma de novo: deletar orçamento APROVADO?')) return;
+  await deletarOrcamentoSupabase(id);
+  const idx = STATE.orcamentos.findIndex(o=>o.id===id);
+  if (idx>=0) STATE.orcamentos.splice(idx,1);
+  navigate('orcamentos');
 }
 
 async function duplicarOrcamento(idOrigem, opts){
@@ -3261,10 +3291,8 @@ const PREMISSAS_LABELS = {
   imposto_carta:['Imposto (carta cliente)','% mostrado na carta — diferente do interno'],
   encargo:['Encargos sobre folha','férias, 13º, dissídio'],
   comissao:['Comissão de venda','% sobre receita líquida'],
-  taxa_admin:['Taxa Admin','markup sobre Cachês+Mídia+Produção'],
   margem_min:['Margem Mínima','abaixo disso, não fecha'],
   margem_ideal:['Margem Ideal','alvo padrão pra propor'],
-  handling_upsell_pct:['Handling Upsell','sobre terceiros'],
   margem_upsell:['Margem Upsell esperada','quanto cada R$ de upsell vira EBITDA — default 40%'],
 };
 function renderPremissas() {
