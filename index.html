@@ -1140,8 +1140,13 @@ function renderListaOrcamentos() {
             const mesesCob = mcT / overheadAlvo;
             const mcCls = mcT <= 0 ? 'text-red-400' : (c.statusMargem==='IDEAL'||c.statusMargem==='OK') ? 'text-green-400' : 'text-yellow-400';
             return `
-            <tr class="border-t border-ink-800 hover:bg-ink-850 cursor-pointer" onclick="navigate('detalhe',{id:'${o.id}'})">
-              <td class="py-3.5 px-5 font-mono text-ink-300">${o.id}</td>
+            <tr class="border-t border-ink-800 hover:bg-ink-850 cursor-pointer group" onclick="navigate('detalhe',{id:'${o.id}'})">
+              <td class="py-3.5 px-5 font-mono text-ink-300 whitespace-nowrap">
+                <span>${o.id}</span>
+                <button class="opacity-0 group-hover:opacity-100 text-ink-500 hover:text-orange ml-1.5 transition p-0.5" onclick="event.stopPropagation(); renomearOrcamentoIdInline('${o.id}')" title="Renomear ID">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                </button>
+              </td>
               <td class="text-ink-300 tabular-nums whitespace-nowrap">${fmtData(o.data)}</td>
               <td class="font-semibold">${o.cliente}</td>
               <td class="text-ink-200">${o.projeto || '<span class="text-ink-500 italic">—</span>'}</td>
@@ -2479,6 +2484,35 @@ async function enviarPerguntaIA(){
     renderChatModal();
   } finally {
     if (btn) btn.disabled = false;
+  }
+}
+
+async function renomearOrcamentoIdInline(idAntigo){
+  const orc = STATE.orcamentos.find(o=>o.id===idAntigo);
+  if (!orc) return;
+  const novoId = prompt(`Renomear "${idAntigo}" (${orc.cliente}) para:`, idAntigo);
+  if (!novoId || novoId.trim() === '' || novoId.trim() === idAntigo) return;
+  const idLimpo = novoId.trim().replace(/\s+/g, '-');
+  // Checa duplicata
+  const outro = STATE.orcamentos.find(o=>o.id===idLimpo && o !== orc);
+  if (outro){
+    alert(`ID "${idLimpo}" já está sendo usado por ${outro.cliente}. Escolhe outro.`);
+    return;
+  }
+  setSyncStatus('saving');
+  try {
+    // UPDATE do ID no banco (cascade nas FKs cuida do squad)
+    const { error } = await sb.from('orcamentos').update({ id: idLimpo }).eq('id', idAntigo);
+    if (error) throw error;
+    // Atualiza no STATE
+    orc.id = idLimpo;
+    if (orc._originalId) orc._originalId = idLimpo;
+    setSyncStatus('idle');
+    navigate('orcamentos');
+  } catch(e){
+    console.error(e);
+    setSyncStatus('error');
+    alert('Erro ao renomear: ' + (e.message || e));
   }
 }
 
