@@ -330,6 +330,7 @@ async function carregarDoSupabase(){
       caches_itens: x.caches_itens || [],
       custos_mensais: !!x.custos_mensais,
       observacoes: x.observacoes || '',
+      vendedor: x.vendedor || '',
       carta_ia: x.carta_ia || null,
       carta_overrides: x.carta_overrides || null
     }));
@@ -350,6 +351,13 @@ async function carregarDoSupabase(){
 async function salvarOrcamentoSupabase(orc){
   setSyncStatus('saving');
   try {
+    // Se o ID foi RENOMEADO (id != _originalId), primeiro faz um UPDATE do ID no banco.
+    // As FKs em orcamento_squad e outras têm ON UPDATE CASCADE, então os filhos seguem junto.
+    if (orc._originalId && orc._originalId !== orc.id){
+      const { error: eRen } = await sb.from('orcamentos').update({ id: orc.id }).eq('id', orc._originalId);
+      if (eRen) throw eRen;
+      orc._originalId = orc.id;
+    }
     // upsert orçamento (sem o squad)
     const { error: e1 } = await sb.from('orcamentos').upsert({
       id: orc.id, data: orc.data, data_inicio: orc.data_inicio || orc.data,
@@ -363,6 +371,7 @@ async function salvarOrcamentoSupabase(orc){
       caches_itens: orc.caches_itens || [],
       custos_mensais: !!orc.custos_mensais,
       observacoes: orc.observacoes || '',
+      vendedor: orc.vendedor || null,
       carta_ia: orc.carta_ia || null,
       carta_overrides: orc.carta_overrides || null,
       updated_at: new Date().toISOString()
@@ -1094,6 +1103,10 @@ function renderListaOrcamentos() {
         <option value="ABAIXO_MIN">⚠ Abaixo mín</option>
         <option value="PREJUIZO">❌ Prejuízo</option>
       </select>
+      <select id="filtro-vendedor" class="input max-w-[160px]" onchange="filtrarOrcs()">
+        <option value="">Todos vendedores</option>
+        ${[...new Set(STATE.orcamentos.map(o=>o.vendedor).filter(v=>v && v.trim()))].sort().map(v=>`<option>${v}</option>`).join('')}
+      </select>
       <button class="btn btn-ghost ml-auto" onclick="exportarJSON()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         Exportar JSON
@@ -1108,6 +1121,7 @@ function renderListaOrcamentos() {
             <th class="text-left font-semibold">Data</th>
             <th class="text-left font-semibold">Cliente</th>
             <th class="text-left font-semibold">Projeto</th>
+            <th class="text-left font-semibold">Vendedor</th>
             <th class="text-left font-semibold">Tipo</th>
             <th class="text-center font-semibold">Meses</th>
             <th class="text-right font-semibold">Fee/mês</th>
@@ -1131,6 +1145,7 @@ function renderListaOrcamentos() {
               <td class="text-ink-300 tabular-nums whitespace-nowrap">${fmtData(o.data)}</td>
               <td class="font-semibold">${o.cliente}</td>
               <td class="text-ink-200">${o.projeto || '<span class="text-ink-500 italic">—</span>'}</td>
+              <td class="text-ink-200 text-sm">${o.vendedor ? `<span class="pill" style="background:rgba(46,107,255,.14); color:#A8C0FF; border:1px solid rgba(46,107,255,.35); font-size:11px;">${o.vendedor}</span>` : '<span class="text-ink-500 italic">—</span>'}</td>
               <td><span class="pill pill-ink">${o.tipo}</span></td>
               <td class="text-center tabular-nums">${o.meses}</td>
               <td class="text-right tabular-nums">${fmtBRL(o.fee_mensal)}</td>
@@ -1161,12 +1176,13 @@ function filtrarOrcs() {
   const t = document.getElementById('filtro-tipo').value;
   const s = document.getElementById('filtro-status').value;
   const m = document.getElementById('filtro-margem').value;
+  const v = document.getElementById('filtro-vendedor') ? document.getElementById('filtro-vendedor').value : '';
   document.querySelectorAll('#tabela-orcs tbody tr').forEach(tr=>{
     const txt = tr.textContent.toLowerCase();
     let show = (!q || txt.includes(q));
     if (t && !tr.textContent.includes(t)) show = false;
     if (s && !tr.textContent.includes(s)) show = false;
-    // margem filter simples
+    if (v && !tr.textContent.includes(v)) show = false;
     if (m === 'IDEAL' && !tr.innerHTML.includes('Ideal')) show=false;
     if (m === 'OK' && !tr.innerHTML.includes('Min~Ideal')) show=false;
     if (m === 'ABAIXO_MIN' && !tr.innerHTML.includes('Abaixo')) show=false;
@@ -1203,7 +1219,7 @@ function renderNovoOrcamento(ctx) {
       data: hoje(), data_inicio: hoje(),
       cliente: '', projeto: '', tipo: 'Always-On', status: 'Rascunho',
       meses: 6, caches: 0, midia: 0, producao: 0, fee_mensal: 100000,
-      squad: [], frilas: [], gov_upsell: 0.05, observacoes: ''
+      squad: [], frilas: [], gov_upsell: 0.05, observacoes: '', vendedor: ''
     };
   }
   if (!orc.data) orc.data = hoje();
@@ -1211,6 +1227,8 @@ function renderNovoOrcamento(ctx) {
   if (!orc.frilas) orc.frilas = [];
   if (!orc.producao_itens) orc.producao_itens = [];
   if (!orc.caches_itens) orc.caches_itens = [];
+  // Guarda ID original pra detectar renomeação
+  if (!orc._originalId) orc._originalId = orc.id;
   CURRENT_ORC = orc;
 
   const areasUnicas = [...new Set(CARGOS.map(c=>c.area))].sort();
@@ -1226,7 +1244,11 @@ function renderNovoOrcamento(ctx) {
         <div class="flex items-start justify-between mb-5">
           <div>
             <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">${ctx?.id ? 'Editando' : 'Novo orçamento'}</div>
-            <div class="font-display font-bold text-2xl mt-1">${orc.id} · <span id="display-cliente" class="text-orange">${orc.cliente || 'Sem cliente'}</span></div>
+            <div class="font-display font-bold text-2xl mt-1 flex items-baseline gap-2 flex-wrap">
+              <input id="i-id" type="text" class="bg-ink-900 border border-ink-700 hover:border-orange focus:border-orange rounded px-2 py-0.5 font-display font-bold text-xl text-white w-48 focus:outline-none" value="${orc.id}" oninput="onChangeId(this.value)" title="ID livre — pode editar a qualquer momento (as referências no banco atualizam em cascata)">
+              <span class="text-ink-500">·</span>
+              <span id="display-cliente" class="text-orange">${orc.cliente || 'Sem cliente'}</span>
+            </div>
             <div id="display-projeto" class="text-ink-200 text-base font-semibold mt-0.5">${orc.projeto || '<span class="text-ink-500 font-normal italic">Sem nome de projeto</span>'}</div>
             <div class="text-xs text-ink-400 mt-1.5 flex items-center gap-2">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
@@ -1254,12 +1276,12 @@ function renderNovoOrcamento(ctx) {
           </div>
         </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6 gap-4">
-          <div class="lg:col-span-1 2xl:col-span-2">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div>
             <label class="label">Cliente</label>
             <input id="i-cliente" class="input" placeholder="Ex: BIC Soleil" value="${orc.cliente}" oninput="onChange('cliente', this.value)">
           </div>
-          <div class="lg:col-span-1 2xl:col-span-2">
+          <div>
             <label class="label">Nome do projeto</label>
             <input id="i-projeto" class="input" placeholder="Ex: Sempre Soleil 2026" value="${orc.projeto||''}" oninput="onChangeProjeto(this.value)">
           </div>
@@ -1282,6 +1304,16 @@ function renderNovoOrcamento(ctx) {
           <div>
             <label class="label" title="Quando o contrato começa a rodar de fato">Início execução</label>
             <input id="i-data-inicio" type="date" class="input" value="${orc.data_inicio}" oninput="onChange('data_inicio', this.value)">
+          </div>
+          <div>
+            <label class="label" title="Quem vendeu o JOB (usado no cálculo de comissão). Raissa co-comissiona em todos.">Vendedor</label>
+            <input id="i-vendedor" type="text" list="lista-vendedores" class="input" placeholder="Ex: Amanda" value="${orc.vendedor||''}" oninput="onChange('vendedor', this.value)">
+            <datalist id="lista-vendedores">
+              <option value="Amanda">
+              <option value="Mary">
+              <option value="Annayon">
+              <option value="Raissa">
+            </datalist>
           </div>
         </div>
 
@@ -1999,6 +2031,24 @@ function onChangeProjeto(v){
   if (el) el.innerHTML = v ? v : '<span class="text-ink-500 font-normal italic">Sem nome de projeto</span>';
 }
 
+function onChangeId(v){
+  const novoId = (v||'').trim().replace(/\s+/g,'-');
+  CURRENT_ORC.id = novoId;
+  // Feedback visual: duplicado?
+  const inp = document.getElementById('i-id');
+  if (!inp) return;
+  const duplicado = novoId && STATE.orcamentos.some(o=>o.id===novoId);
+  if (duplicado){
+    inp.style.borderColor = '#EF4444';
+    inp.style.color = '#FCA5A5';
+    inp.title = 'Esse ID já está sendo usado por outro orçamento';
+  } else {
+    inp.style.borderColor = '';
+    inp.style.color = '';
+    inp.title = 'ID editável enquanto ainda não salvo';
+  }
+}
+
 function popularCargosDaArea(){
   const area = document.getElementById('add-area').value;
   const sel = document.getElementById('add-cargo');
@@ -2249,6 +2299,13 @@ function recalc(){
 
 async function salvarOrcamento(){
   if (!CURRENT_ORC.cliente) { alert('Coloca o nome do cliente.'); return; }
+  if (!CURRENT_ORC.id || !CURRENT_ORC.id.trim()) { alert('ID do orçamento não pode ficar vazio.'); return; }
+  // Duplicata: alguém com o mesmo ID que NÃO é esse orçamento (checa contra _originalId)
+  const outroComMesmoId = STATE.orcamentos.find(o=>o.id===CURRENT_ORC.id && o.id !== CURRENT_ORC._originalId);
+  if (outroComMesmoId){
+    alert(`ID "${CURRENT_ORC.id}" já está sendo usado por outro orçamento (${outroComMesmoId.cliente}). Escolhe outro.`);
+    return;
+  }
   const btn = document.querySelector('button[onclick="salvarOrcamento()"]');
   const original = btn ? btn.innerHTML : null;
   if (btn) { btn.disabled = true; btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Salvando...'; }
