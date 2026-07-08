@@ -3,6 +3,9 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
 <title>Snack — Plataforma de Orçamentos</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -1141,11 +1144,8 @@ function renderListaOrcamentos() {
             const mcCls = mcT <= 0 ? 'text-red-400' : (c.statusMargem==='IDEAL'||c.statusMargem==='OK') ? 'text-green-400' : 'text-yellow-400';
             return `
             <tr class="border-t border-ink-800 hover:bg-ink-850 cursor-pointer group" onclick="navigate('detalhe',{id:'${o.id}'})">
-              <td class="py-3.5 px-5 font-mono text-ink-300 whitespace-nowrap">
-                <span>${o.id}</span>
-                <button class="opacity-0 group-hover:opacity-100 text-ink-500 hover:text-orange ml-1.5 transition p-0.5" onclick="event.stopPropagation(); renomearOrcamentoIdInline('${o.id}')" title="Renomear ID">
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                </button>
+              <td class="py-3.5 px-5 font-mono text-ink-300 whitespace-nowrap" onclick="event.stopPropagation()">
+                <input type="text" data-original-id="${o.id}" value="${o.id}" class="bg-transparent border border-transparent hover:border-orange/40 focus:border-orange focus:bg-ink-900 rounded px-2 py-0.5 font-mono text-ink-300 focus:text-white w-32 focus:outline-none transition" onclick="event.stopPropagation(); this.select();" onkeydown="if(event.key==='Enter'){event.preventDefault(); this.blur();}" onblur="renomearIdInputInline(this.dataset.originalId, this)" title="Click pra editar. Enter ou clique fora pra salvar.">
               </td>
               <td class="text-ink-300 tabular-nums whitespace-nowrap">${fmtData(o.data)}</td>
               <td class="font-semibold">${o.cliente}</td>
@@ -2487,32 +2487,61 @@ async function enviarPerguntaIA(){
   }
 }
 
-async function renomearOrcamentoIdInline(idAntigo){
+// Função central de rename — retorna true se sucesso, false se falhou/cancelou
+async function _renomearOrcamentoNoBanco(idAntigo, idNovo){
   const orc = STATE.orcamentos.find(o=>o.id===idAntigo);
-  if (!orc) return;
-  const novoId = prompt(`Renomear "${idAntigo}" (${orc.cliente}) para:`, idAntigo);
-  if (!novoId || novoId.trim() === '' || novoId.trim() === idAntigo) return;
-  const idLimpo = novoId.trim().replace(/\s+/g, '-');
-  // Checa duplicata
+  if (!orc) return false;
+  const idLimpo = (idNovo||'').trim().replace(/\s+/g, '-');
+  if (!idLimpo || idLimpo === idAntigo) return false;
   const outro = STATE.orcamentos.find(o=>o.id===idLimpo && o !== orc);
   if (outro){
     alert(`ID "${idLimpo}" já está sendo usado por ${outro.cliente}. Escolhe outro.`);
-    return;
+    return false;
   }
   setSyncStatus('saving');
   try {
-    // UPDATE do ID no banco (cascade nas FKs cuida do squad)
     const { error } = await sb.from('orcamentos').update({ id: idLimpo }).eq('id', idAntigo);
     if (error) throw error;
-    // Atualiza no STATE
     orc.id = idLimpo;
     if (orc._originalId) orc._originalId = idLimpo;
     setSyncStatus('idle');
-    navigate('orcamentos');
+    return true;
   } catch(e){
     console.error(e);
     setSyncStatus('error');
     alert('Erro ao renomear: ' + (e.message || e));
+    return false;
+  }
+}
+
+async function renomearOrcamentoIdInline(idAntigo){
+  const orc = STATE.orcamentos.find(o=>o.id===idAntigo);
+  if (!orc) return;
+  const novoId = prompt(`Renomear "${idAntigo}" (${orc.cliente}) para:`, idAntigo);
+  if (!novoId) return;
+  const ok = await _renomearOrcamentoNoBanco(idAntigo, novoId);
+  if (ok) navigate('orcamentos');
+}
+
+// Chamada pelo input inline da coluna ID (sem prompt)
+async function renomearIdInputInline(idAntigo, inputEl){
+  const idNovo = inputEl.value.trim();
+  if (!idNovo || idNovo === idAntigo){
+    inputEl.value = idAntigo;
+    return;
+  }
+  const ok = await _renomearOrcamentoNoBanco(idAntigo, idNovo);
+  if (ok){
+    // Atualiza o data-id do input pra próxima edição não referenciar o antigo
+    inputEl.dataset.originalId = idNovo;
+    inputEl.value = idNovo;
+    // Feedback visual rápido
+    inputEl.style.transition = 'background-color .3s';
+    inputEl.style.backgroundColor = 'rgba(34,197,94,.25)';
+    setTimeout(()=>{ inputEl.style.backgroundColor=''; }, 500);
+  } else {
+    // Volta ao original
+    inputEl.value = idAntigo;
   }
 }
 
