@@ -1244,8 +1244,11 @@ function renderNovoOrcamento(ctx) {
         <div class="flex items-start justify-between mb-5">
           <div>
             <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">${ctx?.id ? 'Editando' : 'Novo orçamento'}</div>
-            <div class="font-display font-bold text-2xl mt-1 flex items-baseline gap-2 flex-wrap">
-              <input id="i-id" type="text" class="bg-ink-900 border border-ink-700 hover:border-orange focus:border-orange rounded px-2 py-0.5 font-display font-bold text-xl text-white w-48 focus:outline-none" value="${orc.id}" oninput="onChangeId(this.value)" title="ID livre — pode editar a qualquer momento (as referências no banco atualizam em cascata)">
+            <div class="font-display font-bold text-2xl mt-1 flex items-center gap-3 flex-wrap">
+              <div class="relative">
+                <input id="i-id" type="text" class="bg-ink-900 border-2 border-dashed border-orange/60 hover:border-orange focus:border-orange rounded-lg pl-3 pr-8 py-1 font-display font-bold text-xl text-white w-56 focus:outline-none focus:bg-orange/5 transition" value="${orc.id}" oninput="onChangeId(this.value)" title="ID editável — click pra alterar. As referências no banco atualizam em cascata.">
+                <svg class="absolute right-2 top-1/2 -translate-y-1/2 text-orange/70 pointer-events-none" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              </div>
               <span class="text-ink-500">·</span>
               <span id="display-cliente" class="text-orange">${orc.cliente || 'Sem cliente'}</span>
             </div>
