@@ -645,6 +645,10 @@ const VIEW_TITLES = {
 };
 
 function navigate(r, ctx) {
+  // Bloqueia: user com only_notas só pode ir pra nota-rapida
+  if (STATE.currentUser && usuarioSoNotaRapida(STATE.currentUser) && r !== 'nota-rapida'){
+    r = 'nota-rapida';
+  }
   STATE.route = r;
   STATE.ctx = ctx;
   // Reflete na URL pra permitir bookmark direto e link compartilhável
@@ -690,6 +694,16 @@ function render() {
 async function entrar(){
   document.getElementById('login-screen').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
+  // Guarda info do usuário atual (pra checar role no navigate)
+  try {
+    const { data: { user } } = await sb.auth.getUser();
+    STATE.currentUser = user;
+    // Se é produtor (só nota), esconde nav-items que não sejam nota-rapida e força a rota
+    if (usuarioSoNotaRapida(user)){
+      document.body.classList.add('modo-nota-rapida');
+      STATE.route = 'nota-rapida';
+    }
+  } catch(e){ console.error(e); }
   document.querySelectorAll('.nav-item').forEach(n=>{
     n.addEventListener('click', ()=>navigate(n.dataset.route));
   });
