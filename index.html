@@ -3996,22 +3996,14 @@ function renderNotaRapida(){
       </div>
     </div>
 
-    <!-- ID DO PROJETO -->
+    <!-- ID DO PROJETO (combo pesquisável) -->
     <div>
-      <label class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold mb-2 block">ID do projeto</label>
-      <select id="nota-orcamento" class="input text-base py-3">
-        <option value="">Escolha o projeto…</option>
-        ${aprovados.map(o=>`<option value="${o.id}">${o.id} · ${o.cliente}${o.projeto?' · '+o.projeto:''}</option>`).join('')}
-      </select>
-    </div>
-
-    <!-- CATEGORIA -->
-    <div>
-      <label class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold mb-2 block">Categoria</label>
-      <div class="grid grid-cols-3 gap-2" id="nota-cat-container">
-        <button type="button" class="nota-btn-cat" data-cat="cache" style="--sel-cor:#FF5722; --sel-bg:rgba(255,87,34,.15);" onclick="selecionarCatNota('cache')">Cachê</button>
-        <button type="button" class="nota-btn-cat" data-cat="midia" style="--sel-cor:#2E6BFF; --sel-bg:rgba(46,107,255,.15);" onclick="selecionarCatNota('midia')">Mídia</button>
-        <button type="button" class="nota-btn-cat sel" data-cat="producao" style="--sel-cor:#A855F7; --sel-bg:rgba(168,85,247,.15);" onclick="selecionarCatNota('producao')">Produção</button>
+      <label class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold mb-2 block">ID do projeto <span class="text-ink-500 normal-case font-normal ml-1">(busca por ID ou cliente)</span></label>
+      <div class="relative">
+        <input id="nota-orcamento-busca" type="text" autocomplete="off" class="input text-base py-3 pr-10" placeholder="Digite ID ou nome do cliente…" oninput="notaRapidaFiltrarOrcs(this.value)" onfocus="notaRapidaFiltrarOrcs(this.value)">
+        <input id="nota-orcamento" type="hidden" value="">
+        <button type="button" id="nota-orcamento-clear" class="absolute top-1/2 -translate-y-1/2 right-3 text-ink-500 hover:text-white hidden" onclick="notaRapidaLimparOrc()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+        <div id="nota-orcamento-lista" class="hidden absolute z-40 top-full left-0 right-0 mt-1 max-h-72 overflow-y-auto rounded-xl border border-white/10 bg-[#0a0f1c] shadow-2xl"></div>
       </div>
     </div>
 
@@ -4047,8 +4039,62 @@ function renderNotaRapida(){
 function bindNotaRapida(){
   document.body.classList.add('modo-nota-rapida');
   setTimeout(aplicarBRLEmTodos, 0);
-  // Categoria default = producao
-  STATE.notaRapidaForm = STATE.notaRapidaForm || { categoria: 'producao' };
+  // Categoria SEMPRE producao (Nota Rápida é só produção)
+  STATE.notaRapidaForm = { categoria: 'producao' };
+  // Cache lista de aprovados pra busca
+  STATE.notaRapidaAprovados = (STATE.orcamentos || []).filter(o => o.status === 'Aprovado');
+  // Fecha dropdown ao clicar fora
+  document.addEventListener('click', notaRapidaHandleOutside);
+}
+
+function notaRapidaHandleOutside(e){
+  const wrap = document.getElementById('nota-orcamento-busca');
+  const lista = document.getElementById('nota-orcamento-lista');
+  if (!wrap || !lista) return;
+  if (!wrap.contains(e.target) && !lista.contains(e.target)) lista.classList.add('hidden');
+}
+
+function notaRapidaFiltrarOrcs(termo){
+  const lista = document.getElementById('nota-orcamento-lista');
+  if (!lista) return;
+  const aprovados = STATE.notaRapidaAprovados || [];
+  const q = (termo || '').toLowerCase().trim();
+  const filtrados = q === '' ? aprovados.slice(0, 30) : aprovados.filter(o => {
+    const id = (o.id || '').toLowerCase();
+    const cliente = (o.cliente || '').toLowerCase();
+    const projeto = (o.projeto || '').toLowerCase();
+    return id.includes(q) || cliente.includes(q) || projeto.includes(q);
+  }).slice(0, 30);
+
+  if (filtrados.length === 0){
+    lista.innerHTML = `<div class="px-4 py-3 text-sm text-ink-500">Nenhum orçamento aprovado encontrado</div>`;
+  } else {
+    lista.innerHTML = filtrados.map(o => `
+      <button type="button" class="w-full text-left px-4 py-3 hover:bg-white/5 border-b border-white/5 last:border-0" onclick="notaRapidaSelecionarOrc('${o.id.replace(/'/g,"\\'")}')">
+        <div class="font-display font-bold text-sm text-laranja">${o.id}</div>
+        <div class="text-xs text-ink-200 truncate">${o.cliente || '—'}${o.projeto ? ' · ' + o.projeto : ''}</div>
+      </button>
+    `).join('');
+  }
+  lista.classList.remove('hidden');
+}
+
+function notaRapidaSelecionarOrc(id){
+  const aprovados = STATE.notaRapidaAprovados || [];
+  const o = aprovados.find(x => x.id === id);
+  if (!o) return;
+  document.getElementById('nota-orcamento').value = id;
+  document.getElementById('nota-orcamento-busca').value = `${id} · ${o.cliente || ''}${o.projeto ? ' · ' + o.projeto : ''}`;
+  document.getElementById('nota-orcamento-lista').classList.add('hidden');
+  document.getElementById('nota-orcamento-clear').classList.remove('hidden');
+}
+
+function notaRapidaLimparOrc(){
+  document.getElementById('nota-orcamento').value = '';
+  document.getElementById('nota-orcamento-busca').value = '';
+  document.getElementById('nota-orcamento-clear').classList.add('hidden');
+  notaRapidaFiltrarOrcs('');
+  document.getElementById('nota-orcamento-busca').focus();
 }
 
 function notaRapidaPreviewFoto(input){
@@ -4118,7 +4164,7 @@ async function salvarNotaRapida(){
   const valor = parseFloat(document.getElementById('nota-valor').dataset.numericValue || 0);
   const descricao = document.getElementById('nota-descricao').value.trim();
   const fornecedor = document.getElementById('nota-fornecedor').value.trim();
-  const categoria = (STATE.notaRapidaForm && STATE.notaRapidaForm.categoria) || 'producao';
+  const categoria = 'producao'; // Nota Rápida SEMPRE grava como produção
   const arquivoInput = document.getElementById('nota-arquivo');
   const arquivo = arquivoInput && arquivoInput.files && arquivoInput.files[0];
 
