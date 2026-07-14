@@ -4042,7 +4042,7 @@ function bindNotaRapida(){
   // Categoria SEMPRE producao (Nota Rápida é só produção)
   STATE.notaRapidaForm = { categoria: 'producao' };
   // Cache lista de aprovados pra busca
-  STATE.notaRapidaAprovados = (STATE.orcamentos || []).filter(o => o.status === 'Aprovado');
+  STATE.notaRapidaAprovados = (STATE.orcamentos || []).filter(o => o.status === 'Aprovada' || o.status === 'Aprovado');
   // Fecha dropdown ao clicar fora
   document.addEventListener('click', notaRapidaHandleOutside);
 }
