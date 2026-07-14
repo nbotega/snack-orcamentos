@@ -3979,12 +3979,20 @@ function renderNotaRapida(){
     <div>
       <label class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold mb-2 block">📸 Foto da nota</label>
       <div id="nota-photo-container">
-        <label class="nota-photo-btn block">
-          <input id="nota-arquivo" type="file" accept="image/*" capture="environment" class="hidden" onchange="notaRapidaPreviewFoto(this)">
-          <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#FF5722" stroke-width="2" class="mx-auto mb-2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-          <div class="font-display font-bold text-base">Tirar foto</div>
-          <div class="text-xs text-ink-400 mt-1">Abre a câmera do celular</div>
-        </label>
+        <div class="grid grid-cols-2 gap-2">
+          <label class="nota-photo-btn block">
+            <input id="nota-arquivo" type="file" accept="image/*" capture="environment" class="hidden" onchange="notaRapidaPreviewFoto(this)">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#FF5722" stroke-width="2" class="mx-auto mb-2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+            <div class="font-display font-bold text-sm">Tirar foto</div>
+            <div class="text-[10px] text-ink-400 mt-0.5">Câmera do celular</div>
+          </label>
+          <label class="nota-photo-btn block" style="border-color: rgba(46,107,255,.4); background: rgba(46,107,255,.06);">
+            <input id="nota-arquivo-upload" type="file" accept="image/*,application/pdf" class="hidden" onchange="notaRapidaPreviewFoto(this)">
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#2E6BFF" stroke-width="2" class="mx-auto mb-2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <div class="font-display font-bold text-sm">Escolher arquivo</div>
+            <div class="text-[10px] text-ink-400 mt-0.5">Imagem ou PDF</div>
+          </label>
+        </div>
       </div>
     </div>
 
@@ -4046,16 +4054,33 @@ function bindNotaRapida(){
 function notaRapidaPreviewFoto(input){
   const cont = document.getElementById('nota-photo-container');
   if (input.files && input.files[0]){
-    const url = URL.createObjectURL(input.files[0]);
-    cont.innerHTML = `
-      <div class="relative">
-        <img src="${url}" class="nota-preview" />
-        <button class="absolute top-2 right-2 bg-black/70 text-white rounded-full w-8 h-8 flex items-center justify-center" onclick="notaRapidaResetFoto()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
-      </div>
-      <input id="nota-arquivo" type="file" accept="image/*" capture="environment" class="hidden">
-    `;
+    const arquivo = input.files[0];
+    const isPDF = arquivo.type === 'application/pdf' || arquivo.name.toLowerCase().endsWith('.pdf');
+    let previewHTML;
+    if (isPDF){
+      // Preview de PDF: card com ícone e nome
+      previewHTML = `
+        <div class="relative rounded-xl border border-azul/40 bg-azul/5 p-6 flex items-center gap-4">
+          <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#2E6BFF" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <div class="flex-1 min-w-0">
+            <div class="font-display font-bold text-sm truncate">${arquivo.name}</div>
+            <div class="text-[11px] text-ink-400">${(arquivo.size/1024).toFixed(0)} KB · PDF</div>
+          </div>
+          <button class="bg-black/70 text-white rounded-full w-8 h-8 flex items-center justify-center flex-shrink-0" onclick="notaRapidaResetFoto()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+        </div>
+      `;
+    } else {
+      const url = URL.createObjectURL(arquivo);
+      previewHTML = `
+        <div class="relative">
+          <img src="${url}" class="nota-preview" />
+          <button class="absolute top-2 right-2 bg-black/70 text-white rounded-full w-8 h-8 flex items-center justify-center" onclick="notaRapidaResetFoto()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+        </div>
+      `;
+    }
+    cont.innerHTML = previewHTML + '<input id="nota-arquivo" type="file" accept="image/*,application/pdf" class="hidden">';
     // Restaura o file input com o arquivo já selecionado
-    const dt = new DataTransfer(); dt.items.add(input.files[0]);
+    const dt = new DataTransfer(); dt.items.add(arquivo);
     document.getElementById('nota-arquivo').files = dt.files;
   }
 }
@@ -4063,12 +4088,20 @@ function notaRapidaPreviewFoto(input){
 function notaRapidaResetFoto(){
   const cont = document.getElementById('nota-photo-container');
   cont.innerHTML = `
-    <label class="nota-photo-btn block">
-      <input id="nota-arquivo" type="file" accept="image/*" capture="environment" class="hidden" onchange="notaRapidaPreviewFoto(this)">
-      <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#FF5722" stroke-width="2" class="mx-auto mb-2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-      <div class="font-display font-bold text-base">Tirar foto</div>
-      <div class="text-xs text-ink-400 mt-1">Abre a câmera do celular</div>
-    </label>
+    <div class="grid grid-cols-2 gap-2">
+      <label class="nota-photo-btn block">
+        <input id="nota-arquivo" type="file" accept="image/*" capture="environment" class="hidden" onchange="notaRapidaPreviewFoto(this)">
+        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#FF5722" stroke-width="2" class="mx-auto mb-2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        <div class="font-display font-bold text-sm">Tirar foto</div>
+        <div class="text-[10px] text-ink-400 mt-0.5">Câmera do celular</div>
+      </label>
+      <label class="nota-photo-btn block" style="border-color: rgba(46,107,255,.4); background: rgba(46,107,255,.06);">
+        <input id="nota-arquivo-upload" type="file" accept="image/*,application/pdf" class="hidden" onchange="notaRapidaPreviewFoto(this)">
+        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#2E6BFF" stroke-width="2" class="mx-auto mb-2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <div class="font-display font-bold text-sm">Escolher arquivo</div>
+        <div class="text-[10px] text-ink-400 mt-0.5">Imagem ou PDF</div>
+      </label>
+    </div>
   `;
 }
 
