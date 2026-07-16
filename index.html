@@ -61,6 +61,9 @@ tailwind.config = {
   .btn-secondary:hover { background: #1F52D6; }
   .btn-ghost { background: #14141C; color: #C9C9D2; border-color: #2F2F3D; }
   .btn-ghost:hover { background: #1A1A24; border-color: #3E3E50; }
+  .pais-btn { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 8px 4px; border-radius: 8px; color: #9C9CAB; font-size: 11px; transition: all .12s ease; cursor: pointer; border: 1px solid transparent; }
+  .pais-btn:hover { color: #EDEDF0; background: rgba(255,255,255,.04); }
+  .pais-btn.active { background: linear-gradient(135deg, rgba(255,87,34,.18), rgba(46,107,255,.10)); color: #FFFFFF; border-color: rgba(255,87,34,.45); }
   .nav-item { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: 10px; font-weight: 500; font-size: 14px; color: #9C9CAB; transition: all .12s ease; cursor: pointer; }
   .nav-item:hover { background: #14141C; color: #EDEDF0; }
   .nav-item.active { background: linear-gradient(90deg, rgba(255,87,34,.18), rgba(46,107,255,.06)); color: #FFFFFF; border-left: 3px solid #FF5722; padding-left: 11px; }
@@ -124,12 +127,24 @@ tailwind.config = {
   <div class="flex min-h-screen">
     <!-- SIDEBAR -->
     <aside class="w-[240px] shrink-0 bg-ink-950 border-r border-ink-800 p-5 sticky top-0 h-screen flex flex-col">
-      <div class="flex items-center gap-2.5 mb-9">
+      <div class="flex items-center gap-2.5 mb-4">
         <div class="w-9 h-9 rounded-xl grad-snack flex items-center justify-center text-white font-black text-base">S</div>
         <div>
           <div class="font-display font-bold text-[15px] leading-none">snack</div>
-          <div class="text-[10px] text-ink-400 mt-1 tracking-wider uppercase">orçamentos v1</div>
+          <div class="text-[10px] text-ink-400 mt-1 tracking-wider uppercase" id="header-pais-label">orçamentos · brasil</div>
         </div>
+      </div>
+
+      <!-- TOGGLE PAÍS -->
+      <div id="pais-toggle" class="mb-6 grid grid-cols-2 gap-1 bg-ink-900 rounded-lg p-1">
+        <button class="pais-btn active" data-pais="BR" onclick="trocarPais('BR')" title="Snack Brasil (R$)">
+          <span class="text-lg leading-none">🇧🇷</span>
+          <span class="font-semibold text-xs mt-0.5">Brasil</span>
+        </button>
+        <button class="pais-btn" data-pais="PT" onclick="trocarPais('PT')" title="Snack Portugal (€)">
+          <span class="text-lg leading-none">🇵🇹</span>
+          <span class="font-semibold text-xs mt-0.5">Portugal</span>
+        </button>
       </div>
 
       <nav class="space-y-1 flex-1">
@@ -283,7 +298,49 @@ const STATE = {
   route: 'dashboard',
   orcamentos: [],
   nextId: 1,
+  pais: (typeof localStorage !== 'undefined' && localStorage.getItem('snack_pais')) || 'BR',
 };
+
+// ============================================================
+// MULTI-PAÍS — moeda dinâmica + toggle
+// ============================================================
+const MOEDA_INFO = {
+  BR: { simbolo: 'R$', locale: 'pt-BR', codigo: 'BRL', nome: 'Brasil' },
+  PT: { simbolo: '€',  locale: 'pt-PT', codigo: 'EUR', nome: 'Portugal' }
+};
+function moedaAtual(){ return MOEDA_INFO[STATE.pais] || MOEDA_INFO.BR; }
+function fmtMoeda(v, decimals){
+  const m = moedaAtual();
+  const n = Number(v)||0;
+  const d = decimals != null ? decimals : (Math.abs(n) < 10 ? 2 : 0);
+  const num = n.toLocaleString(m.locale, { minimumFractionDigits: d, maximumFractionDigits: d });
+  return STATE.pais === 'PT' ? `€ ${num}` : `R$ ${num}`;
+}
+
+async function trocarPais(novoPais){
+  if (novoPais === STATE.pais) return;
+  STATE.pais = novoPais;
+  try { localStorage.setItem('snack_pais', novoPais); } catch(e){}
+  // Atualiza visual do toggle
+  document.querySelectorAll('.pais-btn').forEach(b => b.classList.toggle('active', b.dataset.pais === novoPais));
+  const lbl = document.getElementById('header-pais-label');
+  if (lbl) lbl.textContent = 'orçamentos · ' + moedaAtual().nome.toLowerCase();
+  // Recarrega tudo do país novo
+  STATE.orcamentos = [];
+  STATE.pagamentos = [];
+  STATE.realizados = [];
+  await carregarDoSupabase();
+  await carregarPagamentos();
+  await carregarRealizadosSilent();
+  render();
+}
+
+function aplicarPaisNoBoot(){
+  // Aplica visual do toggle no boot (STATE.pais já veio do localStorage)
+  document.querySelectorAll('.pais-btn').forEach(b => b.classList.toggle('active', b.dataset.pais === STATE.pais));
+  const lbl = document.getElementById('header-pais-label');
+  if (lbl) lbl.textContent = 'orçamentos · ' + moedaAtual().nome.toLowerCase();
+}
 
 /* =============================================================
    SUPABASE — camada de persistência
@@ -307,11 +364,11 @@ async function carregarDoSupabase(){
   setSyncStatus('saving');
   try {
     const [c, t, p, o, sq] = await Promise.all([
-      sb.from('cargos').select('*').order('id'),
+      sb.from('cargos').select('*').eq('pais', STATE.pais).order('id'),
       sb.from('tipos_orcamento').select('*'),
-      sb.from('premissas').select('*'),
-      sb.from('orcamentos').select('*').order('id'),
-      sb.from('orcamento_squad').select('*'),
+      sb.from('premissas').select('*').eq('pais', STATE.pais),
+      sb.from('orcamentos').select('*').eq('pais', STATE.pais).order('id'),
+      sb.from('orcamento_squad').select('*').eq('pais', STATE.pais),
     ]);
     if (c.error) throw c.error;
     CARGOS.length = 0;
@@ -379,7 +436,7 @@ async function salvarOrcamentoSupabase(orc){
       orc._originalId = orc.id;
     }
     // upsert orçamento (sem o squad)
-    const { error: e1 } = await sb.from('orcamentos').upsert({
+    const { error: e1 } = await sb.from('orcamentos').upsert({ pais: STATE.pais,
       id: orc.id, data: orc.data, data_inicio: orc.data_inicio || orc.data,
       cliente: orc.cliente, projeto: orc.projeto||null,
       tipo: orc.tipo, status: orc.status, meses: orc.meses,
@@ -407,7 +464,7 @@ async function salvarOrcamentoSupabase(orc){
         salario_override: (s.salario_override != null && s.salario_override !== '') ? Number(s.salario_override) : null
       }));
       if (linhas.length){
-        const { error: e2 } = await sb.from('orcamento_squad').insert(linhas);
+        const { error: e2 } = await sb.from('orcamento_squad').insert(linhas.map(l=>({...l, pais: STATE.pais})));
         if (e2) throw e2;
       }
     }
@@ -436,14 +493,14 @@ function scheduleSync(fn){
 
 async function salvarPremissaSupabase(chave, valor){
   scheduleSync(async ()=>{
-    const { error } = await sb.from('premissas').upsert({ chave, valor, updated_at: new Date().toISOString() });
+    const { error } = await sb.from('premissas').upsert({ chave, valor, updated_at: new Date().toISOString(), pais: STATE.pais }, { onConflict: 'chave,pais' });
     if (error) throw error;
   });
 }
 
 async function salvarCargoSupabase(cargo){
   scheduleSync(async ()=>{
-    const { error } = await sb.from('cargos').upsert({
+    const { error } = await sb.from('cargos').upsert({ pais: STATE.pais,
       id: cargo.id, area: cargo.area, cargo: cargo.cargo,
       nivel: cargo.nivel, salario: cargo.salario,
       updated_at: new Date().toISOString()
@@ -721,6 +778,7 @@ async function entrar(){
       if (nomeEl) nomeEl.textContent = user.email || 'Usuário';
     }
   } catch(e){}
+  aplicarPaisNoBoot();
   await carregarDoSupabase();
   await carregarPagamentos();
   await carregarRealizadosSilent();
@@ -730,7 +788,7 @@ async function entrar(){
 // Carrega STATE.realizados sem depender da UI (usado no boot)
 async function carregarRealizadosSilent(){
   try {
-    const { data } = await sb.from('custos_realizados').select('*');
+    const { data } = await sb.from('custos_realizados').select('*').eq('pais', STATE.pais);
     STATE.realizados = data || [];
   } catch(e){ STATE.realizados = []; }
 }
@@ -3534,7 +3592,7 @@ STATE.pagamentos = [];
 
 async function carregarPagamentos(){
   try {
-    const { data, error } = await sb.from('pagamentos').select('*').order('data_pagamento', { ascending: false });
+    const { data, error } = await sb.from('pagamentos').select('*').eq('pais', STATE.pais).order('data_pagamento', { ascending: false });
     if (error) throw error;
     STATE.pagamentos = data || [];
   } catch(e){ console.error('Erro carregar pagamentos:', e); }
@@ -3944,11 +4002,11 @@ async function salvarPagamento(orcamentoId, pagamentoId){
 
     let error;
     if (pagamentoId){
-      ({ error } = await sb.from('pagamentos').update(dados).eq('id', pagamentoId));
+      ({ error } = await sb.from('pagamentos').update({...dados, pais: STATE.pais}).eq('id', pagamentoId));
     } else {
       const { data: { user } } = await sb.auth.getUser();
       dados.created_by = user?.id || null;
-      ({ error } = await sb.from('pagamentos').insert(dados));
+      ({ error } = await sb.from('pagamentos').insert({...dados, pais: STATE.pais}));
     }
     if (error) throw error;
 
@@ -4269,7 +4327,7 @@ async function salvarNotaRapida(){
       created_by: user?.id || null,
       updated_at: new Date().toISOString()
     };
-    const { error } = await sb.from('pagamentos').insert(dados);
+    const { error } = await sb.from('pagamentos').insert({...dados, pais: STATE.pais});
     if (error) throw error;
 
     // Feedback + recarrega
@@ -4564,7 +4622,7 @@ function renderRealizado(){
 }
 
 async function carregarRealizados(){
-  const { data, error } = await sb.from('custos_realizados').select('*').order('periodo_ref');
+  const { data, error } = await sb.from('custos_realizados').select('*').eq('pais', STATE.pais).order('periodo_ref');
   if (error){ console.error(error); return; }
   STATE.realizados = data || [];
   // Popula dropdown de períodos
@@ -4754,7 +4812,7 @@ async function salvarImportRealizado(){
   btn.disabled = true; btn.textContent = 'Importando...';
   try {
     const rows = dados.map(d => ({ ...d, periodo_ref: periodo, updated_at: new Date().toISOString() }));
-    const { error } = await sb.from('custos_realizados').upsert(rows, { onConflict: 'orcamento_id,periodo_ref' });
+    const { error } = await sb.from('custos_realizados').upsert(rows.map(r=>({...r, pais: STATE.pais})), { onConflict: 'orcamento_id,periodo_ref,pais' });
     if (error) throw error;
     alert(`Importado! ${rows.length} lançamentos do período "${periodo}".`);
     fecharModalImportRealizado();
