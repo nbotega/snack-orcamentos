@@ -3599,18 +3599,24 @@ function baseAmortizacao(orc, categoria){
   return real > 0 ? real : previstoPorCategoria(orc, categoria);
 }
 
+// Realizado importado JÁ FOI PAGO pelo financeiro — soma junto no "Pago" pra dar baixa automática
+function pagoTotalPorCategoria(orcId, categoria){
+  return pagoPorCategoria(orcId, categoria) + realizadoPorCategoria(orcId, categoria);
+}
+
 function renderCustos(){
   const aprovados = STATE.orcamentos.filter(o=>o.status==='Aprovada');
 
   // KPIs globais
   // "Base" = realizado quando existir, senão previsto. Saldo amortiza a partir da base.
+  // "Pago total" já INCLUI o realizado importado (baixa automática) + pagamentos manuais
   let totPrevisto = 0, totRealizado = 0, totBase = 0, totPago = 0, totAPagar = 0;
   aprovados.forEach(o=>{
     ['cache','midia','producao'].forEach(cat=>{
       totPrevisto += previstoPorCategoria(o, cat);
       totRealizado += realizadoPorCategoria(o.id, cat);
       totBase += baseAmortizacao(o, cat);
-      totPago += pagoPorCategoria(o.id, cat);
+      totPago += pagoTotalPorCategoria(o.id, cat);
       totAPagar += aPagarPorCategoria(o.id, cat);
     });
   });
@@ -3670,7 +3676,7 @@ function renderCustos(){
               const prev = ['cache','midia','producao'].reduce((s,c)=>s + previstoPorCategoria(o,c), 0);
               const real = ['cache','midia','producao'].reduce((s,c)=>s + realizadoPorCategoria(o.id,c), 0);
               const base = ['cache','midia','producao'].reduce((s,c)=>s + baseAmortizacao(o,c), 0);
-              const pago = ['cache','midia','producao'].reduce((s,c)=>s + pagoPorCategoria(o.id,c), 0);
+              const pago = ['cache','midia','producao'].reduce((s,c)=>s + pagoTotalPorCategoria(o.id,c), 0);
               const aPagar = ['cache','midia','producao'].reduce((s,c)=>s + aPagarPorCategoria(o.id,c), 0);
               const saldoProj = base - pago - aPagar;
               const pct = base > 0 ? (pago/base*100) : 0;
@@ -3710,11 +3716,12 @@ function renderPainelCustosDetalhe(orc){
     const previsto = previstoPorCategoria(orc, cat);
     const realizado = realizadoPorCategoria(orc.id, cat);
     const base = realizado > 0 ? realizado : previsto;
-    const pago = pagoPorCategoria(orc.id, cat);
+    const pagoManual = pagoPorCategoria(orc.id, cat);
+    const pago = pagoManual + realizado; // realizado importado já dá baixa como pago
     const aPagar = aPagarPorCategoria(orc.id, cat);
     return {
       cat, nome: NOMES_CAT[cat], cor: CORES_CAT[cat],
-      previsto, realizado, base, pago, aPagar,
+      previsto, realizado, base, pago, pagoManual, aPagar,
       saldo: base - pago - aPagar,
       pct: base > 0 ? (pago/base*100) : 0,
       temReal: realizado > 0
@@ -3759,7 +3766,8 @@ function renderPainelCustosDetalhe(orc){
             ` : `
               <div class="flex justify-between pt-1 mt-1 border-t border-white/10"><span class="text-ink-300 font-semibold">Base amortização</span><span class="font-semibold tabular-nums">${fmtBRL(t.base)}</span></div>
             `}
-            <div class="flex justify-between"><span class="text-ink-400">Pago</span><span class="text-green-400 font-semibold tabular-nums">${fmtBRL(t.pago)}</span></div>
+            <div class="flex justify-between"><span class="text-ink-400">Pago${t.temReal?' <span class="text-[9px] text-ink-500">(inclui realizado)</span>':''}</span><span class="text-green-400 font-semibold tabular-nums">${fmtBRL(t.pago)}</span></div>
+            ${t.temReal && t.pagoManual>0 ? `<div class="flex justify-between text-[10px]"><span class="text-ink-500 pl-2">↳ realizado importado</span><span class="text-ink-400 tabular-nums">${fmtBRL(t.realizado)}</span></div><div class="flex justify-between text-[10px]"><span class="text-ink-500 pl-2">↳ pagamentos manuais</span><span class="text-ink-400 tabular-nums">${fmtBRL(t.pagoManual)}</span></div>` : ''}
             ${t.aPagar>0 ? `<div class="flex justify-between"><span class="text-ink-400">A pagar</span><span class="text-yellow-400 font-semibold tabular-nums">${fmtBRL(t.aPagar)}</span></div>` : ''}
             <div class="flex justify-between pt-1 border-t border-ink-800"><span class="text-ink-300 font-semibold">Saldo</span><span class="font-bold tabular-nums ${t.saldo>0?'text-orange':t.saldo<0?'text-red-400':'text-green-400'}">${fmtBRL(t.saldo)}</span></div>
           </div>
