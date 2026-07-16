@@ -723,7 +723,16 @@ async function entrar(){
   } catch(e){}
   await carregarDoSupabase();
   await carregarPagamentos();
+  await carregarRealizadosSilent();
   navigate('dashboard');
+}
+
+// Carrega STATE.realizados sem depender da UI (usado no boot)
+async function carregarRealizadosSilent(){
+  try {
+    const { data } = await sb.from('custos_realizados').select('*');
+    STATE.realizados = data || [];
+  } catch(e){ STATE.realizados = []; }
 }
 
 async function login(){
@@ -3569,20 +3578,44 @@ function aPagarPorCategoria(orcId, categoria){
 const NOMES_CAT = { cache:'Cachê', midia:'Mídia', producao:'Produção' };
 const CORES_CAT = { cache:'#FF5722', midia:'#2E6BFF', producao:'#A855F7' };
 
+// Realizado importado da planilha do financeiro (por categoria)
+// Mapeamento: planilha.cache -> cat cache; (planilha.producao + planilha.freela) -> cat producao;
+// planilha não tem mídia, então midia realizado sempre 0.
+function realizadoPorCategoria(orcId, categoria){
+  const rs = (STATE.realizados||[]).filter(r=>String(r.orcamento_id) === String(orcId));
+  if (rs.length === 0) return 0;
+  if (categoria === 'cache')    return rs.reduce((s,r)=>s + (Number(r.cache)||0), 0);
+  if (categoria === 'producao') return rs.reduce((s,r)=>s + (Number(r.producao)||0) + (Number(r.freela)||0), 0);
+  return 0; // midia não existe na planilha
+}
+
+function totalRealizado(orcId){
+  return realizadoPorCategoria(orcId,'cache') + realizadoPorCategoria(orcId,'producao');
+}
+
+// Base pra amortização: se tem realizado importado, usa ele; senão, cai no previsto
+function baseAmortizacao(orc, categoria){
+  const real = realizadoPorCategoria(orc.id, categoria);
+  return real > 0 ? real : previstoPorCategoria(orc, categoria);
+}
+
 function renderCustos(){
   const aprovados = STATE.orcamentos.filter(o=>o.status==='Aprovada');
 
   // KPIs globais
-  let totPrevisto = 0, totPago = 0, totAPagar = 0;
+  // "Base" = realizado quando existir, senão previsto. Saldo amortiza a partir da base.
+  let totPrevisto = 0, totRealizado = 0, totBase = 0, totPago = 0, totAPagar = 0;
   aprovados.forEach(o=>{
     ['cache','midia','producao'].forEach(cat=>{
       totPrevisto += previstoPorCategoria(o, cat);
+      totRealizado += realizadoPorCategoria(o.id, cat);
+      totBase += baseAmortizacao(o, cat);
       totPago += pagoPorCategoria(o.id, cat);
       totAPagar += aPagarPorCategoria(o.id, cat);
     });
   });
-  const saldo = totPrevisto - totPago - totAPagar;
-  const pctPago = totPrevisto > 0 ? (totPago/totPrevisto*100) : 0;
+  const saldo = totBase - totPago - totAPagar;
+  const pctPago = totBase > 0 ? (totPago/totBase*100) : 0;
 
   // Projeto selecionado
   const selectedId = STATE.custosSelectedId || (aprovados[0] && aprovados[0].id);
@@ -3593,26 +3626,31 @@ function renderCustos(){
   <div class="space-y-4 fade-in">
 
     <!-- KPIs -->
-    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-      <div class="card p-5">
-        <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">Previsto total</div>
-        <div class="text-3xl font-display font-bold mt-2">${fmtBRL(totPrevisto)}</div>
-        <div class="text-xs text-ink-300 mt-2">${aprovados.length} projeto${aprovados.length===1?'':'s'} aprovado${aprovados.length===1?'':'s'}</div>
+    <div class="grid grid-cols-1 md:grid-cols-5 gap-3">
+      <div class="card p-4">
+        <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">Orçado</div>
+        <div class="text-2xl font-display font-bold mt-2 text-ink-300">${fmtBRL(totPrevisto)}</div>
+        <div class="text-xs text-ink-500 mt-2">${aprovados.length} projeto${aprovados.length===1?'':'s'}</div>
       </div>
-      <div class="card p-5">
+      <div class="card p-4" style="border-color:rgba(255,87,34,.35);">
+        <div class="text-[11px] uppercase tracking-widest text-orange font-semibold">Realizado importado</div>
+        <div class="text-2xl font-display font-bold mt-2 text-orange">${fmtBRL(totRealizado)}</div>
+        <div class="text-xs text-ink-300 mt-2">Base da amortização</div>
+      </div>
+      <div class="card p-4">
         <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">Já pago</div>
-        <div class="text-3xl font-display font-bold mt-2 text-green-400">${fmtBRL(totPago)}</div>
-        <div class="text-xs text-ink-300 mt-2">${pctPago.toFixed(0)}% do previsto</div>
+        <div class="text-2xl font-display font-bold mt-2 text-green-400">${fmtBRL(totPago)}</div>
+        <div class="text-xs text-ink-300 mt-2">${pctPago.toFixed(0)}% da base</div>
       </div>
-      <div class="card p-5">
+      <div class="card p-4">
         <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">A pagar</div>
-        <div class="text-3xl font-display font-bold mt-2 text-yellow-400">${fmtBRL(totAPagar)}</div>
-        <div class="text-xs text-ink-300 mt-2">${STATE.pagamentos.filter(p=>p.status==='A pagar').length} lançamento${STATE.pagamentos.filter(p=>p.status==='A pagar').length===1?'':'s'} em aberto</div>
+        <div class="text-2xl font-display font-bold mt-2 text-yellow-400">${fmtBRL(totAPagar)}</div>
+        <div class="text-xs text-ink-300 mt-2">${STATE.pagamentos.filter(p=>p.status==='A pagar').length} em aberto</div>
       </div>
-      <div class="card p-5">
-        <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">Saldo restante</div>
-        <div class="text-3xl font-display font-bold mt-2 ${saldo<0?'text-red-400':'text-orange'}">${fmtBRL(saldo)}</div>
-        <div class="text-xs text-ink-300 mt-2">Previsto − Pago − A Pagar</div>
+      <div class="card p-4">
+        <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">Saldo</div>
+        <div class="text-2xl font-display font-bold mt-2 ${saldo<0?'text-red-400':'text-orange'}">${fmtBRL(saldo)}</div>
+        <div class="text-xs text-ink-300 mt-2">Base − Pago − A pagar</div>
       </div>
     </div>
 
@@ -3630,14 +3668,17 @@ function renderCustos(){
           ${aprovados.length === 0 ? '<div class="text-sm text-ink-400 italic p-4 text-center">Nenhum orçamento aprovado ainda.</div>' :
             aprovados.map(o=>{
               const prev = ['cache','midia','producao'].reduce((s,c)=>s + previstoPorCategoria(o,c), 0);
+              const real = ['cache','midia','producao'].reduce((s,c)=>s + realizadoPorCategoria(o.id,c), 0);
+              const base = ['cache','midia','producao'].reduce((s,c)=>s + baseAmortizacao(o,c), 0);
               const pago = ['cache','midia','producao'].reduce((s,c)=>s + pagoPorCategoria(o.id,c), 0);
               const aPagar = ['cache','midia','producao'].reduce((s,c)=>s + aPagarPorCategoria(o.id,c), 0);
-              const saldoProj = prev - pago - aPagar;
-              const pct = prev > 0 ? (pago/prev*100) : 0;
+              const saldoProj = base - pago - aPagar;
+              const pct = base > 0 ? (pago/base*100) : 0;
               const isSel = o.id === selectedId;
+              const temReal = real > 0;
               return `<div class="proj-custos-item rounded-lg p-3 cursor-pointer transition ${isSel?'bg-orange/12 border border-orange/40':'bg-ink-900 hover:bg-ink-850 border border-transparent'}" data-oid="${o.id}" data-cliente="${(o.cliente||'').toLowerCase()}" onclick="STATE.custosSelectedId='${o.id}'; render();">
                 <div class="flex items-center justify-between mb-1">
-                  <div class="font-mono text-xs text-ink-400">${o.id}</div>
+                  <div class="flex items-center gap-2"><div class="font-mono text-xs text-ink-400">${o.id}</div>${temReal?'<span class="text-[9px] px-1.5 py-0.5 rounded bg-orange/20 text-orange font-bold uppercase tracking-widest">Real</span>':''}</div>
                   <div class="text-[10px] text-ink-400">${o.vendedor?'Vendedor: '+o.vendedor:''}</div>
                 </div>
                 <div class="font-semibold text-sm">${o.cliente}${o.projeto?' · <span class="text-ink-300 font-normal">'+o.projeto+'</span>':''}</div>
@@ -3645,7 +3686,7 @@ function renderCustos(){
                   <div class="h-full bg-green-500" style="width:${Math.min(100,pct).toFixed(0)}%"></div>
                 </div>
                 <div class="flex items-center justify-between mt-1.5 text-[11px]">
-                  <span class="text-ink-400">${fmtBRL(pago)}<span class="text-ink-500"> / ${fmtBRL(prev)}</span></span>
+                  <span class="text-ink-400">${fmtBRL(pago)}<span class="text-ink-500"> / ${fmtBRL(base)}${temReal?' <span class="text-orange">(real)</span>':''}</span></span>
                   <span class="${saldoProj>0?'text-orange':saldoProj<0?'text-red-400':'text-green-400'} font-bold tabular-nums">${saldoProj===0?'✓':fmtBRL(saldoProj)}</span>
                 </div>
               </div>`;
@@ -3665,15 +3706,20 @@ function renderCustos(){
 
 function renderPainelCustosDetalhe(orc){
   const cats = ['cache','midia','producao'];
-  const totais = cats.map(cat => ({
-    cat,
-    nome: NOMES_CAT[cat],
-    cor: CORES_CAT[cat],
-    previsto: previstoPorCategoria(orc, cat),
-    pago: pagoPorCategoria(orc.id, cat),
-    aPagar: aPagarPorCategoria(orc.id, cat),
-  }));
-  totais.forEach(t=>{ t.saldo = t.previsto - t.pago - t.aPagar; t.pct = t.previsto>0?(t.pago/t.previsto*100):0; });
+  const totais = cats.map(cat => {
+    const previsto = previstoPorCategoria(orc, cat);
+    const realizado = realizadoPorCategoria(orc.id, cat);
+    const base = realizado > 0 ? realizado : previsto;
+    const pago = pagoPorCategoria(orc.id, cat);
+    const aPagar = aPagarPorCategoria(orc.id, cat);
+    return {
+      cat, nome: NOMES_CAT[cat], cor: CORES_CAT[cat],
+      previsto, realizado, base, pago, aPagar,
+      saldo: base - pago - aPagar,
+      pct: base > 0 ? (pago/base*100) : 0,
+      temReal: realizado > 0
+    };
+  });
 
   const pagamentosOrc = STATE.pagamentos.filter(p=>p.orcamento_id === orc.id);
 
@@ -3693,23 +3739,33 @@ function renderPainelCustosDetalhe(orc){
 
     <!-- 3 categorias -->
     <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
-      ${totais.map(t=>`
+      ${totais.map(t=>{
+        const delta = t.realizado - t.previsto;
+        return `
         <div class="rounded-xl p-4 border" style="background:rgba(0,0,0,.15); border-color:${t.cor}40;">
           <div class="flex items-center justify-between">
-            <div class="text-xs uppercase tracking-widest font-bold" style="color:${t.cor};">${t.nome}</div>
+            <div class="text-xs uppercase tracking-widest font-bold" style="color:${t.cor};">${t.nome}${t.temReal?' <span class="ml-1 text-[9px] px-1.5 py-0.5 rounded bg-white/10">REAL</span>':''}</div>
             <div class="text-xs text-ink-400 tabular-nums">${t.pct.toFixed(0)}%</div>
           </div>
           <div class="h-2 bg-ink-800 rounded-full overflow-hidden mt-2">
             <div class="h-full" style="width:${Math.min(100,t.pct).toFixed(0)}%; background:${t.cor};"></div>
           </div>
           <div class="mt-3 space-y-1 text-xs">
-            <div class="flex justify-between"><span class="text-ink-400">Previsto</span><span class="font-semibold tabular-nums">${fmtBRL(t.previsto)}</span></div>
+            <div class="flex justify-between"><span class="text-ink-500">Orçado</span><span class="tabular-nums text-ink-400">${fmtBRL(t.previsto)}</span></div>
+            ${t.temReal ? `
+              <div class="flex justify-between"><span class="text-orange">Realizado</span><span class="font-bold tabular-nums text-orange">${fmtBRL(t.realizado)}</span></div>
+              <div class="flex justify-between text-[10px]"><span class="text-ink-500">Δ vs orçado</span><span class="tabular-nums ${delta>0?'text-red-400':'text-green-400'}">${delta>0?'+':''}${fmtBRL(delta)}</span></div>
+              <div class="flex justify-between pt-1 mt-1 border-t border-white/10"><span class="text-ink-300 font-semibold">Base amortização</span><span class="font-semibold tabular-nums">${fmtBRL(t.base)}</span></div>
+            ` : `
+              <div class="flex justify-between pt-1 mt-1 border-t border-white/10"><span class="text-ink-300 font-semibold">Base amortização</span><span class="font-semibold tabular-nums">${fmtBRL(t.base)}</span></div>
+            `}
             <div class="flex justify-between"><span class="text-ink-400">Pago</span><span class="text-green-400 font-semibold tabular-nums">${fmtBRL(t.pago)}</span></div>
             ${t.aPagar>0 ? `<div class="flex justify-between"><span class="text-ink-400">A pagar</span><span class="text-yellow-400 font-semibold tabular-nums">${fmtBRL(t.aPagar)}</span></div>` : ''}
             <div class="flex justify-between pt-1 border-t border-ink-800"><span class="text-ink-300 font-semibold">Saldo</span><span class="font-bold tabular-nums ${t.saldo>0?'text-orange':t.saldo<0?'text-red-400':'text-green-400'}">${fmtBRL(t.saldo)}</span></div>
           </div>
         </div>
-      `).join('')}
+        `;
+      }).join('')}
     </div>
 
     <!-- HISTÓRICO -->
