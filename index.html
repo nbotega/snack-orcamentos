@@ -669,8 +669,8 @@ function calcular(orc) {
 /* =============================================================
    HELPERS DE FORMATAÇÃO
 ============================================================= */
-const fmtBRL = v => (v==null||isNaN(v)) ? '—' : v.toLocaleString('pt-BR',{style:'currency',currency:'BRL',maximumFractionDigits:0});
-const fmtBRLcent = v => (v==null||isNaN(v)) ? '—' : v.toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+const fmtBRL = v => (v==null||isNaN(v)) ? '—' : fmtMoeda(v, 0);
+const fmtBRLcent = v => (v==null||isNaN(v)) ? '—' : fmtMoeda(v, 2);
 const fmtPct = v => (v==null||isNaN(v)) ? '—' : (v*100).toLocaleString('pt-BR',{maximumFractionDigits:1})+'%';
 const fmtNum = v => (v==null||isNaN(v)) ? '—' : v.toLocaleString('pt-BR',{maximumFractionDigits:0});
 
@@ -1037,7 +1037,7 @@ function renderTimelineOverhead(orcs, overheadAlvo){
         <div>Pra cada contrato Aprovado/Proposta: <strong>MC mensal</strong> = (EBITDA + Overhead alocado) ÷ meses do contrato.</div>
         <div>Cada contrato é distribuído nos meses em que ele está ativo, a partir da <strong>data de início de execução</strong>.</div>
         <div>Um projeto one-shot de 1 mês aparece <strong>só num mês</strong> (com a MC inteira ali). Um AON de 12 meses aparece em 12 meses (MC dividida).</div>
-        <div>Cada mês tem um % = MC do mês ÷ overhead mensal (R$ ${(overheadAlvo/1000).toFixed(0)}k).</div>
+        <div>Cada mês tem um % = MC do mês ÷ overhead mensal (${moedaAtual().simbolo} ${(overheadAlvo/1000).toFixed(0)}k).</div>
         <div>"X meses cobertos" no ano = soma das MCs anuais aprovadas ÷ overhead mensal. Meta: 12.</div>
       </div>
     </details>
@@ -1471,18 +1471,18 @@ function renderNovoOrcamento(ctx) {
           </div>
           <div>
             <div class="flex items-center justify-between mb-1.5">
-              <label class="label mb-0">Cachês R$ ${orc.custos_mensais?'(/mês)':'(total)'}</label>
+              <label class="label mb-0">Cachês ${moedaAtual().simbolo} ${orc.custos_mensais?'(/mês)':'(total)'}</label>
               ${(orc.caches_itens||[]).length === 0 ? `<button class="text-[10px] text-azul-400 hover:text-azul font-semibold" onclick="abrirDetalheCustos('caches')" type="button">+ detalhar</button>` : ''}
             </div>
             <input id="i-caches" type="text" inputmode="decimal" class="input input-brl" data-brl-decimals="2" value="${orc.caches}" oninput="onChange('caches', parseFloat(this.dataset.numericValue||0))" ${(orc.caches_itens||[]).length>0?'readonly title="Valor calculado dos sub-itens"':''}>
           </div>
           <div>
-            <label class="label">Mídia R$ ${orc.custos_mensais?'(/mês)':'(total)'}</label>
+            <label class="label">Mídia ${moedaAtual().simbolo} ${orc.custos_mensais?'(/mês)':'(total)'}</label>
             <input id="i-midia" type="text" inputmode="decimal" class="input input-brl" data-brl-decimals="2" value="${orc.midia}" oninput="onChange('midia', parseFloat(this.dataset.numericValue||0))">
           </div>
           <div>
             <div class="flex items-center justify-between mb-1.5">
-              <label class="label mb-0">Produção R$ ${orc.custos_mensais?'(/mês)':'(total)'}</label>
+              <label class="label mb-0">Produção ${moedaAtual().simbolo} ${orc.custos_mensais?'(/mês)':'(total)'}</label>
               ${(orc.producao_itens||[]).length === 0 ? `<button class="text-[10px] text-azul-400 hover:text-azul font-semibold" onclick="abrirDetalheCustos('producao')" type="button">+ detalhar</button>` : ''}
             </div>
             <input id="i-producao" type="text" inputmode="decimal" class="input input-brl" data-brl-decimals="2" value="${orc.producao}" oninput="onChange('producao', parseFloat(this.dataset.numericValue||0))" ${(orc.producao_itens||[]).length>0?'readonly title="Valor calculado dos sub-itens"':''}>
@@ -1506,7 +1506,7 @@ function renderNovoOrcamento(ctx) {
             </div>
             <div class="text-sm">
               <span class="text-ink-400">Total:</span>
-              <span id="display-frilas-total" class="font-display font-bold ml-2" style="color:#D8B4FE;">R$ 0</span>
+              <span id="display-frilas-total" class="font-display font-bold ml-2" style="color:#D8B4FE;">${moedaAtual().simbolo} 0</span>
             </div>
           </div>
 
@@ -1555,7 +1555,7 @@ function renderNovoOrcamento(ctx) {
             </div>
             <div class="text-sm">
               <span class="text-ink-400">Subtotal:</span>
-              <span id="display-heads-mensal" class="font-display font-bold ml-2 text-azul-400">R$ 0/mês</span>
+              <span id="display-heads-mensal" class="font-display font-bold ml-2 text-azul-400">${moedaAtual().simbolo} 0/mês</span>
             </div>
           </div>
 
@@ -1587,7 +1587,7 @@ function renderNovoOrcamento(ctx) {
             </div>
             <div class="text-sm">
               <span class="text-ink-400">Subtotal:</span>
-              <span id="display-squad-op-mensal" class="font-display font-bold ml-2 text-orange">R$ 0/mês</span>
+              <span id="display-squad-op-mensal" class="font-display font-bold ml-2 text-orange">${moedaAtual().simbolo} 0/mês</span>
             </div>
           </div>
 
@@ -1619,7 +1619,7 @@ function renderNovoOrcamento(ctx) {
         <!-- TOTAL SQUAD -->
         <div class="mt-4 flex items-center justify-end gap-3 text-sm">
           <span class="text-ink-400">Custo total (Heads + Squad) / mês:</span>
-          <span id="display-squad-mensal" class="font-display font-bold text-lg">R$ 0</span>
+          <span id="display-squad-mensal" class="font-display font-bold text-lg">${moedaAtual().simbolo} 0</span>
         </div>
       </div>
 
@@ -1654,12 +1654,12 @@ function renderNovoOrcamento(ctx) {
 
         <div class="mb-3 flex items-center justify-between">
           <label class="label mb-0">Fee Mensal Proposto</label>
-          <div class="text-2xl font-display font-bold tabular-nums"><span id="display-fee-mensal">R$ ${(orc.fee_mensal||0).toLocaleString('pt-BR')}</span></div>
+          <div class="text-2xl font-display font-bold tabular-nums"><span id="display-fee-mensal">${fmtMoeda(orc.fee_mensal||0, 0)}</span></div>
         </div>
         <input id="i-fee" type="range" min="0" max="2000000" step="5000" value="${orc.fee_mensal}" class="snack-slider w-full" oninput="onChangeFee(+this.value)">
         <div class="flex items-center justify-between mt-2 text-xs text-ink-400">
-          <span>R$ 0</span>
-          <span>R$ 2M</span>
+          <span>${moedaAtual().simbolo} 0</span>
+          <span>${moedaAtual().simbolo} 2M</span>
         </div>
         <div class="mt-4">
           <input id="i-fee-num" type="text" inputmode="decimal" class="input input-brl" data-brl-decimals="2" value="${orc.fee_mensal}" oninput="onChangeFee(parseFloat(this.dataset.numericValue||0))">
@@ -1973,7 +1973,7 @@ function renderDetalheCustos(orc, tipo){
             <input type="text" list="${cfg.datalistId}" value="${(it.categoria||'').replace(/"/g,'&quot;')}" class="input flex-1 text-sm py-1.5" placeholder="Categoria" oninput="alterarItemCusto('${tipo}', ${i}, 'categoria', this.value)">
             <input type="text" value="${(it.descricao||'').replace(/"/g,'&quot;')}" class="input flex-1 text-sm py-1.5" placeholder="${cfg.placeholderDesc}" oninput="alterarItemCusto('${tipo}', ${i}, 'descricao', this.value)">
             <div class="flex items-center gap-1.5">
-              <span class="text-xs text-ink-400">R$</span>
+              <span class="text-xs text-ink-400">${moedaAtual().simbolo}</span>
               <input type="text" inputmode="decimal" class="input input-brl w-28 text-right tabular-nums font-bold text-sm py-1.5" data-brl-decimals="2" value="${Number(it.valor)||0}" oninput="alterarItemCusto('${tipo}', ${i}, 'valor', parseFloat(this.dataset.numericValue||0))">
             </div>
             <button class="text-ink-500 hover:text-red-400 p-1" onclick="removerItemCusto('${tipo}', ${i})" title="Remover">
@@ -2091,7 +2091,7 @@ function renderFrilas(){
         <div class="text-[11px] text-ink-400">Frila · valor total no contrato</div>
       </div>
       <div class="flex items-center gap-2">
-        <span class="text-xs text-ink-400">R$</span>
+        <span class="text-xs text-ink-400">${moedaAtual().simbolo}</span>
         <input type="text" inputmode="decimal" class="input input-brl w-32 text-right tabular-nums font-bold" data-brl-decimals="2" value="${f.valor}" oninput="alterarValorFrila(${i}, parseFloat(this.dataset.numericValue||0))">
       </div>
       <button class="text-ink-500 hover:text-red-400 p-1" onclick="removerFrila(${i})" title="Remover frila">
@@ -2141,7 +2141,7 @@ function onChangeFee(v){
     inpNum.dataset.numericValue = String(v);
   }
   const disp = document.getElementById('display-fee-mensal');
-  if (disp) disp.textContent = 'R$ ' + fmtNumBR(v, 0);
+  if (disp) disp.textContent = moedaAtual().simbolo + ' ' + fmtNumBR(v, 0);
   recalc();
 }
 
@@ -2796,7 +2796,7 @@ function renderComparador() {
               <div><label class="label">Mídia</label><input type="number" class="input cmp-midia" value="0"></div>
               <div><label class="label">Produção</label><input type="number" class="input cmp-prod" value="${letra==='A'?5000:letra==='B'?15000:35000}"></div>
             </div>
-            <div><label class="label">Squad/mês (R$ direto)</label><input type="number" class="input cmp-squad" value="${letra==='A'?20000:letra==='B'?42000:75000}" step="1000"></div>
+            <div><label class="label">Squad/mês (${moedaAtual().simbolo} direto)</label><input type="number" class="input cmp-squad" value="${letra==='A'?20000:letra==='B'?42000:75000}" step="1000"></div>
           </div>
           <div class="mt-5 pt-4 border-t border-ink-800 space-y-2 text-sm">
             <div class="flex justify-between"><span class="text-ink-400">Receita</span><span class="cmp-rec font-bold tabular-nums">—</span></div>
@@ -3926,7 +3926,7 @@ function abrirModalPagamento(orcamentoId, pagamentoId){
 
       <div class="grid grid-cols-2 gap-3">
         <div>
-          <label class="label">Valor R$</label>
+          <label class="label">Valor ${moedaAtual().simbolo}</label>
           <input id="pg-valor" type="text" inputmode="decimal" class="input input-brl" data-brl-decimals="2" value="${p?p.valor:0}" required>
         </div>
         <div>
@@ -4137,7 +4137,7 @@ function renderNotaRapida(){
 
     <!-- VALOR -->
     <div>
-      <label class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold mb-2 block">Valor R$</label>
+      <label class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold mb-2 block">Valor ${moedaAtual().simbolo}</label>
       <input id="nota-valor" type="text" inputmode="decimal" class="input input-brl text-3xl font-display font-bold text-center py-4" data-brl-decimals="2" value="0" placeholder="0,00">
     </div>
 
@@ -4333,7 +4333,7 @@ async function salvarNotaRapida(){
     // Feedback + recarrega
     const orc = STATE.orcamentos.find(o=>o.id===orcId);
     STATE.ultimaNotaRegistrada = {
-      msg: `R$ ${fmtNumBR(valor,2)} registrado em ${orc?.cliente||orcId}`,
+      msg: `${moedaAtual().simbolo} ${fmtNumBR(valor,2)} registrado em ${orc?.cliente||orcId}`,
       detalhe: `${categoria === 'cache' ? 'Cachê' : categoria === 'midia' ? 'Mídia' : 'Produção'} · ${descricao}${anexoPath?' · anexo ✓':''}`
     };
     await carregarPagamentos();
@@ -4552,7 +4552,7 @@ const PREMISSAS_LABELS = {
   comissao:['Comissão de venda','% sobre receita líquida'],
   margem_min:['Margem Mínima','abaixo disso, não fecha'],
   margem_ideal:['Margem Ideal','alvo padrão pra propor'],
-  margem_upsell:['Margem Upsell esperada','quanto cada R$ de upsell vira EBITDA — default 40%'],
+  margem_upsell:['Margem Upsell esperada','quanto cada real/euro de upsell vira EBITDA — default 40%'],
 };
 
 // ============================================================
@@ -4608,7 +4608,7 @@ function renderRealizado(){
                 <tbody id="rz-preview-body"></tbody>
               </table>
             </div>
-            <div class="mt-2 text-xs text-ink-400">Total geral: <strong id="rz-preview-total" class="text-white">R$ 0,00</strong></div>
+            <div class="mt-2 text-xs text-ink-400">Total geral: <strong id="rz-preview-total" class="text-white">${moedaAtual().simbolo} 0,00</strong></div>
           </div>
           <div class="flex gap-2 justify-end pt-2">
             <button class="btn btn-ghost" onclick="fecharModalImportRealizado()">Cancelar</button>
@@ -4705,7 +4705,7 @@ function renderTabelaRealizado(){
           <th class="p-3 text-right">Frila real</th>
           <th class="p-3 text-right border-l border-white/10">Total orç</th>
           <th class="p-3 text-right">Total real</th>
-          <th class="p-3 text-right">Δ R$</th>
+          <th class="p-3 text-right">Δ ${moedaAtual().simbolo}</th>
           <th class="p-3 text-right">Δ %</th>
         </tr>
       </thead>
@@ -4841,7 +4841,7 @@ function renderPremissas() {
           </div>
         </div>
         <div class="flex items-center gap-3">
-          <span class="text-sm text-ink-400">R$</span>
+          <span class="text-sm text-ink-400">${moedaAtual().simbolo}</span>
           <input type="text" inputmode="decimal" class="input input-brl text-right tabular-nums font-bold text-lg w-48" data-brl-decimals="0" value="${PREMISSAS.overhead_fixo_mensal}" oninput="atualizarPremissa('overhead_fixo_mensal', parseFloat(this.dataset.numericValue||0))">
           <span class="text-sm text-ink-400">/mês</span>
         </div>
