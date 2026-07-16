@@ -12,6 +12,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
 tailwind.config = {
   theme: {
@@ -164,6 +165,10 @@ tailwind.config = {
         <div class="nav-item" data-route="relatorio-mensal" title="Relatório mensal de custos previstos">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"/></svg>
           Relatório mensal
+        </div>
+        <div class="nav-item" data-route="realizado" title="Comparativo Orçado × Realizado">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/><path d="M4 8l4-4M16 20l4-4M4 16l4 4M16 4l4 4"/></svg>
+          Realizado × Orçado
         </div>
         <div class="pt-5 mt-3 border-t border-ink-800 space-y-1">
           <div class="text-[10px] tracking-widest text-ink-500 uppercase px-3 mb-2 font-semibold">Configuração</div>
@@ -684,6 +689,7 @@ function render() {
   else if (r==='custos') el.innerHTML = renderCustos();
   else if (r==='nota-rapida') { el.innerHTML = renderNotaRapida(); bindNotaRapida(); }
   else if (r==='relatorio-mensal') el.innerHTML = renderRelatorioMensal();
+  else if (r==='realizado') { el.innerHTML = renderRealizado(); carregarRealizados(); }
   else if (r==='premissas') { el.innerHTML = renderPremissas(); bindPremissas(); }
   else if (r==='cargos') el.innerHTML = renderCargos();
   else if (r==='tipos') el.innerHTML = renderTipos();
@@ -4426,6 +4432,278 @@ const PREMISSAS_LABELS = {
   margem_ideal:['Margem Ideal','alvo padrão pra propor'],
   margem_upsell:['Margem Upsell esperada','quanto cada R$ de upsell vira EBITDA — default 40%'],
 };
+
+// ============================================================
+// REALIZADO x ORÇADO
+// ============================================================
+function renderRealizado(){
+  return `
+  <div class="max-w-7xl mx-auto space-y-6 fade-in">
+    <div class="flex items-center justify-between gap-4 flex-wrap">
+      <div>
+        <h1 class="font-display font-bold text-2xl">Realizado × Orçado</h1>
+        <div class="text-sm text-ink-400">Compara custos previstos no orçamento com os efetivamente pagos (importados da planilha do financeiro)</div>
+      </div>
+      <div class="flex gap-2">
+        <select id="rz-periodo" class="input py-2 text-sm" onchange="renderTabelaRealizado()">
+          <option value="">Carregando períodos…</option>
+        </select>
+        <button class="btn btn-primary" onclick="abrirModalImportRealizado()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          Importar planilha do mês
+        </button>
+      </div>
+    </div>
+
+    <div id="rz-totalizadores" class="grid grid-cols-2 md:grid-cols-4 gap-3"></div>
+    <div id="rz-tabela-container" class="card p-0 overflow-hidden">
+      <div class="p-8 text-center text-ink-400">Carregando…</div>
+    </div>
+
+    <!-- Modal de import -->
+    <div id="rz-modal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div class="bg-[#0a0f1c] rounded-2xl border border-white/10 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div class="p-6 border-b border-white/10 flex items-center justify-between">
+          <div class="font-display font-bold text-lg">Importar planilha do mês</div>
+          <button onclick="fecharModalImportRealizado()" class="text-ink-400 hover:text-white"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+        </div>
+        <div class="p-6 space-y-4">
+          <div>
+            <label class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold mb-2 block">Rótulo do período</label>
+            <input id="rz-import-periodo" type="text" class="input" placeholder="Ex: Junho 2026, Julho 2026, 2026-Q3…" value="">
+            <div class="text-[11px] text-ink-500 mt-1">Se já existir, os valores do mesmo JOB serão atualizados</div>
+          </div>
+          <div>
+            <label class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold mb-2 block">Planilha (.xlsx)</label>
+            <input id="rz-import-file" type="file" accept=".xlsx,.xls" class="input" onchange="lerPlanilhaRealizado(this)">
+            <div class="text-[11px] text-ink-500 mt-1">Layout esperado: colunas A=Número JOB, B=Cachê, C=Freela, D=Produção, E=Total</div>
+          </div>
+          <div id="rz-preview" class="hidden">
+            <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold mb-2 block">Preview (<span id="rz-preview-count">0</span> linhas)</div>
+            <div class="max-h-80 overflow-y-auto rounded-lg border border-white/10 bg-black/30">
+              <table class="w-full text-xs">
+                <thead class="bg-white/5 text-ink-300"><tr><th class="text-left p-2">JOB</th><th class="text-right p-2">Cachê</th><th class="text-right p-2">Freela</th><th class="text-right p-2">Produção</th><th class="text-right p-2">Total</th></tr></thead>
+                <tbody id="rz-preview-body"></tbody>
+              </table>
+            </div>
+            <div class="mt-2 text-xs text-ink-400">Total geral: <strong id="rz-preview-total" class="text-white">R$ 0,00</strong></div>
+          </div>
+          <div class="flex gap-2 justify-end pt-2">
+            <button class="btn btn-ghost" onclick="fecharModalImportRealizado()">Cancelar</button>
+            <button id="rz-import-btn" class="btn btn-primary" disabled onclick="salvarImportRealizado()">Importar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  `;
+}
+
+async function carregarRealizados(){
+  const { data, error } = await sb.from('custos_realizados').select('*').order('periodo_ref');
+  if (error){ console.error(error); return; }
+  STATE.realizados = data || [];
+  // Popula dropdown de períodos
+  const periodos = [...new Set(STATE.realizados.map(r=>r.periodo_ref))].sort();
+  const sel = document.getElementById('rz-periodo');
+  if (sel){
+    if (periodos.length === 0){
+      sel.innerHTML = `<option value="">Nenhum período importado ainda</option>`;
+    } else {
+      sel.innerHTML = periodos.map(p=>`<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join('');
+      // Seleciona o mais recente (último em ordem alfabética não funciona bem, mas ok pra começar)
+      sel.value = periodos[periodos.length-1];
+    }
+    renderTabelaRealizado();
+  }
+}
+
+function calcularOrcadoDoOrc(orc){
+  const mult = orc.custos_mensais ? (orc.meses||1) : 1;
+  const totalFrilas = (orc.frilas||[]).reduce((s,f)=>s + (Number(f.valor)||0) * mult, 0);
+  return {
+    cache: (Number(orc.caches)||0) * mult,
+    freela: totalFrilas,
+    producao: (Number(orc.producao)||0) * mult,
+    total: ((Number(orc.caches)||0) + (Number(orc.producao)||0)) * mult + totalFrilas
+  };
+}
+
+function renderTabelaRealizado(){
+  const periodo = document.getElementById('rz-periodo').value;
+  const cont = document.getElementById('rz-tabela-container');
+  const totCont = document.getElementById('rz-totalizadores');
+  if (!periodo){
+    cont.innerHTML = `<div class="p-8 text-center text-ink-400">Nenhum período disponível. Importe uma planilha pra começar.</div>`;
+    totCont.innerHTML = '';
+    return;
+  }
+
+  const realizadosPeriodo = STATE.realizados.filter(r=>r.periodo_ref === periodo);
+  const orcamentos = (STATE.orcamentos||[]).filter(o=>o.status==='Aprovada' || o.status==='Aprovado');
+  const orcById = Object.fromEntries(orcamentos.map(o=>[String(o.id), o]));
+
+  // Monta linhas: uma pra cada realizado (mesmo se não achar orçamento) + orçamentos que não têm realizado ficam de fora
+  const linhas = realizadosPeriodo.map(r => {
+    const orc = orcById[String(r.orcamento_id)];
+    const orcado = orc ? calcularOrcadoDoOrc(orc) : { cache:0, freela:0, producao:0, total:0 };
+    const deltaR = (Number(r.total)||0) - orcado.total;
+    const deltaPct = orcado.total > 0 ? (deltaR / orcado.total) * 100 : (Number(r.total)>0 ? 100 : 0);
+    return { r, orc, orcado, deltaR, deltaPct };
+  });
+
+  // Totalizadores
+  const totOrc = linhas.reduce((s,l)=>s+l.orcado.total, 0);
+  const totReal = linhas.reduce((s,l)=>s+Number(l.r.total||0), 0);
+  const totDelta = totReal - totOrc;
+  const totPct = totOrc > 0 ? (totDelta/totOrc)*100 : 0;
+  const semOrc = linhas.filter(l=>!l.orc).length;
+
+  totCont.innerHTML = `
+    <div class="card p-4"><div class="text-[10px] text-ink-500 uppercase tracking-widest font-semibold">Orçado (jobs c/ realizado)</div><div class="font-display font-bold text-2xl mt-1">${fmtBRL(totOrc)}</div></div>
+    <div class="card p-4"><div class="text-[10px] text-ink-500 uppercase tracking-widest font-semibold">Realizado no período</div><div class="font-display font-bold text-2xl mt-1">${fmtBRL(totReal)}</div></div>
+    <div class="card p-4"><div class="text-[10px] text-ink-500 uppercase tracking-widest font-semibold">Delta</div><div class="font-display font-bold text-2xl mt-1 ${totDelta>0?'text-red-400':'text-green-400'}">${totDelta>0?'+':''}${fmtBRL(totDelta)}</div><div class="text-xs ${totDelta>0?'text-red-400':'text-green-400'}">${totPct>0?'+':''}${totPct.toFixed(1)}%</div></div>
+    <div class="card p-4"><div class="text-[10px] text-ink-500 uppercase tracking-widest font-semibold">Jobs sem orçamento na plataforma</div><div class="font-display font-bold text-2xl mt-1 ${semOrc>0?'text-yellow-400':''}">${semOrc}</div><div class="text-xs text-ink-500">de ${linhas.length} total</div></div>
+  `;
+
+  // Ordena por delta % desc (piores primeiro)
+  linhas.sort((a,b)=> b.deltaPct - a.deltaPct);
+
+  cont.innerHTML = `
+    <table class="w-full text-sm">
+      <thead class="bg-white/5">
+        <tr class="text-[10px] uppercase tracking-widest text-ink-400 text-left">
+          <th class="p-3">JOB</th>
+          <th class="p-3">Cliente · Projeto</th>
+          <th class="p-3 text-right">Cachê orç</th>
+          <th class="p-3 text-right">Cachê real</th>
+          <th class="p-3 text-right">Prod orç</th>
+          <th class="p-3 text-right">Prod real</th>
+          <th class="p-3 text-right">Frila orç</th>
+          <th class="p-3 text-right">Frila real</th>
+          <th class="p-3 text-right border-l border-white/10">Total orç</th>
+          <th class="p-3 text-right">Total real</th>
+          <th class="p-3 text-right">Δ R$</th>
+          <th class="p-3 text-right">Δ %</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${linhas.map(l => {
+          const cliente = l.orc ? escapeHtml(l.orc.cliente || '—') + (l.orc.projeto ? ' · ' + escapeHtml(l.orc.projeto) : '') : '<span class="text-yellow-400">⚠ orçamento não encontrado</span>';
+          const rowClass = !l.orc ? 'bg-yellow-500/5' : (l.deltaR>0 ? 'bg-red-500/5' : 'bg-green-500/5');
+          const deltaColor = l.deltaR > 0 ? 'text-red-400' : (l.deltaR < 0 ? 'text-green-400' : 'text-ink-400');
+          return `
+            <tr class="${rowClass} border-t border-white/5 hover:bg-white/10">
+              <td class="p-3 font-display font-bold text-laranja">${escapeHtml(l.r.orcamento_id)}</td>
+              <td class="p-3 text-xs">${cliente}</td>
+              <td class="p-3 text-right text-ink-300">${l.orcado.cache>0?fmtBRL(l.orcado.cache):'—'}</td>
+              <td class="p-3 text-right">${Number(l.r.cache)>0?fmtBRL(l.r.cache):'—'}</td>
+              <td class="p-3 text-right text-ink-300">${l.orcado.producao>0?fmtBRL(l.orcado.producao):'—'}</td>
+              <td class="p-3 text-right">${Number(l.r.producao)>0?fmtBRL(l.r.producao):'—'}</td>
+              <td class="p-3 text-right text-ink-300">${l.orcado.freela>0?fmtBRL(l.orcado.freela):'—'}</td>
+              <td class="p-3 text-right">${Number(l.r.freela)>0?fmtBRL(l.r.freela):'—'}</td>
+              <td class="p-3 text-right border-l border-white/10 font-semibold">${fmtBRL(l.orcado.total)}</td>
+              <td class="p-3 text-right font-semibold">${fmtBRL(l.r.total)}</td>
+              <td class="p-3 text-right font-bold ${deltaColor}">${l.deltaR>0?'+':''}${fmtBRL(l.deltaR)}</td>
+              <td class="p-3 text-right font-bold ${deltaColor}">${l.orcado.total>0?(l.deltaPct>0?'+':'')+l.deltaPct.toFixed(1)+'%':'—'}</td>
+            </tr>
+          `;
+        }).join('')}
+      </tbody>
+      <tfoot>
+        <tr class="border-t-2 border-white/20 bg-white/5 font-bold">
+          <td class="p-3" colspan="8">Total do período</td>
+          <td class="p-3 text-right">${fmtBRL(totOrc)}</td>
+          <td class="p-3 text-right">${fmtBRL(totReal)}</td>
+          <td class="p-3 text-right ${totDelta>0?'text-red-400':'text-green-400'}">${totDelta>0?'+':''}${fmtBRL(totDelta)}</td>
+          <td class="p-3 text-right ${totDelta>0?'text-red-400':'text-green-400'}">${totOrc>0?(totPct>0?'+':'')+totPct.toFixed(1)+'%':'—'}</td>
+        </tr>
+      </tfoot>
+    </table>
+  `;
+}
+
+function abrirModalImportRealizado(){
+  document.getElementById('rz-modal').classList.remove('hidden');
+  // Sugere próximo mês
+  const hoje = new Date();
+  const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  document.getElementById('rz-import-periodo').value = `${meses[hoje.getMonth()]} ${hoje.getFullYear()}`;
+  document.getElementById('rz-import-file').value = '';
+  document.getElementById('rz-preview').classList.add('hidden');
+  document.getElementById('rz-import-btn').disabled = true;
+  STATE.importRealizadoDados = null;
+}
+
+function fecharModalImportRealizado(){
+  document.getElementById('rz-modal').classList.add('hidden');
+}
+
+function lerPlanilhaRealizado(input){
+  if (!input.files || !input.files[0]) return;
+  const arquivo = input.files[0];
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, {type:'array'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:null});
+      // Ignora cabeçalho (linha 0) e linha "Total Geral"
+      const parsed = [];
+      for (let i=1; i<rows.length; i++){
+        const r = rows[i];
+        if (!r || r[0] === null || r[0] === undefined || r[0] === '') continue;
+        const jobRaw = r[0];
+        if (typeof jobRaw === 'string' && jobRaw.toLowerCase().includes('total')) continue;
+        const job = typeof jobRaw === 'number' ? String(Math.round(jobRaw)) : String(jobRaw).trim();
+        const cache = Number(r[1]) || 0;
+        const freela = Number(r[2]) || 0;
+        const producao = Number(r[3]) || 0;
+        const total = Number(r[4]) || (cache+freela+producao);
+        parsed.push({ orcamento_id: job, cache, freela, producao, total });
+      }
+      STATE.importRealizadoDados = parsed;
+      // Preview
+      const tot = parsed.reduce((s,p)=>s+p.total, 0);
+      document.getElementById('rz-preview-count').textContent = parsed.length;
+      document.getElementById('rz-preview-total').textContent = fmtBRL(tot);
+      document.getElementById('rz-preview-body').innerHTML = parsed.slice(0,50).map(p=>`
+        <tr class="border-t border-white/5"><td class="p-2 font-mono text-laranja">${escapeHtml(p.orcamento_id)}</td><td class="p-2 text-right">${p.cache?fmtBRL(p.cache):'—'}</td><td class="p-2 text-right">${p.freela?fmtBRL(p.freela):'—'}</td><td class="p-2 text-right">${p.producao?fmtBRL(p.producao):'—'}</td><td class="p-2 text-right font-semibold">${fmtBRL(p.total)}</td></tr>
+      `).join('') + (parsed.length > 50 ? `<tr><td colspan="5" class="p-2 text-center text-ink-500">… mais ${parsed.length-50} linhas</td></tr>` : '');
+      document.getElementById('rz-preview').classList.remove('hidden');
+      document.getElementById('rz-import-btn').disabled = false;
+    } catch (err){
+      alert('Erro ao ler planilha: ' + err.message);
+    }
+  };
+  reader.readAsArrayBuffer(arquivo);
+}
+
+async function salvarImportRealizado(){
+  const periodo = document.getElementById('rz-import-periodo').value.trim();
+  const dados = STATE.importRealizadoDados;
+  if (!periodo){ alert('Digite o rótulo do período (ex: Junho 2026).'); return; }
+  if (!dados || dados.length === 0){ alert('Escolha uma planilha válida.'); return; }
+
+  const btn = document.getElementById('rz-import-btn');
+  btn.disabled = true; btn.textContent = 'Importando...';
+  try {
+    const rows = dados.map(d => ({ ...d, periodo_ref: periodo, updated_at: new Date().toISOString() }));
+    const { error } = await sb.from('custos_realizados').upsert(rows, { onConflict: 'orcamento_id,periodo_ref' });
+    if (error) throw error;
+    alert(`Importado! ${rows.length} lançamentos do período "${periodo}".`);
+    fecharModalImportRealizado();
+    await carregarRealizados();
+    // Seleciona o novo período
+    document.getElementById('rz-periodo').value = periodo;
+    renderTabelaRealizado();
+  } catch (err){
+    alert('Erro ao salvar: ' + err.message);
+    btn.disabled = false; btn.textContent = 'Importar';
+  }
+}
+
 function renderPremissas() {
   return `
   <div class="space-y-5">
