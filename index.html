@@ -177,6 +177,11 @@ tailwind.config = {
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
           Nota rápida
         </div>
+        <div class="nav-item" data-route="validador" title="Validar notas rápidas (financeiro)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          Validar NF Rápida
+          <span id="nav-valid-count" class="ml-auto badge-num" style="background:#EAB308;color:#000;">0</span>
+        </div>
         <div class="nav-item" data-route="relatorio-mensal" title="Relatório mensal de custos previstos">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"/></svg>
           Relatório mensal
@@ -711,6 +716,11 @@ function navigate(r, ctx) {
   if (STATE.currentUser && usuarioSoNotaRapida(STATE.currentUser) && r !== 'nota-rapida'){
     r = 'nota-rapida';
   }
+  // Bloqueia: só financeiro@ acessa a rota "validador"
+  if (r === 'validador' && !usuarioPodeValidar(STATE.currentUser)){
+    alert('Só o usuário financeiro@redesnack.com.br pode validar notas rápidas.');
+    r = 'dashboard';
+  }
   STATE.route = r;
   STATE.ctx = ctx;
   // Reflete na URL pra permitir bookmark direto e link compartilhável
@@ -745,6 +755,7 @@ function render() {
   else if (r==='carta') el.innerHTML = renderCarta(STATE.ctx);
   else if (r==='custos') el.innerHTML = renderCustos();
   else if (r==='nota-rapida') { el.innerHTML = renderNotaRapida(); bindNotaRapida(); }
+  else if (r==='validador') el.innerHTML = renderValidadorNotas();
   else if (r==='relatorio-mensal') el.innerHTML = renderRelatorioMensal();
   else if (r==='realizado') { el.innerHTML = renderRealizado(); carregarRealizados(); }
   else if (r==='premissas') { el.innerHTML = renderPremissas(); bindPremissas(); }
@@ -765,6 +776,10 @@ async function entrar(){
     if (usuarioSoNotaRapida(user)){
       document.body.classList.add('modo-nota-rapida');
       STATE.route = 'nota-rapida';
+    }
+    // Esconde a aba de validação pra quem não é financeiro@
+    if (!usuarioPodeValidar(user)){
+      document.querySelectorAll('.nav-item[data-route="validador"]').forEach(el => el.style.display = 'none');
     }
   } catch(e){ console.error(e); }
   document.querySelectorAll('.nav-item').forEach(n=>{
@@ -3590,11 +3605,20 @@ function renderClienteDetalhe(ctx) {
 // Cache local de pagamentos
 STATE.pagamentos = [];
 
+function atualizarBadgeValidacao(){
+  const badge = document.getElementById('nav-valid-count');
+  if (!badge) return;
+  const n = (STATE.pagamentos||[]).filter(p=>p.origem==='nota_rapida' && !p.validado).length;
+  badge.textContent = n;
+  badge.style.display = n === 0 ? 'none' : '';
+}
+
 async function carregarPagamentos(){
   try {
     const { data, error } = await sb.from('pagamentos').select('*').eq('pais', STATE.pais).order('data_pagamento', { ascending: false });
     if (error) throw error;
     STATE.pagamentos = data || [];
+    atualizarBadgeValidacao();
   } catch(e){ console.error('Erro carregar pagamentos:', e); }
 }
 
@@ -3624,12 +3648,16 @@ function previstoPorCategoria(orc, categoria){
 function pagoPorCategoria(orcId, categoria){
   return STATE.pagamentos
     .filter(p=>p.orcamento_id === orcId && p.categoria === categoria && p.status === 'Pago')
+    // Se veio da Nota Rápida, só entra em "Pago" depois de validado pelo financeiro
+    .filter(p=>p.origem !== 'nota_rapida' || p.validado === true)
     .reduce((s,p)=>s + (Number(p.valor)||0), 0);
 }
 
 function aPagarPorCategoria(orcId, categoria){
+  // Inclui todos os 'A pagar' + notas rápidas ainda não validadas (mesmo com status Pago)
   return STATE.pagamentos
-    .filter(p=>p.orcamento_id === orcId && p.categoria === categoria && p.status === 'A pagar')
+    .filter(p=>p.orcamento_id === orcId && p.categoria === categoria)
+    .filter(p=>p.status === 'A pagar' || (p.origem === 'nota_rapida' && !p.validado))
     .reduce((s,p)=>s + (Number(p.valor)||0), 0);
 }
 
@@ -4054,6 +4082,12 @@ async function baixarAnexo(path){
    VIEW: NOTA RÁPIDA (mobile-first pra produção em campo)
 ============================================================= */
 
+// Só financeiro@redesnack.com.br pode validar notas rápidas
+function usuarioPodeValidar(user){
+  const u = user || STATE.currentUser;
+  return u && (u.email||'').toLowerCase() === 'financeiro@redesnack.com.br';
+}
+
 // Modo produtor: user com raw_user_meta_data.only_notas = true fica preso na tela de nota rápida
 function usuarioSoNotaRapida(user){
   try {
@@ -4147,10 +4181,22 @@ function renderNotaRapida(){
       <input id="nota-descricao" type="text" class="input text-base py-3" placeholder="Ex: peruca produção, catering dia 2, gasolina">
     </div>
 
-    <!-- FORNECEDOR (opcional) -->
+    <!-- FINAL DO CARTÃO -->
     <div>
-      <label class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold mb-2 block">Fornecedor <span class="text-ink-500 normal-case font-normal ml-1">(opcional)</span></label>
-      <input id="nota-fornecedor" type="text" class="input text-base py-3" placeholder="Ex: Studio X, Rosa Feiticeira">
+      <label class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold mb-2 block">Final do cartão <span class="text-ink-500 normal-case font-normal ml-1">(4 últimos dígitos)</span></label>
+      <input id="nota-final-cartao" type="text" inputmode="numeric" maxlength="4" pattern="[0-9]{4}" class="input text-base py-3 tracking-widest font-mono" placeholder="0000">
+    </div>
+
+    <!-- DATA DA COMPRA -->
+    <div>
+      <label class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold mb-2 block">Data da compra</label>
+      <input id="nota-data-compra" type="date" class="input text-base py-3">
+    </div>
+
+    <!-- OBS -->
+    <div>
+      <label class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold mb-2 block">Observações <span class="text-ink-500 normal-case font-normal ml-1">(opcional)</span></label>
+      <textarea id="nota-obs" rows="2" class="input text-base py-3" placeholder="Detalhes extras, contexto pro financeiro validar…"></textarea>
     </div>
 
     <button id="nota-salvar-btn" class="btn btn-primary w-full justify-center nota-hero-btn glow-orange" onclick="salvarNotaRapida()">
@@ -4158,7 +4204,7 @@ function renderNotaRapida(){
       Salvar nota
     </button>
 
-    <div class="text-center text-[11px] text-ink-500 pt-2">Status inicial: <strong class="text-yellow-400">A pagar</strong> · financeiro depois confirma o pagamento</div>
+    <div class="text-center text-[11px] text-ink-500 pt-2">Status inicial: <strong class="text-yellow-400">Aguardando validação</strong> · financeiro bate com a fatura do cartão</div>
     `}
   </div>
   `;
@@ -4291,7 +4337,9 @@ async function salvarNotaRapida(){
   const orcId = document.getElementById('nota-orcamento').value;
   const valor = parseFloat(document.getElementById('nota-valor').dataset.numericValue || 0);
   const descricao = document.getElementById('nota-descricao').value.trim();
-  const fornecedor = document.getElementById('nota-fornecedor').value.trim();
+  const finalCartao = (document.getElementById('nota-final-cartao').value || '').replace(/\D/g,'').slice(0,4);
+  const dataCompra = document.getElementById('nota-data-compra').value || null;
+  const obs = document.getElementById('nota-obs').value.trim();
   const categoria = 'producao'; // Nota Rápida SEMPRE grava como produção
   const arquivoInput = document.getElementById('nota-arquivo');
   const arquivo = arquivoInput && arquivoInput.files && arquivoInput.files[0];
@@ -4299,6 +4347,7 @@ async function salvarNotaRapida(){
   if (!orcId){ alert('Escolhe o projeto (ID) primeiro.'); return; }
   if (!valor || valor <= 0){ alert('Coloca o valor da nota.'); return; }
   if (!descricao){ alert('Descreve rapidinho o que é (ex: peruca produção).'); return; }
+  if (finalCartao && finalCartao.length !== 4){ alert('Final do cartão precisa ter 4 dígitos ou ficar em branco.'); return; }
 
   const btn = document.getElementById('nota-salvar-btn');
   const original = btn.innerHTML;
@@ -4321,7 +4370,12 @@ async function salvarNotaRapida(){
       categoria,
       valor,
       status: 'A pagar',
-      fornecedor: fornecedor || null,
+      fornecedor: null,
+      final_cartao: finalCartao || null,
+      data_compra: dataCompra,
+      obs: obs || null,
+      origem: 'nota_rapida',
+      validado: false,
       descricao,
       anexo_url: anexoPath,
       created_by: user?.id || null,
@@ -4824,6 +4878,166 @@ async function salvarImportRealizado(){
     alert('Erro ao salvar: ' + err.message);
     btn.disabled = false; btn.textContent = 'Importar';
   }
+}
+
+
+// ============================================================
+// VALIDADOR DE NOTA RÁPIDA
+// ============================================================
+function renderValidadorNotas(){
+  // Guard: só financeiro@ vê essa tela
+  if (!usuarioPodeValidar(STATE.currentUser)){
+    return `<div class="max-w-xl mx-auto card p-8 text-center">
+      <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2" class="mx-auto mb-3"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+      <div class="font-display font-bold text-lg">Acesso restrito</div>
+      <div class="text-sm text-ink-400 mt-1">Só o usuário <strong>financeiro@redesnack.com.br</strong> pode validar notas rápidas.</div>
+    </div>`;
+  }
+  const naoValidados = (STATE.pagamentos||[]).filter(p => p.origem === 'nota_rapida' && !p.validado);
+  // atualiza badge da sidebar
+  const badge = document.getElementById('nav-valid-count');
+  if (badge) badge.textContent = naoValidados.length;
+  const orcById = Object.fromEntries((STATE.orcamentos||[]).map(o=>[String(o.id), o]));
+  // Ordena por data_compra desc
+  naoValidados.sort((a,b)=> String(b.data_compra||b.data_pagamento||'').localeCompare(String(a.data_compra||a.data_pagamento||'')));
+
+  const totalPendente = naoValidados.reduce((s,p)=>s + Number(p.valor||0), 0);
+
+  return `
+  <div class="max-w-full space-y-5 fade-in">
+    <div class="flex items-center justify-between gap-4 flex-wrap">
+      <div>
+        <h1 class="font-display font-bold text-2xl">Validar NF Rápida</h1>
+        <div class="text-sm text-ink-400">Bate cada lançamento da Nota Rápida contra a fatura do cartão. Depois de validado, entra em <strong class="text-green-400">Pago</strong> no custo do job.</div>
+      </div>
+      <div class="flex items-center gap-2 flex-wrap">
+        <input id="valid-busca" type="text" placeholder="Buscar ID, cliente, cartão…" class="input py-2 text-sm" style="min-width:220px" oninput="filtrarValidador(this.value)">
+        <input id="valid-cartao-filtro" type="text" placeholder="Só cartão XXXX" maxlength="4" inputmode="numeric" class="input py-2 text-sm font-mono" style="width:130px" oninput="filtrarValidador()">
+        <input id="valid-de" type="date" class="input py-2 text-sm" title="Compra a partir de" oninput="filtrarValidador()">
+        <input id="valid-ate" type="date" class="input py-2 text-sm" title="Compra até" oninput="filtrarValidador()">
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div class="card p-4"><div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Aguardando validação</div><div class="font-display font-bold text-2xl mt-1 text-yellow-400">${naoValidados.length}</div><div class="text-xs text-ink-300 mt-1">lançamento${naoValidados.length===1?'':'s'}</div></div>
+      <div class="card p-4"><div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Valor pendente</div><div class="font-display font-bold text-2xl mt-1">${fmtMoeda(totalPendente,2)}</div></div>
+      <div class="card p-4"><div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Ações em massa</div><div class="flex gap-2 mt-2"><button class="btn btn-primary text-xs py-1.5" onclick="selecionarTodasValidacao(true)">Marcar todas</button><button class="btn btn-ghost text-xs py-1.5" onclick="validarSelecionadas()">Validar selecionadas</button></div></div>
+    </div>
+
+    <div class="card p-0 overflow-hidden">
+      ${naoValidados.length === 0 ? '<div class="p-10 text-center text-ink-400"><svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#4ADE80" stroke-width="2" class="mx-auto mb-3"><polyline points="20 6 9 17 4 12"/></svg><div class="font-bold text-green-400">Tudo validado!</div><div class="text-sm mt-1">Nenhuma nota rápida esperando validação.</div></div>' :
+      `<div class="overflow-x-auto"><table class="w-full text-sm" id="tabela-validador">
+        <thead class="bg-white/5">
+          <tr class="text-[10px] uppercase tracking-widest text-ink-400 text-left">
+            <th class="p-3 w-[36px]"><input type="checkbox" onclick="selecionarTodasValidacao(this.checked)"></th>
+            <th class="p-3">ID Job</th>
+            <th class="p-3">Cliente</th>
+            <th class="p-3">Final cartão</th>
+            <th class="p-3 text-right">Valor</th>
+            <th class="p-3">Data compra</th>
+            <th class="p-3">Data lanç.</th>
+            <th class="p-3">O que é</th>
+            <th class="p-3">Anexo</th>
+            <th class="p-3">OBS</th>
+            <th class="p-3 text-center">Ações</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${naoValidados.map(p => {
+            const orc = orcById[String(p.orcamento_id)];
+            const cliente = orc ? escapeHtml(orc.cliente || '—') + (orc.projeto ? ' · ' + escapeHtml(orc.projeto) : '') : '<span class="text-yellow-400">⚠ não encontrado</span>';
+            return `
+              <tr class="border-t border-white/5 hover:bg-white/5" data-cli="${(orc?.cliente||'').toLowerCase()}" data-jid="${String(p.orcamento_id).toLowerCase()}" data-cartao="${p.final_cartao||''}" data-dc="${p.data_compra||''}">
+                <td class="p-3"><input type="checkbox" class="chk-validar" data-pid="${p.id}"></td>
+                <td class="p-3 font-mono font-bold text-laranja">${escapeHtml(String(p.orcamento_id))}</td>
+                <td class="p-3">${cliente}</td>
+                <td class="p-3 font-mono text-center ${p.final_cartao?'':'text-ink-600'}">${p.final_cartao ? '••••'+p.final_cartao : '—'}</td>
+                <td class="p-3 text-right font-bold tabular-nums">${fmtMoeda(p.valor, 2)}</td>
+                <td class="p-3 tabular-nums whitespace-nowrap">${p.data_compra ? fmtData(p.data_compra) : '<span class="text-ink-600">—</span>'}</td>
+                <td class="p-3 tabular-nums text-ink-400 whitespace-nowrap">${fmtData(p.data_pagamento)}</td>
+                <td class="p-3 max-w-[260px] truncate" title="${escapeHtml(p.descricao||'')}">${escapeHtml(p.descricao||'—')}</td>
+                <td class="p-3 text-center">${p.anexo_url ? `<button onclick="baixarAnexo('${p.anexo_url}')" class="text-azul-400 hover:text-azul" title="Abrir anexo"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></button>` : '<span class="text-ink-600">—</span>'}</td>
+                <td class="p-3 max-w-[180px] truncate text-ink-300 text-xs" title="${escapeHtml(p.obs||'')}">${escapeHtml(p.obs||'—')}</td>
+                <td class="p-3">
+                  <div class="flex items-center gap-1 justify-center">
+                    <button onclick="validarNota('${p.id}')" class="px-2.5 py-1 rounded-md bg-green-500/15 text-green-400 hover:bg-green-500/25 text-xs font-semibold" title="Validar (bate com fatura)">✓ Validar</button>
+                    <button onclick="rejeitarNota('${p.id}')" class="px-2 py-1 rounded-md text-red-400 hover:bg-red-500/15 text-xs" title="Deletar (nota errada/duplicada)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg></button>
+                  </div>
+                </td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table></div>`}
+    </div>
+  </div>
+  `;
+}
+
+function filtrarValidador(){
+  const busca = (document.getElementById('valid-busca')?.value || '').toLowerCase();
+  const cart  = (document.getElementById('valid-cartao-filtro')?.value || '').replace(/\D/g,'');
+  const de    = document.getElementById('valid-de')?.value || '';
+  const ate   = document.getElementById('valid-ate')?.value || '';
+  document.querySelectorAll('#tabela-validador tbody tr').forEach(tr => {
+    const cli = tr.dataset.cli || '';
+    const jid = tr.dataset.jid || '';
+    const cartao = tr.dataset.cartao || '';
+    const dc = tr.dataset.dc || '';
+    let mostra = true;
+    if (busca && !cli.includes(busca) && !jid.includes(busca) && !cartao.includes(busca)) mostra = false;
+    if (cart && cartao !== cart) mostra = false;
+    if (de && dc && dc < de) mostra = false;
+    if (ate && dc && dc > ate) mostra = false;
+    tr.style.display = mostra ? '' : 'none';
+  });
+}
+
+function selecionarTodasValidacao(checked){
+  document.querySelectorAll('.chk-validar').forEach(c => {
+    const tr = c.closest('tr');
+    if (tr && tr.style.display !== 'none') c.checked = checked;
+  });
+}
+
+async function validarNota(id){
+  try {
+    const { data: { user } } = await sb.auth.getUser();
+    const { error } = await sb.from('pagamentos').update({
+      validado: true,
+      validado_em: new Date().toISOString(),
+      validado_por: user?.id || null,
+      status: 'Pago',
+      updated_at: new Date().toISOString()
+    }).eq('id', id);
+    if (error) throw error;
+    await carregarPagamentos();
+    render();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+
+async function validarSelecionadas(){
+  const ids = [...document.querySelectorAll('.chk-validar:checked')].map(c=>c.dataset.pid);
+  if (ids.length === 0){ alert('Marca ao menos uma linha.'); return; }
+  if (!confirm(`Validar ${ids.length} lançamento${ids.length===1?'':'s'}? Vão pra "Pago" no custo do job.`)) return;
+  try {
+    const { data: { user } } = await sb.auth.getUser();
+    const payload = { validado: true, validado_em: new Date().toISOString(), validado_por: user?.id || null, status: 'Pago', updated_at: new Date().toISOString() };
+    const { error } = await sb.from('pagamentos').update(payload).in('id', ids);
+    if (error) throw error;
+    await carregarPagamentos();
+    render();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+
+async function rejeitarNota(id){
+  if (!confirm('Deletar essa nota rápida? Ação não pode ser desfeita.')) return;
+  try {
+    const { error } = await sb.from('pagamentos').delete().eq('id', id);
+    if (error) throw error;
+    await carregarPagamentos();
+    render();
+  } catch(e){ alert('Erro: '+e.message); }
 }
 
 function renderPremissas() {
