@@ -1388,8 +1388,12 @@ function calcularPLDoGrupo(orcsFiltrados){
     ebitda      += Number(c.ebitda)||0;
   });
   const custoOp = custoDireto + squad + encargos + heads + overhead;
+  const custoIndireto = squad + encargos + heads + overhead; // tudo menos o direto
+  // Margem de Contribuição = receita líquida − custos diretos (antes de squad/overhead/comissão)
+  const mc = receitaLiq - custoDireto;
+  const mcPct = receita > 0 ? mc/receita : 0;
   const margem = receita > 0 ? ebitda/receita : 0;
-  return { receita, receitaLiq, custoDireto, squad, encargos, heads, overhead, imposto, comissao, custoOp, ebitda, margem };
+  return { receita, receitaLiq, custoDireto, squad, encargos, heads, overhead, imposto, comissao, custoOp, custoIndireto, mc, mcPct, ebitda, margem };
 }
 
 function renderPLGrupo(){
@@ -1418,7 +1422,7 @@ function renderPLGrupo(){
         </div>
         ${filtrados.length === 0 ? '<div class="text-sm text-yellow-400">Nenhum orçamento no filtro atual</div>' : ''}
       </div>
-      <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <div class="grid grid-cols-2 md:grid-cols-6 gap-3">
         <div class="rounded-xl p-3 bg-ink-900/50 border border-white/5">
           <div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">Receita bruta</div>
           <div class="font-display font-bold text-xl mt-1 tabular-nums">${fmtMoeda(pl.receita, 0)}</div>
@@ -1426,19 +1430,25 @@ function renderPLGrupo(){
         <div class="rounded-xl p-3 bg-ink-900/50 border border-white/5">
           <div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">(−) Impostos</div>
           <div class="font-display font-bold text-xl mt-1 tabular-nums text-ink-300">${fmtMoeda(pl.imposto, 0)}</div>
-          <div class="text-[10px] text-ink-500 mt-0.5">Receita líquida: <strong class="text-ink-300">${fmtMoeda(pl.receitaLiq, 0)}</strong></div>
+          <div class="text-[10px] text-ink-500 mt-0.5">Rec. líquida: <strong class="text-ink-300">${fmtMoeda(pl.receitaLiq, 0)}</strong></div>
         </div>
         <div class="rounded-xl p-3 bg-ink-900/50 border border-white/5">
-          <div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">(−) Custos op.</div>
-          <div class="font-display font-bold text-xl mt-1 tabular-nums text-ink-300">${fmtMoeda(pl.custoOp, 0)}</div>
-          <div class="text-[10px] text-ink-500 mt-0.5">Squad ${fmtMoeda(pl.squad,0)} · Direto ${fmtMoeda(pl.custoDireto,0)} · OH ${fmtMoeda(pl.overhead,0)}</div>
+          <div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">(−) Custo direto</div>
+          <div class="font-display font-bold text-xl mt-1 tabular-nums text-ink-300">${fmtMoeda(pl.custoDireto, 0)}</div>
+          <div class="text-[10px] text-ink-500 mt-0.5">Cachês + Mídia + Prod + Frilas</div>
+        </div>
+        <div class="rounded-xl p-3 border-2" style="border-color:${pl.mc>=0?'rgba(234,179,8,.45)':'rgba(239,68,68,.4)'}; background:${pl.mc>=0?'rgba(234,179,8,.08)':'rgba(239,68,68,.06)'};" title="Margem de Contribuição = Receita líquida − Custos diretos. É o que sobra antes de squad, overhead e comissão.">
+          <div class="text-[10px] uppercase tracking-widest font-semibold" style="color:${pl.mc>=0?'#FDE047':'#F87171'};">= MC</div>
+          <div class="font-display font-bold text-2xl mt-1 tabular-nums" style="color:${pl.mc>=0?'#FDE047':'#F87171'};">${fmtMoeda(pl.mc, 0)}</div>
+          <div class="text-[10px] mt-0.5" style="color:${pl.mc>=0?'#FCD34D':'#F87171'};">${(pl.mcPct*100).toFixed(1).replace('.',',')}% da receita</div>
         </div>
         <div class="rounded-xl p-3 bg-ink-900/50 border border-white/5">
-          <div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">(−) Comissão</div>
-          <div class="font-display font-bold text-xl mt-1 tabular-nums text-ink-300">${fmtMoeda(pl.comissao, 0)}</div>
+          <div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">(−) Squad + OH</div>
+          <div class="font-display font-bold text-xl mt-1 tabular-nums text-ink-300">${fmtMoeda(pl.custoIndireto, 0)}</div>
+          <div class="text-[10px] text-ink-500 mt-0.5">Squad ${fmtMoeda(pl.squad,0)} · OH ${fmtMoeda(pl.overhead,0)}${pl.comissao>0?' · Com. '+fmtMoeda(pl.comissao,0):''}</div>
         </div>
         <div class="rounded-xl p-3 border-2" style="border-color:${pl.ebitda>=0?'rgba(74,222,128,.4)':'rgba(239,68,68,.4)'}; background:${pl.ebitda>=0?'rgba(74,222,128,.06)':'rgba(239,68,68,.06)'};">
-          <div class="text-[10px] uppercase tracking-widest ${cor} font-semibold">EBITDA</div>
+          <div class="text-[10px] uppercase tracking-widest ${cor} font-semibold">= EBITDA</div>
           <div class="font-display font-bold text-2xl mt-1 tabular-nums ${cor}">${fmtMoeda(pl.ebitda, 0)}</div>
           <div class="text-[10px] mt-0.5 ${corMg}">Margem: <strong>${(pl.margem*100).toFixed(1).replace('.',',')}%</strong></div>
         </div>
