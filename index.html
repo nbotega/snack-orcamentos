@@ -67,6 +67,12 @@ tailwind.config = {
   .sidebar-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,.08); border-radius: 3px; }
   .sidebar-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.18); }
   .sidebar-scroll { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,.10) transparent; }
+  /* Chips de filtro (Tipo/Status na lista de orçamentos) */
+  .chip-filtro { padding: 5px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; letter-spacing: .01em; transition: all .12s ease; cursor: pointer; border: 1px solid transparent; user-select: none; }
+  .chip-on  { background: rgba(255,87,34,.14); color: #FFB99F; border-color: rgba(255,87,34,.38); }
+  .chip-on:hover { background: rgba(255,87,34,.22); color: #fff; }
+  .chip-off { background: rgba(255,255,255,.03); color: #6B6B7A; border-color: rgba(255,255,255,.05); text-decoration: line-through; }
+  .chip-off:hover { background: rgba(255,255,255,.06); color: #9C9CAB; }
   .pais-btn { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 8px 4px; border-radius: 8px; color: #9C9CAB; font-size: 11px; transition: all .12s ease; cursor: pointer; border: 1px solid transparent; }
   .pais-btn:hover { color: #EDEDF0; background: rgba(255,255,255,.04); }
   .pais-btn.active { background: linear-gradient(135deg, rgba(255,87,34,.18), rgba(46,107,255,.10)); color: #FFFFFF; border-color: rgba(255,87,34,.45); }
@@ -752,7 +758,7 @@ function render() {
   // Modo tela cheia é ativado só quando na nota-rapida
   if (r !== 'nota-rapida') document.body.classList.remove('modo-nota-rapida');
   if (r==='dashboard') el.innerHTML = renderDashboard();
-  else if (r==='orcamentos') el.innerHTML = renderListaOrcamentos();
+  else if (r==='orcamentos') { el.innerHTML = renderListaOrcamentos(); setTimeout(()=>{ renderPLGrupo(); filtrarOrcs(); }, 0); }
   else if (r==='novo') { el.innerHTML = renderNovoOrcamento(STATE.ctx); bindNovoOrcamento(); }
   else if (r==='detalhe') { el.innerHTML = renderNovoOrcamento(STATE.ctx); bindNovoOrcamento(); }
   else if (r==='comparador') { el.innerHTML = renderComparador(); bindComparador(); }
@@ -1225,35 +1231,65 @@ function renderDashboard() {
    VIEW: LISTA DE ORÇAMENTOS
 ============================================================= */
 function renderListaOrcamentos() {
+  // Init state de filtros persistido durante a sessão
+  if (!STATE.filtroLista){
+    STATE.filtroLista = {
+      q: '', m: '', v: '',
+      tiposDesativados: new Set(),
+      statusDesativados: new Set()
+    };
+  }
+  const f = STATE.filtroLista;
+  const STATUS_LISTA = ['Rascunho','Proposta','Aprovada','Perdida'];
   const orcs = STATE.orcamentos.map(o => ({o, c: calcular(o)}));
+
   return `
-  <div class="space-y-5">
-    <div class="flex items-center gap-3 flex-wrap">
-      <input id="filtro-q" placeholder="Buscar cliente ou ID..." class="input max-w-xs" oninput="filtrarOrcs()">
-      <select id="filtro-tipo" class="input max-w-[200px]" onchange="filtrarOrcs()">
-        <option value="">Todos os tipos</option>
-        ${TIPOS.map(t=>`<option>${t.tipo}</option>`).join('')}
-      </select>
-      <select id="filtro-status" class="input max-w-[180px]" onchange="filtrarOrcs()">
-        <option value="">Todos os status</option>
-        <option>Rascunho</option><option>Proposta</option><option>Aprovada</option><option>Perdida</option>
-      </select>
-      <select id="filtro-margem" class="input max-w-[200px]" onchange="filtrarOrcs()">
-        <option value="">Todas margens</option>
-        <option value="IDEAL">✅ Ideal</option>
-        <option value="OK">🟡 OK</option>
-        <option value="ABAIXO_MIN">⚠ Abaixo mín</option>
-        <option value="PREJUIZO">❌ Prejuízo</option>
-      </select>
-      <select id="filtro-vendedor" class="input max-w-[160px]" onchange="filtrarOrcs()">
-        <option value="">Todos vendedores</option>
-        ${[...new Set(STATE.orcamentos.map(o=>o.vendedor).filter(v=>v && v.trim()))].sort().map(v=>`<option>${v}</option>`).join('')}
-      </select>
-      <button class="btn btn-ghost ml-auto" onclick="exportarJSON()">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-        Exportar JSON
-      </button>
+  <div class="space-y-4">
+    <!-- FILTROS -->
+    <div class="card p-4 space-y-3">
+      <div class="flex items-center gap-3 flex-wrap">
+        <input id="filtro-q" placeholder="Buscar cliente ou ID..." class="input max-w-xs" value="${escapeHtml(f.q||'')}" oninput="STATE.filtroLista.q=this.value; filtrarOrcs()">
+        <select id="filtro-margem" class="input max-w-[180px]" onchange="STATE.filtroLista.m=this.value; filtrarOrcs()">
+          <option value="" ${f.m===''?'selected':''}>Todas margens</option>
+          <option value="IDEAL" ${f.m==='IDEAL'?'selected':''}>✅ Ideal</option>
+          <option value="OK" ${f.m==='OK'?'selected':''}>🟡 OK</option>
+          <option value="ABAIXO_MIN" ${f.m==='ABAIXO_MIN'?'selected':''}>⚠ Abaixo mín</option>
+          <option value="PREJUIZO" ${f.m==='PREJUIZO'?'selected':''}>❌ Prejuízo</option>
+        </select>
+        <select id="filtro-vendedor" class="input max-w-[160px]" onchange="STATE.filtroLista.v=this.value; filtrarOrcs()">
+          <option value="" ${f.v===''?'selected':''}>Todos vendedores</option>
+          ${[...new Set(STATE.orcamentos.map(o=>o.vendedor).filter(v=>v && v.trim()))].sort().map(v=>`<option ${f.v===v?'selected':''}>${escapeHtml(v)}</option>`).join('')}
+        </select>
+        <div class="ml-auto flex gap-2">
+          <button class="btn btn-ghost text-xs py-1.5" onclick="limparFiltrosLista()">Limpar filtros</button>
+          <button class="btn btn-ghost text-xs py-1.5" onclick="exportarJSON()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Exportar</button>
+        </div>
+      </div>
+
+      <div class="flex items-start gap-4 flex-wrap pt-1">
+        <div class="flex-1 min-w-[300px]">
+          <div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold mb-1.5">Tipos <span class="text-ink-600 normal-case font-normal">(clique pra remover do grupo)</span></div>
+          <div class="flex gap-1.5 flex-wrap">
+            ${TIPOS.map(t=>{
+              const ativo = !f.tiposDesativados.has(t.tipo);
+              return `<button class="chip-filtro ${ativo?'chip-on':'chip-off'}" onclick="toggleFiltroTipo('${escapeHtml(t.tipo).replace(/'/g,"\\\\'")}')">${escapeHtml(t.tipo)}</button>`;
+            }).join('')}
+          </div>
+        </div>
+        <div class="min-w-[240px]">
+          <div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold mb-1.5">Status</div>
+          <div class="flex gap-1.5 flex-wrap">
+            ${STATUS_LISTA.map(s=>{
+              const ativo = !f.statusDesativados.has(s);
+              return `<button class="chip-filtro ${ativo?'chip-on':'chip-off'}" onclick="toggleFiltroStatus('${s}')">${s}</button>`;
+            }).join('')}
+          </div>
+        </div>
+      </div>
     </div>
+
+    <!-- P&L DO GRUPO -->
+    <div id="pl-grupo"></div>
 
     <div class="card overflow-hidden">
       <table class="w-full text-sm" id="tabela-orcs">
@@ -1315,24 +1351,127 @@ function renderListaOrcamentos() {
   `;
 }
 
-function filtrarOrcs() {
-  const q = document.getElementById('filtro-q').value.toLowerCase();
-  const t = document.getElementById('filtro-tipo').value;
-  const s = document.getElementById('filtro-status').value;
-  const m = document.getElementById('filtro-margem').value;
-  const v = document.getElementById('filtro-vendedor') ? document.getElementById('filtro-vendedor').value : '';
-  document.querySelectorAll('#tabela-orcs tbody tr').forEach(tr=>{
-    const txt = tr.textContent.toLowerCase();
-    let show = (!q || txt.includes(q));
-    if (t && !tr.textContent.includes(t)) show = false;
-    if (s && !tr.textContent.includes(s)) show = false;
-    if (v && !tr.textContent.includes(v)) show = false;
-    if (m === 'IDEAL' && !tr.innerHTML.includes('Ideal')) show=false;
-    if (m === 'OK' && !tr.innerHTML.includes('Min~Ideal')) show=false;
-    if (m === 'ABAIXO_MIN' && !tr.innerHTML.includes('Abaixo')) show=false;
-    if (m === 'PREJUIZO' && !tr.innerHTML.includes('Prejuízo')) show=false;
-    tr.style.display = show ? '' : 'none';
+function orcsDoFiltro(){
+  const f = STATE.filtroLista || {};
+  const q = (f.q||'').toLowerCase().trim();
+  const m = f.m || '';
+  const v = f.v || '';
+  const tExc = f.tiposDesativados || new Set();
+  const sExc = f.statusDesativados || new Set();
+  const orcs = STATE.orcamentos.map(o => ({o, c: calcular(o)}));
+  return orcs.filter(({o,c}) => {
+    if (tExc.has(o.tipo)) return false;
+    if (sExc.has(o.status)) return false;
+    if (v && (o.vendedor||'') !== v) return false;
+    if (m && c.statusMargem !== m) return false;
+    if (q){
+      const hay = [(o.id||''), (o.cliente||''), (o.projeto||''), (o.vendedor||'')].join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
   });
+}
+
+function calcularPLDoGrupo(orcsFiltrados){
+  // Agrega P&L do grupo somando os cálculos de cada orçamento
+  let receita = 0, custoDireto = 0, squad = 0, encargos = 0, heads = 0, overhead = 0, imposto = 0, comissao = 0, ebitda = 0, receitaLiq = 0;
+  orcsFiltrados.forEach(({o,c}) => {
+    receita     += Number(c.receitaTotal)||0;
+    receitaLiq  += Number(c.receitaLiquida)||0;
+    custoDireto += Number(c.custoDireto)||0;
+    squad       += Number(c.squadTotal)||0;
+    encargos    += Number(c.encargos)||0;
+    heads       += Number(c.heads)||0;
+    overhead    += Number(c.overhead)||0;
+    imposto     += Number(c.imposto)||0;
+    comissao    += Number(c.comissao)||0;
+    ebitda      += Number(c.ebitda)||0;
+  });
+  const custoOp = custoDireto + squad + encargos + heads + overhead;
+  const margem = receita > 0 ? ebitda/receita : 0;
+  return { receita, receitaLiq, custoDireto, squad, encargos, heads, overhead, imposto, comissao, custoOp, ebitda, margem };
+}
+
+function renderPLGrupo(){
+  const filtrados = orcsDoFiltro();
+  const pl = calcularPLDoGrupo(filtrados);
+  const el = document.getElementById('pl-grupo');
+  if (!el) return;
+
+  // Rótulos dos filtros ativos (pra deixar claro que P&L é do grupo filtrado)
+  const f = STATE.filtroLista || {};
+  const tipos = TIPOS.map(t=>t.tipo);
+  const tiposAtivos = tipos.filter(t => !(f.tiposDesativados||new Set()).has(t));
+  const tiposLabel = tiposAtivos.length === tipos.length ? 'todos os tipos' :
+                     tiposAtivos.length === 0 ? 'nenhum tipo' :
+                     tiposAtivos.length <= 2 ? tiposAtivos.join(', ') :
+                     `${tiposAtivos.length} tipos`;
+  const cor = pl.ebitda >= 0 ? 'text-green-400' : 'text-red-400';
+  const corMg = pl.margem >= 0.30 ? 'text-green-400' : pl.margem >= 0.20 ? 'text-yellow-400' : 'text-red-400';
+
+  el.innerHTML = `
+    <div class="card p-5">
+      <div class="flex items-center justify-between mb-4 flex-wrap gap-2">
+        <div>
+          <div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">P&L do Grupo</div>
+          <div class="text-sm text-ink-300"><strong class="text-white">${filtrados.length}</strong> orçamento${filtrados.length===1?'':'s'} · ${tiposLabel}${f.v?' · '+escapeHtml(f.v):''}${f.m?' · '+f.m:''}</div>
+        </div>
+        ${filtrados.length === 0 ? '<div class="text-sm text-yellow-400">Nenhum orçamento no filtro atual</div>' : ''}
+      </div>
+      <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div class="rounded-xl p-3 bg-ink-900/50 border border-white/5">
+          <div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">Receita bruta</div>
+          <div class="font-display font-bold text-xl mt-1 tabular-nums">${fmtMoeda(pl.receita, 0)}</div>
+        </div>
+        <div class="rounded-xl p-3 bg-ink-900/50 border border-white/5">
+          <div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">(−) Impostos</div>
+          <div class="font-display font-bold text-xl mt-1 tabular-nums text-ink-300">${fmtMoeda(pl.imposto, 0)}</div>
+          <div class="text-[10px] text-ink-500 mt-0.5">Receita líquida: <strong class="text-ink-300">${fmtMoeda(pl.receitaLiq, 0)}</strong></div>
+        </div>
+        <div class="rounded-xl p-3 bg-ink-900/50 border border-white/5">
+          <div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">(−) Custos op.</div>
+          <div class="font-display font-bold text-xl mt-1 tabular-nums text-ink-300">${fmtMoeda(pl.custoOp, 0)}</div>
+          <div class="text-[10px] text-ink-500 mt-0.5">Squad ${fmtMoeda(pl.squad,0)} · Direto ${fmtMoeda(pl.custoDireto,0)} · OH ${fmtMoeda(pl.overhead,0)}</div>
+        </div>
+        <div class="rounded-xl p-3 bg-ink-900/50 border border-white/5">
+          <div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">(−) Comissão</div>
+          <div class="font-display font-bold text-xl mt-1 tabular-nums text-ink-300">${fmtMoeda(pl.comissao, 0)}</div>
+        </div>
+        <div class="rounded-xl p-3 border-2" style="border-color:${pl.ebitda>=0?'rgba(74,222,128,.4)':'rgba(239,68,68,.4)'}; background:${pl.ebitda>=0?'rgba(74,222,128,.06)':'rgba(239,68,68,.06)'};">
+          <div class="text-[10px] uppercase tracking-widest ${cor} font-semibold">EBITDA</div>
+          <div class="font-display font-bold text-2xl mt-1 tabular-nums ${cor}">${fmtMoeda(pl.ebitda, 0)}</div>
+          <div class="text-[10px] mt-0.5 ${corMg}">Margem: <strong>${(pl.margem*100).toFixed(1).replace('.',',')}%</strong></div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function toggleFiltroTipo(tipo){
+  const s = STATE.filtroLista.tiposDesativados;
+  if (s.has(tipo)) s.delete(tipo); else s.add(tipo);
+  // Re-renderiza a lista inteira pra refletir chips + P&L + tabela
+  render();
+}
+function toggleFiltroStatus(status){
+  const s = STATE.filtroLista.statusDesativados;
+  if (s.has(status)) s.delete(status); else s.add(status);
+  render();
+}
+function limparFiltrosLista(){
+  STATE.filtroLista = { q:'', m:'', v:'', tiposDesativados:new Set(), statusDesativados:new Set() };
+  render();
+}
+
+function filtrarOrcs() {
+  // Filtro em cascata sobre a tabela + atualiza P&L
+  const filtrados = orcsDoFiltro();
+  const idsOk = new Set(filtrados.map(({o})=>o.id));
+  document.querySelectorAll('#tabela-orcs tbody tr').forEach(tr=>{
+    const oid = tr.querySelector('input[data-original-id]')?.dataset.originalId || '';
+    tr.style.display = idsOk.has(oid) ? '' : 'none';
+  });
+  renderPLGrupo();
 }
 
 function exportarJSON() {
