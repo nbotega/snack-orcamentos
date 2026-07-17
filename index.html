@@ -1212,7 +1212,7 @@ function renderDashboard() {
               <td class="py-3 font-mono text-ink-300">${o.id}</td>
               <td class="text-ink-300 tabular-nums whitespace-nowrap">${fmtData(o.data)}</td>
               <td class="font-semibold">${o.cliente}</td>
-              <td><span class="pill pill-ink">${o.tipo}</span></td>
+              <td><span class="pill pill-ink" title="${escapeHtml(o.tipo)}">${grupoDoTipo(o.tipo)}</span></td>
               <td class="text-right tabular-nums">${fmtBRL(c.receitaTotal)}</td>
               <td class="text-right tabular-nums font-bold">${fmtPct(c.margem)}</td>
               <td class="text-center">${statusPill(c.statusMargem)}</td>
@@ -1268,11 +1268,12 @@ function renderListaOrcamentos() {
 
       <div class="flex items-start gap-4 flex-wrap pt-1">
         <div class="flex-1 min-w-[300px]">
-          <div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold mb-1.5">Tipos <span class="text-ink-600 normal-case font-normal">(clique pra remover do grupo)</span></div>
+          <div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold mb-1.5">Categorias <span class="text-ink-600 normal-case font-normal">(clique pra remover do grupo)</span></div>
           <div class="flex gap-1.5 flex-wrap">
-            ${TIPOS.map(t=>{
-              const ativo = !f.tiposDesativados.has(t.tipo);
-              return `<button class="chip-filtro ${ativo?'chip-on':'chip-off'}" onclick="toggleFiltroTipo('${escapeHtml(t.tipo).replace(/'/g,"\\\\'")}')">${escapeHtml(t.tipo)}</button>`;
+            ${GRUPOS_TIPO.map(g=>{
+              const tiposInternos = tiposDoGrupo(g);
+              const ativo = tiposInternos.some(t => !f.tiposDesativados.has(t));
+              return `<button class="chip-filtro ${ativo?'chip-on':'chip-off'}" onclick="toggleFiltroGrupo('${g}')">${g}</button>`;
             }).join('')}
           </div>
         </div>
@@ -1326,7 +1327,7 @@ function renderListaOrcamentos() {
               <td class="font-semibold">${o.cliente}</td>
               <td class="text-ink-200">${o.projeto || '<span class="text-ink-500 italic">—</span>'}</td>
               <td class="text-ink-200 text-sm">${o.vendedor ? `<span class="pill" style="background:rgba(46,107,255,.14); color:#A8C0FF; border:1px solid rgba(46,107,255,.35); font-size:11px;">${o.vendedor}</span>` : '<span class="text-ink-500 italic">—</span>'}</td>
-              <td><span class="pill pill-ink">${o.tipo}</span></td>
+              <td><span class="pill pill-ink" title="${escapeHtml(o.tipo)}">${grupoDoTipo(o.tipo)}</span></td>
               <td class="text-center tabular-nums">${o.meses}</td>
               <td class="text-right tabular-nums">${fmtBRL(o.fee_mensal)}</td>
               <td class="text-right tabular-nums font-bold">${fmtBRL(c.receitaTotal)}</td>
@@ -1350,6 +1351,16 @@ function renderListaOrcamentos() {
   </div>
   `;
 }
+
+// Agrupamento simplificado de tipos pra exibição (não afeta cálculos)
+// Always-On → FEE · Upsell em AON → PROJETO UPSELL · resto → PROJETO
+const TIPO_GRUPO = {
+  'Always-On': 'FEE',
+  'Upsell em AON': 'PROJETO UPSELL'
+};
+const GRUPOS_TIPO = ['FEE', 'PROJETO UPSELL', 'PROJETO'];
+function grupoDoTipo(tipo){ return TIPO_GRUPO[tipo] || 'PROJETO'; }
+function tiposDoGrupo(grupo){ return TIPOS.filter(t => grupoDoTipo(t.tipo) === grupo).map(t => t.tipo); }
 
 function orcsDoFiltro(){
   const f = STATE.filtroLista || {};
@@ -1404,12 +1415,11 @@ function renderPLGrupo(){
 
   // Rótulos dos filtros ativos (pra deixar claro que P&L é do grupo filtrado)
   const f = STATE.filtroLista || {};
-  const tipos = TIPOS.map(t=>t.tipo);
-  const tiposAtivos = tipos.filter(t => !(f.tiposDesativados||new Set()).has(t));
-  const tiposLabel = tiposAtivos.length === tipos.length ? 'todos os tipos' :
-                     tiposAtivos.length === 0 ? 'nenhum tipo' :
-                     tiposAtivos.length <= 2 ? tiposAtivos.join(', ') :
-                     `${tiposAtivos.length} tipos`;
+  // Label baseado nos 3 grupos ativos
+  const gruposAtivos = GRUPOS_TIPO.filter(g => tiposDoGrupo(g).some(t => !(f.tiposDesativados||new Set()).has(t)));
+  const tiposLabel = gruposAtivos.length === GRUPOS_TIPO.length ? 'todas categorias' :
+                     gruposAtivos.length === 0 ? 'nenhuma categoria' :
+                     gruposAtivos.join(', ');
   const cor = pl.ebitda >= 0 ? 'text-green-400' : 'text-red-400';
   const corMg = pl.margem >= 0.30 ? 'text-green-400' : pl.margem >= 0.20 ? 'text-yellow-400' : 'text-red-400';
 
@@ -1460,7 +1470,19 @@ function renderPLGrupo(){
 function toggleFiltroTipo(tipo){
   const s = STATE.filtroLista.tiposDesativados;
   if (s.has(tipo)) s.delete(tipo); else s.add(tipo);
-  // Re-renderiza a lista inteira pra refletir chips + P&L + tabela
+  render();
+}
+function toggleFiltroGrupo(grupo){
+  const s = STATE.filtroLista.tiposDesativados;
+  const tiposInternos = tiposDoGrupo(grupo);
+  const algumAtivo = tiposInternos.some(t => !s.has(t));
+  if (algumAtivo){
+    // Desativa todos os tipos internos do grupo
+    tiposInternos.forEach(t => s.add(t));
+  } else {
+    // Reativa todos
+    tiposInternos.forEach(t => s.delete(t));
+  }
   render();
 }
 function toggleFiltroStatus(status){
@@ -3719,7 +3741,7 @@ function renderClienteDetalhe(ctx) {
             ${orcs.map(({o,c})=>`<tr class="border-b border-ink-800 hover:bg-ink-850 cursor-pointer" onclick="navigate('detalhe',{id:'${o.id}'})">
               <td class="py-3 font-mono text-ink-300">${o.id}</td>
               <td class="font-semibold">${o.projeto || '<span class="text-ink-500 italic">—</span>'}</td>
-              <td><span class="pill pill-ink">${o.tipo}</span></td>
+              <td><span class="pill pill-ink" title="${escapeHtml(o.tipo)}">${grupoDoTipo(o.tipo)}</span></td>
               <td class="text-right tabular-nums">${fmtBRL(c.receitaTotal)}</td>
               <td class="text-right tabular-nums font-bold">${fmtPct(c.margem)}</td>
               <td class="text-center">${statusPropostaPill(o.status)}</td>
