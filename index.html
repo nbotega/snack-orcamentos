@@ -2944,7 +2944,7 @@ function renderCarta(ctx){
   const tipoObj = TIPOS.find(t => t.tipo === orc.tipo);
   const cachePassThrough = tipoObj && !tipoObj.cache_na_receita;
   const baseImposto = cachePassThrough ? Math.max(0, totalCarta - cachesT) : totalCarta;
-  const impostoPctCarta = PREMISSAS.imposto_carta || 0.1425;
+  const impostoPctCarta = (PREMISSAS.imposto_carta != null ? Number(PREMISSAS.imposto_carta) : 0.1425);
   const impostoCarta = ovrVals.impostos ?? (baseImposto * impostoPctCarta);
   const feeSnackPuro = ovrVals.fee_snack ?? Math.max(0, totalCarta - cachesT - midiaT - producaoT - impostoCarta);
   const totalMensal = totalCarta / Math.max(1, orc.meses);
@@ -3169,6 +3169,7 @@ function renderCarta(ctx){
             </div>
           </div>` : ''}
 
+          ${impostoPctCarta > 0 ? `
           <div class="flex items-baseline justify-between py-3 border-b border-ink-800">
             <div>
               <div class="font-semibold text-base">Impostos</div>
@@ -3178,7 +3179,7 @@ function renderCarta(ctx){
               ${cachePassThrough ? '' : `<div class="text-xs text-ink-400 tabular-nums">${(impostoCarta/totalCarta*100).toFixed(1).replace('.',',')}%</div>`}
               <div class="font-display font-bold text-lg tabular-nums w-36 text-right">${editVal('impostos', impostoCarta)}</div>
             </div>
-          </div>
+          </div>` : ''}
 
           <div class="flex items-baseline justify-between py-3.5 px-4 rounded-lg mt-1" style="background: rgba(255,87,34,.08); border: 1px solid rgba(255,87,34,.25);">
             <div>
@@ -3454,7 +3455,7 @@ function copiarCarta(id){
   const orc = STATE.orcamentos.find(o=>o.id===id);
   if (!orc) return;
   const totalCarta = orc.fee_mensal * orc.meses;
-  const impostoCarta = totalCarta * (PREMISSAS.imposto_carta || 0.1425);
+  const impostoCarta = totalCarta * ((PREMISSAS.imposto_carta != null ? Number(PREMISSAS.imposto_carta) : 0.1425));
   const feeSnackPuro = Math.max(0, totalCarta - (orc.caches||0) - (orc.midia||0) - (orc.producao||0) - impostoCarta);
 
   const HEAD_TO_AREA = {
@@ -3492,7 +3493,7 @@ function copiarCarta(id){
   if (orc.caches>0) txt += `  Cachês                          ${fmtBRL(orc.caches).padStart(16)}   ${pct(orc.caches)}\n`;
   if (orc.producao>0) txt += `  Produção                        ${fmtBRL(orc.producao).padStart(16)}   ${pct(orc.producao)}\n`;
   if (orc.midia>0) txt += `  Mídia                           ${fmtBRL(orc.midia).padStart(16)}   ${pct(orc.midia)}\n`;
-  txt += `  Impostos (${(PREMISSAS.imposto_carta*100).toFixed(2).replace('.',',')}%)                ${fmtBRL(impostoCarta).padStart(16)}   ${pct(impostoCarta)}\n`;
+  if (impostoCarta > 0) txt += `  Impostos (${(PREMISSAS.imposto_carta*100).toFixed(2).replace('.',',')}%)                ${fmtBRL(impostoCarta).padStart(16)}   ${pct(impostoCarta)}\n`;
   txt += `  Fee Snack (gestão e operação)   ${fmtBRL(feeSnackPuro).padStart(16)}   ${pct(feeSnackPuro)}\n\n`;
   txt += `=== 2 · O QUE A SNACK ENTREGA ===\n\n`;
   if (orc.carta_ia?.introducao){ txt += orc.carta_ia.introducao + '\n\n'; }
