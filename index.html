@@ -1604,10 +1604,17 @@ function renderNovoOrcamento(ctx) {
             <input id="i-projeto" class="input" placeholder="Ex: Sempre Soleil 2026" value="${orc.projeto||''}" oninput="onChangeProjeto(this.value)">
           </div>
           <div>
-            <label class="label">Tipo</label>
-            <select id="i-tipo" class="input" onchange="onChange('tipo', this.value)">
-              ${TIPOS.map(t=>`<option ${t.tipo===orc.tipo?'selected':''}>${t.tipo}</option>`).join('')}
+            <label class="label">Categoria</label>
+            <select id="i-categoria" class="input" onchange="onChangeCategoria(this.value)">
+              ${GRUPOS_TIPO.map(g=>`<option value="${g}" ${grupoDoTipo(orc.tipo)===g?'selected':''}>${g}</option>`).join('')}
             </select>
+            <div id="sub-tipo-wrapper" class="mt-2 ${grupoDoTipo(orc.tipo)==='PROJETO'?'':'hidden'}">
+              <select id="i-tipo" class="input text-xs py-2" onchange="onChange('tipo', this.value)">
+                ${tiposDoGrupo('PROJETO').map(t=>`<option value="${t}" ${t===orc.tipo?'selected':''}>${t}</option>`).join('')}
+              </select>
+            </div>
+            <!-- input hidden mantém o tipo interno sincronizado quando categoria não é PROJETO -->
+            <input type="hidden" id="i-tipo-interno" value="${orc.tipo}">
           </div>
           <div>
             <label class="label">Status</label>
@@ -2323,6 +2330,31 @@ function onChange(k,v){
   recalc();
 }
 
+function onChangeCategoria(cat){
+  // Categoria escolhida no dropdown principal. Mapeia pro tipo interno:
+  // FEE → Always-On · PROJETO UPSELL → Upsell em AON · PROJETO → sub-select (default Projeto Criativo)
+  const subWrap = document.getElementById('sub-tipo-wrapper');
+  if (cat === 'FEE'){
+    CURRENT_ORC.tipo = 'Always-On';
+    subWrap.classList.add('hidden');
+  } else if (cat === 'PROJETO UPSELL'){
+    CURRENT_ORC.tipo = 'Upsell em AON';
+    subWrap.classList.add('hidden');
+  } else if (cat === 'PROJETO'){
+    // Se o tipo interno atual já é um dos "PROJETO", mantém; senão vira Projeto Criativo
+    const tiposProjeto = tiposDoGrupo('PROJETO');
+    if (!tiposProjeto.includes(CURRENT_ORC.tipo)) CURRENT_ORC.tipo = 'Projeto Criativo';
+    // Rebuild sub-select pra mostrar tipo interno atual
+    subWrap.innerHTML = `<select id="i-tipo" class="input text-xs py-2" onchange="onChange('tipo', this.value)">
+      ${tiposProjeto.map(t=>`<option value="${t}" ${t===CURRENT_ORC.tipo?'selected':''}>${t}</option>`).join('')}
+    </select>`;
+    subWrap.classList.remove('hidden');
+  }
+  // Re-renderiza pra atualizar banner/regra + campos que dependem do tipo (ex: Upsell tem seção extra)
+  document.getElementById('view').innerHTML = renderNovoOrcamento({id: CURRENT_ORC.id, _editing: CURRENT_ORC});
+  bindNovoOrcamento();
+}
+
 function onChangeFee(v){
   CURRENT_ORC.fee_mensal = v;
   const slider = document.getElementById('i-fee');
@@ -2585,7 +2617,7 @@ function recalc(){
   // Mostrar nota do tipo e governança upsell
   const tipo = TIPOS.find(t=>t.tipo===CURRENT_ORC.tipo);
   document.getElementById('tipo-nota').innerHTML = tipo
-    ? `<strong class="text-white">${tipo.tipo}</strong> · overhead ${(tipo.overhead_mult*100).toFixed(0)}% · cachês na receita: ${tipo.cache_na_receita?'sim':'não'}. ${tipo.notas}`
+    ? `<strong class="text-white">${grupoDoTipo(tipo.tipo)}</strong>${grupoDoTipo(tipo.tipo)==='PROJETO' && tipo.tipo !== 'Projeto Criativo' ? ` <span class="text-ink-400">(${tipo.tipo})</span>` : ''} · overhead ${(tipo.overhead_mult*100).toFixed(0)}% · cachês na receita: ${tipo.cache_na_receita?'sim':'não'}. ${tipo.notas}`
     : '';
   document.getElementById('upsell-extra').classList.toggle('hidden', CURRENT_ORC.tipo!=='Upsell em AON');
 
@@ -2976,8 +3008,12 @@ function renderComparador() {
             <span class="pill pill-ink">${letra==='A'?'enxuto':letra==='B'?'base':'premium'}</span>
           </div>
           <div class="space-y-3 text-sm">
-            <div><label class="label">Tipo</label>
-              <select class="input cmp-tipo">${TIPOS.map(t=>`<option ${t.tipo==='Always-On'?'selected':''}>${t.tipo}</option>`).join('')}</select>
+            <div><label class="label">Categoria</label>
+              <select class="input cmp-tipo">
+                <option value="Always-On" selected>FEE</option>
+                <option value="Upsell em AON">PROJETO UPSELL</option>
+                <option value="Projeto Criativo">PROJETO</option>
+              </select>
             </div>
             <div class="grid grid-cols-2 gap-2">
               <div><label class="label">Meses</label><input type="number" class="input cmp-meses" value="${letra==='A'?6:letra==='B'?12:12}"></div>
