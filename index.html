@@ -730,7 +730,7 @@ function navigate(r, ctx) {
   }
   // Bloqueia: só financeiro@ acessa a rota "validador"
   if (r === 'validador' && !usuarioPodeValidar(STATE.currentUser)){
-    alert('Só o usuário financeiro@redesnack.com.br pode validar notas rápidas.');
+    alert('Só os usuários financeiro@, daniel@ e administracao@redesnack.com.br podem validar notas rápidas.');
     r = 'dashboard';
   }
   STATE.route = r;
@@ -1608,13 +1608,6 @@ function renderNovoOrcamento(ctx) {
             <select id="i-categoria" class="input" onchange="onChangeCategoria(this.value)">
               ${GRUPOS_TIPO.map(g=>`<option value="${g}" ${grupoDoTipo(orc.tipo)===g?'selected':''}>${g}</option>`).join('')}
             </select>
-            <div id="sub-tipo-wrapper" class="mt-2 ${grupoDoTipo(orc.tipo)==='PROJETO'?'':'hidden'}">
-              <select id="i-tipo" class="input text-xs py-2" onchange="onChange('tipo', this.value)">
-                ${tiposDoGrupo('PROJETO').map(t=>`<option value="${t}" ${t===orc.tipo?'selected':''}>${t}</option>`).join('')}
-              </select>
-            </div>
-            <!-- input hidden mantém o tipo interno sincronizado quando categoria não é PROJETO -->
-            <input type="hidden" id="i-tipo-interno" value="${orc.tipo}">
           </div>
           <div>
             <label class="label">Status</label>
@@ -1884,29 +1877,47 @@ function renderNovoOrcamento(ctx) {
         </div>
       </div>
 
-      <!-- CONTRIBUIÇÃO PRA OVERHEAD -->
-      <div class="card p-5" id="painel-mc">
-        <div class="flex items-center justify-between mb-2">
-          <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold flex items-center gap-1.5">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
-            Contribui pra overhead?
+      <!-- DRE DE MARGEM DE CONTRIBUIÇÃO (métrica chave do orçamento) -->
+      <div class="card p-5" id="painel-mc" style="border-color: rgba(234,179,8,.35); background: linear-gradient(180deg, rgba(234,179,8,.06) 0%, rgba(0,0,0,0) 100%);">
+        <div class="flex items-center justify-between mb-3">
+          <div class="text-[11px] uppercase tracking-widest text-yellow-400 font-bold flex items-center gap-1.5">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            DRE — Margem de Contribuição
           </div>
-          <span id="mc-pill" class="pill pill-ink">—</span>
+          <span id="mc-pill" class="pill pill-ink" title="Saúde da MC">—</span>
         </div>
-        <div class="grid grid-cols-2 gap-3 mt-3">
-          <div>
-            <div class="text-[10px] uppercase tracking-wider text-ink-400">MC total do contrato</div>
-            <div id="display-mc-total" class="text-xl font-bold tabular-nums">—</div>
-            <div id="display-mc-meses" class="text-[11px] text-ink-400 mt-0.5">—</div>
-          </div>
-          <div>
-            <div class="text-[10px] uppercase tracking-wider text-ink-400">MC mensal (média)</div>
-            <div id="display-mc" class="text-xl font-bold tabular-nums">—</div>
-            <div id="display-mc-pct" class="text-[11px] text-ink-400 mt-0.5">—</div>
+
+        <!-- Cascata linha a linha -->
+        <div class="space-y-1 text-xs">
+          <div class="flex justify-between py-1 border-b border-white/5"><span class="text-ink-300">Receita bruta</span><span id="dre-receita" class="font-bold tabular-nums">—</span></div>
+          <div class="flex justify-between py-1 border-b border-white/5"><span class="text-ink-500">(−) Impostos</span><span id="dre-impostos" class="tabular-nums text-ink-400">—</span></div>
+          <div class="flex justify-between py-1 border-b border-white/5"><span class="text-ink-500">(−) Comissão</span><span id="dre-comissao" class="tabular-nums text-ink-400">—</span></div>
+          <div class="flex justify-between py-1 border-b border-white/5"><span class="text-ink-500">(−) Custos diretos</span><span id="dre-custos" class="tabular-nums text-ink-400">—</span></div>
+          <div class="flex justify-between py-1 border-b border-white/5"><span class="text-ink-500" title="Squad + encargos + heads alocados nesse orçamento">(−) Squad consumido</span><span id="dre-squad" class="tabular-nums text-ink-400">—</span></div>
+          <div class="flex justify-between py-2 mt-1 border-t-2 border-yellow-500/40"><span class="font-bold text-yellow-300">= Margem de Contribuição</span><span id="dre-mc-total" class="font-display font-bold text-base tabular-nums text-yellow-300">—</span></div>
+          <div class="flex justify-between text-[11px] text-ink-400"><span>MC mensal (média)</span><span id="dre-mc-mensal" class="tabular-nums">—</span></div>
+          <div class="flex justify-between text-[11px]"><span class="text-ink-400">% da receita</span><span id="dre-mc-pct" class="tabular-nums font-bold">—</span></div>
+        </div>
+
+        <!-- Contribuição pra overhead -->
+        <div class="mt-4 pt-3 border-t border-white/10">
+          <div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold mb-2">Contribuição pra overhead Snack</div>
+          <div class="grid grid-cols-2 gap-2 text-xs">
+            <div class="rounded-lg p-2 bg-black/20">
+              <div class="text-[9px] uppercase tracking-wider text-ink-500">Meses cobertos</div>
+              <div id="display-mc-meses" class="font-display font-bold text-lg tabular-nums">—</div>
+            </div>
+            <div class="rounded-lg p-2 bg-black/20">
+              <div class="text-[9px] uppercase tracking-wider text-ink-500">% do OH anual</div>
+              <div id="display-mc-pct-oh" class="font-display font-bold text-lg tabular-nums">—</div>
+            </div>
           </div>
         </div>
+
         <div id="mc-veredito" class="mt-3 p-3 rounded-lg text-xs leading-relaxed border"></div>
       </div>
+      <!-- IDs legado mantidos (compat com recalc) -->
+      <div class="hidden"><span id="display-mc-total"></span><span id="display-mc"></span><span id="display-mc-pct"></span></div>
 
       <!-- META DE UPSELL (só Always-On) -->
       <div id="painel-upsell" class="card p-6 hidden" style="background: linear-gradient(180deg, rgba(255,87,34,.08) 0%, rgba(46,107,255,.06) 100%); border: 1px solid rgba(255,87,34,.25);">
@@ -2331,25 +2342,11 @@ function onChange(k,v){
 }
 
 function onChangeCategoria(cat){
-  // Categoria escolhida no dropdown principal. Mapeia pro tipo interno:
-  // FEE → Always-On · PROJETO UPSELL → Upsell em AON · PROJETO → sub-select (default Projeto Criativo)
-  const subWrap = document.getElementById('sub-tipo-wrapper');
-  if (cat === 'FEE'){
-    CURRENT_ORC.tipo = 'Always-On';
-    subWrap.classList.add('hidden');
-  } else if (cat === 'PROJETO UPSELL'){
-    CURRENT_ORC.tipo = 'Upsell em AON';
-    subWrap.classList.add('hidden');
-  } else if (cat === 'PROJETO'){
-    // Se o tipo interno atual já é um dos "PROJETO", mantém; senão vira Projeto Criativo
-    const tiposProjeto = tiposDoGrupo('PROJETO');
-    if (!tiposProjeto.includes(CURRENT_ORC.tipo)) CURRENT_ORC.tipo = 'Projeto Criativo';
-    // Rebuild sub-select pra mostrar tipo interno atual
-    subWrap.innerHTML = `<select id="i-tipo" class="input text-xs py-2" onchange="onChange('tipo', this.value)">
-      ${tiposProjeto.map(t=>`<option value="${t}" ${t===CURRENT_ORC.tipo?'selected':''}>${t}</option>`).join('')}
-    </select>`;
-    subWrap.classList.remove('hidden');
-  }
+  // Mapeia categoria → tipo interno único (sem sub-select)
+  // FEE → Always-On · PROJETO UPSELL → Upsell em AON · PROJETO → Projeto Criativo
+  if (cat === 'FEE') CURRENT_ORC.tipo = 'Always-On';
+  else if (cat === 'PROJETO UPSELL') CURRENT_ORC.tipo = 'Upsell em AON';
+  else if (cat === 'PROJETO') CURRENT_ORC.tipo = 'Projeto Criativo';
   // Re-renderiza pra atualizar banner/regra + campos que dependem do tipo (ex: Upsell tem seção extra)
   document.getElementById('view').innerHTML = renderNovoOrcamento({id: CURRENT_ORC.id, _editing: CURRENT_ORC});
   bindNovoOrcamento();
@@ -2578,16 +2575,41 @@ function recalc(){
     }
   }
 
-  // Contribuição pra cobertura de overhead
+  // ==== DRE de Margem de Contribuição (nova versão do painel MC) ====
+  const meses = Number(CURRENT_ORC.meses) || 1;
   const mc = mcMensal(CURRENT_ORC, c);
   const mcT = mcTotal(CURRENT_ORC, c);
   const overheadAlvo = PREMISSAS.overhead_fixo_mensal || 1;
-  const pctOH = (mc / overheadAlvo) * 100;
+  const ohAnual = overheadAlvo * 12;
+  const pctOHmes = (mc / overheadAlvo) * 100;
   const mesesCob = mcT / overheadAlvo;
-  document.getElementById('display-mc-total').textContent = fmtBRL(mcT);
-  document.getElementById('display-mc-meses').textContent = '≈ ' + mesesCob.toFixed(2) + ' mês' + (mesesCob>=2?'es':'') + ' de overhead';
-  document.getElementById('display-mc').textContent = fmtBRL(mc);
-  document.getElementById('display-mc-pct').textContent = pctOH.toFixed(1) + '% do overhead/mês';
+  const pctOHanual = (mcT / ohAnual) * 100;
+  const mcPctReceita = c.receitaTotal > 0 ? (mcT / c.receitaTotal) * 100 : 0;
+  const squadConsumido = (Number(c.squadTotal)||0) + (Number(c.encargos)||0) + (Number(c.heads)||0);
+
+  // DRE cascata
+  document.getElementById('dre-receita').textContent = fmtBRL(c.receitaTotal);
+  document.getElementById('dre-impostos').textContent = '-' + fmtBRL(c.imposto);
+  document.getElementById('dre-comissao').textContent = '-' + fmtBRL(c.comissao);
+  document.getElementById('dre-custos').textContent = '-' + fmtBRL(c.custoDireto);
+  document.getElementById('dre-squad').textContent = '-' + fmtBRL(squadConsumido);
+  document.getElementById('dre-mc-total').textContent = fmtBRL(mcT);
+  document.getElementById('dre-mc-mensal').textContent = fmtBRL(mc) + '/mês × ' + meses + (meses===1?' mês':' meses');
+  const elPct = document.getElementById('dre-mc-pct');
+  elPct.textContent = mcPctReceita.toFixed(1).replace('.',',') + '%';
+  elPct.className = 'tabular-nums font-bold ' + (mcPctReceita>=30?'text-green-400':mcPctReceita>=20?'text-yellow-400':'text-red-400');
+
+  // Contribuição pra overhead
+  document.getElementById('display-mc-meses').textContent = mesesCob.toFixed(2) + (mesesCob===1?' mês':' meses');
+  document.getElementById('display-mc-pct-oh').textContent = pctOHanual.toFixed(1).replace('.',',') + '%';
+
+  // IDs legado (compat)
+  const legL = document.getElementById('display-mc-total');
+  if (legL) legL.textContent = fmtBRL(mcT);
+  const legM = document.getElementById('display-mc');
+  if (legM) legM.textContent = fmtBRL(mc);
+  const legP = document.getElementById('display-mc-pct');
+  if (legP) legP.textContent = pctOHmes.toFixed(1) + '%';
 
   const mcVer = document.getElementById('mc-veredito');
   const mcPill = document.getElementById('mc-pill');
@@ -4106,7 +4128,7 @@ function renderPainelCustosDetalhe(orc){
                 <td class="pr-3 text-ink-300 max-w-[220px] truncate" title="${p.descricao||''}">${p.descricao||'<span class="text-ink-500">—</span>'}</td>
                 <td class="pr-3 text-ink-400 font-mono text-xs">${p.nf_ref||'—'}</td>
                 <td class="pr-3 text-right font-bold tabular-nums">${fmtBRL(p.valor)}</td>
-                <td class="pr-3 text-center"><span class="pill ${p.status==='Pago'?'pill-green':'pill-yellow'}" style="font-size:10px;">${p.status}</span></td>
+                <td class="pr-3 text-center">${statusPagamentoPill(p)}</td>
                 <td class="pr-3 text-center">${p.anexo_url ? `<button onclick="baixarAnexo('${p.anexo_url}')" class="text-azul-400 hover:text-azul" title="Baixar comprovante"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></button>` : '<span class="text-ink-600">—</span>'}</td>
                 <td class="pr-3">
                   <div class="flex items-center gap-0.5">
@@ -4296,10 +4318,25 @@ async function baixarAnexo(path){
    VIEW: NOTA RÁPIDA (mobile-first pra produção em campo)
 ============================================================= */
 
-// Só financeiro@redesnack.com.br pode validar notas rápidas
+// Pill de status pra pagamento — notas rápidas usam "Validado / Não Validado", resto usa "Pago / A pagar"
+function statusPagamentoPill(p){
+  if (p.origem === 'nota_rapida'){
+    return p.validado
+      ? `<span class="pill pill-green" style="font-size:10px;">Validado</span>`
+      : `<span class="pill pill-yellow" style="font-size:10px;">Não Validado</span>`;
+  }
+  return `<span class="pill ${p.status==='Pago'?'pill-green':'pill-yellow'}" style="font-size:10px;">${p.status}</span>`;
+}
+
+// Emails autorizados a validar notas rápidas
+const EMAILS_VALIDADORES = [
+  'financeiro@redesnack.com.br',
+  'daniel@redesnack.com.br',
+  'administracao@redesnack.com.br'
+];
 function usuarioPodeValidar(user){
   const u = user || STATE.currentUser;
-  return u && (u.email||'').toLowerCase() === 'financeiro@redesnack.com.br';
+  return u && EMAILS_VALIDADORES.includes((u.email||'').toLowerCase());
 }
 
 // Modo produtor: user com raw_user_meta_data.only_notas = true fica preso na tela de nota rápida
@@ -5104,7 +5141,7 @@ function renderValidadorNotas(){
     return `<div class="max-w-xl mx-auto card p-8 text-center">
       <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2" class="mx-auto mb-3"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
       <div class="font-display font-bold text-lg">Acesso restrito</div>
-      <div class="text-sm text-ink-400 mt-1">Só o usuário <strong>financeiro@redesnack.com.br</strong> pode validar notas rápidas.</div>
+      <div class="text-sm text-ink-400 mt-1">Só os usuários <strong>financeiro@</strong>, <strong>daniel@</strong> e <strong>administracao@</strong> podem validar notas rápidas.</div>
     </div>`;
   }
   const naoValidados = (STATE.pagamentos||[]).filter(p => p.origem === 'nota_rapida' && !p.validado);
