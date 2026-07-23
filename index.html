@@ -1234,7 +1234,11 @@ function renderListaMCAprovados(){
   const overheadAlvo = Number(PREMISSAS.overhead_fixo_mensal) || 1;
   const ohAnual = overheadAlvo * 12;
 
-  const aprovados = STATE.orcamentos
+  // State de filtro por categoria (Set de categorias DESATIVADAS)
+  if (!STATE.mcListaFiltro) STATE.mcListaFiltro = new Set();
+  const desativadas = STATE.mcListaFiltro;
+
+  const todosAprovados = STATE.orcamentos
     .filter(o => o.status === 'Aprovada' || o.status === 'Aprovado')
     .map(o => {
       const c = calcular(o);
@@ -1242,31 +1246,50 @@ function renderListaMCAprovados(){
       const mesesCob = mcT / overheadAlvo;
       const pctOH = (mcT / ohAnual) * 100;
       const mcPctReceita = c.receitaTotal > 0 ? (mcT / c.receitaTotal) * 100 : 0;
-      return { o, c, mcT, mesesCob, pctOH, mcPctReceita };
-    })
+      const grupo = grupoDoTipo(o.tipo);
+      return { o, c, mcT, mesesCob, pctOH, mcPctReceita, grupo };
+    });
+
+  const aprovados = todosAprovados
+    .filter(x => !desativadas.has(x.grupo))
     .sort((a,b) => b.mcT - a.mcT); // maior MC no topo
 
   const totalMC = aprovados.reduce((s,x) => s + x.mcT, 0);
   const totalMesesCob = totalMC / overheadAlvo;
   const totalPctOH = (totalMC / ohAnual) * 100;
 
-  if (aprovados.length === 0){
+  if (todosAprovados.length === 0){
     return `<div class="card p-8 text-center text-ink-400"><div class="font-display font-bold text-base mb-1">Nenhum projeto aprovado ainda</div><div class="text-sm">Aprove um orçamento pra ver a contribuição de MC aqui.</div></div>`;
   }
 
+  // Contagem por categoria (do universo total) pra ajudar a decidir o que filtrar
+  const contPorGrupo = {};
+  todosAprovados.forEach(x => { contPorGrupo[x.grupo] = (contPorGrupo[x.grupo]||0) + 1; });
+
   return `
   <div class="card overflow-hidden" style="border-color: rgba(234,179,8,.28);">
-    <div class="flex items-center justify-between p-5 pb-3 flex-wrap gap-2">
-      <div>
-        <div class="text-[10px] uppercase tracking-widest text-yellow-400 font-bold flex items-center gap-1.5">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-          Projetos aprovados — MC & contribuição pra overhead
+    <div class="p-5 pb-3 space-y-3">
+      <div class="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <div class="text-[10px] uppercase tracking-widest text-yellow-400 font-bold flex items-center gap-1.5">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            Projetos aprovados — MC & contribuição pra overhead
+          </div>
+          <div class="text-xs text-ink-400 mt-1">Ordenado por MC total (maior primeiro). Overhead-alvo: <strong class="text-white">${fmtBRL(overheadAlvo)}/mês</strong> · <strong class="text-white">${fmtBRL(ohAnual)}/ano</strong></div>
         </div>
-        <div class="text-xs text-ink-400 mt-1">Ordenado por MC total (maior primeiro). Overhead-alvo: <strong class="text-white">${fmtBRL(overheadAlvo)}/mês</strong> · <strong class="text-white">${fmtBRL(ohAnual)}/ano</strong></div>
+        <div class="text-right">
+          <div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Universo filtrado (${aprovados.length}/${todosAprovados.length})</div>
+          <div class="text-lg font-display font-bold text-yellow-300 tabular-nums">${fmtBRL(totalMC)} MC · ${totalMesesCob.toFixed(1)} meses OH · ${totalPctOH.toFixed(1).replace('.',',')}%</div>
+        </div>
       </div>
-      <div class="text-right">
-        <div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Total do portfólio aprovado</div>
-        <div class="text-lg font-display font-bold text-yellow-300 tabular-nums">${fmtBRL(totalMC)} MC · ${totalMesesCob.toFixed(1)} meses OH · ${totalPctOH.toFixed(1).replace('.',',')}%</div>
+      <div class="flex items-center gap-2 flex-wrap pt-1">
+        <span class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">Filtrar categoria:</span>
+        ${GRUPOS_TIPO.map(g => {
+          const ativo = !desativadas.has(g);
+          const n = contPorGrupo[g] || 0;
+          return `<button class="chip-filtro ${ativo?'chip-on':'chip-off'}" onclick="toggleFiltroMCLista('${g}')">${g}${n>0?` <span class="text-[10px] opacity-70">(${n})</span>`:''}</button>`;
+        }).join('')}
+        ${desativadas.size > 0 ? `<button class="text-[11px] text-ink-400 hover:text-white underline ml-1" onclick="STATE.mcListaFiltro=new Set(); render();">limpar</button>` : ''}
       </div>
     </div>
     <table class="w-full text-sm">
@@ -1559,6 +1582,13 @@ function renderPLGrupo(){
       </div>
     </div>
   `;
+}
+
+function toggleFiltroMCLista(grupo){
+  if (!STATE.mcListaFiltro) STATE.mcListaFiltro = new Set();
+  if (STATE.mcListaFiltro.has(grupo)) STATE.mcListaFiltro.delete(grupo);
+  else STATE.mcListaFiltro.add(grupo);
+  render();
 }
 
 function toggleFiltroTipo(tipo){
