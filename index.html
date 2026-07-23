@@ -1223,6 +1223,100 @@ function renderDashboard() {
       </table>
     </div>
 
+    ${renderListaMCAprovados()}
+
+  </div>
+  `;
+}
+
+// Lista dos projetos aprovados com MC e contribuição pra overhead — vai no Dashboard
+function renderListaMCAprovados(){
+  const overheadAlvo = Number(PREMISSAS.overhead_fixo_mensal) || 1;
+  const ohAnual = overheadAlvo * 12;
+
+  const aprovados = STATE.orcamentos
+    .filter(o => o.status === 'Aprovada' || o.status === 'Aprovado')
+    .map(o => {
+      const c = calcular(o);
+      const mcT = mcTotal(o, c);
+      const mesesCob = mcT / overheadAlvo;
+      const pctOH = (mcT / ohAnual) * 100;
+      const mcPctReceita = c.receitaTotal > 0 ? (mcT / c.receitaTotal) * 100 : 0;
+      return { o, c, mcT, mesesCob, pctOH, mcPctReceita };
+    })
+    .sort((a,b) => b.mcT - a.mcT); // maior MC no topo
+
+  const totalMC = aprovados.reduce((s,x) => s + x.mcT, 0);
+  const totalMesesCob = totalMC / overheadAlvo;
+  const totalPctOH = (totalMC / ohAnual) * 100;
+
+  if (aprovados.length === 0){
+    return `<div class="card p-8 text-center text-ink-400"><div class="font-display font-bold text-base mb-1">Nenhum projeto aprovado ainda</div><div class="text-sm">Aprove um orçamento pra ver a contribuição de MC aqui.</div></div>`;
+  }
+
+  return `
+  <div class="card overflow-hidden" style="border-color: rgba(234,179,8,.28);">
+    <div class="flex items-center justify-between p-5 pb-3 flex-wrap gap-2">
+      <div>
+        <div class="text-[10px] uppercase tracking-widest text-yellow-400 font-bold flex items-center gap-1.5">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+          Projetos aprovados — MC & contribuição pra overhead
+        </div>
+        <div class="text-xs text-ink-400 mt-1">Ordenado por MC total (maior primeiro). Overhead-alvo: <strong class="text-white">${fmtBRL(overheadAlvo)}/mês</strong> · <strong class="text-white">${fmtBRL(ohAnual)}/ano</strong></div>
+      </div>
+      <div class="text-right">
+        <div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Total do portfólio aprovado</div>
+        <div class="text-lg font-display font-bold text-yellow-300 tabular-nums">${fmtBRL(totalMC)} MC · ${totalMesesCob.toFixed(1)} meses OH · ${totalPctOH.toFixed(1).replace('.',',')}%</div>
+      </div>
+    </div>
+    <table class="w-full text-sm">
+      <thead class="bg-ink-900">
+        <tr class="text-[11px] uppercase tracking-wider text-ink-400">
+          <th class="text-left font-semibold py-3 px-5">Projeto</th>
+          <th class="text-left font-semibold">Categoria</th>
+          <th class="text-right font-semibold">Receita</th>
+          <th class="text-right font-semibold">MC total</th>
+          <th class="text-right font-semibold">% receita</th>
+          <th class="text-right font-semibold pr-5" title="Meses do overhead Snack cobertos pelo MC total">Contribui p/ OH</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${aprovados.map(({o, c, mcT, mesesCob, pctOH, mcPctReceita}) => {
+          const corMC = mcT <= 0 ? 'text-red-400' : mcT > 0 ? 'text-yellow-300' : 'text-ink-300';
+          const corPct = mcPctReceita >= 30 ? 'text-green-400' : mcPctReceita >= 20 ? 'text-yellow-400' : 'text-red-400';
+          const barPct = Math.min(100, pctOH);
+          return `
+            <tr class="border-t border-ink-800 hover:bg-ink-850 cursor-pointer" onclick="navigate('detalhe',{id:'${o.id}'})">
+              <td class="py-3 px-5">
+                <div class="flex items-center gap-2">
+                  <span class="font-mono text-xs text-ink-400">${o.id}</span>
+                  <span class="font-semibold text-white">${escapeHtml(o.cliente)}</span>
+                  ${o.projeto ? `<span class="text-ink-300 text-xs truncate max-w-[220px]">· ${escapeHtml(o.projeto)}</span>` : ''}
+                </div>
+              </td>
+              <td><span class="pill pill-ink" title="${escapeHtml(o.tipo)}">${grupoDoTipo(o.tipo)}</span></td>
+              <td class="text-right tabular-nums text-ink-300">${fmtBRL(c.receitaTotal)}</td>
+              <td class="text-right tabular-nums font-bold ${corMC}">${fmtBRL(mcT)}</td>
+              <td class="text-right tabular-nums font-bold ${corPct}">${mcPctReceita.toFixed(1).replace('.',',')}%</td>
+              <td class="text-right pr-5">
+                <div class="flex items-center justify-end gap-2">
+                  <div class="w-20 h-1.5 bg-ink-800 rounded-full overflow-hidden hidden sm:block"><div class="h-full bg-yellow-400" style="width:${barPct.toFixed(0)}%"></div></div>
+                  <div class="tabular-nums font-bold text-yellow-300 whitespace-nowrap">${mesesCob.toFixed(2)} m<span class="text-[10px] text-ink-400 font-normal"> · ${pctOH.toFixed(1).replace('.',',')}%</span></div>
+                </div>
+              </td>
+            </tr>
+          `;
+        }).join('')}
+      </tbody>
+      <tfoot>
+        <tr class="border-t-2 border-yellow-500/30 bg-yellow-500/5 font-bold">
+          <td class="py-3 px-5" colspan="3">Total (${aprovados.length} projeto${aprovados.length===1?'':'s'} aprovado${aprovados.length===1?'':'s'})</td>
+          <td class="text-right tabular-nums text-yellow-300">${fmtBRL(totalMC)}</td>
+          <td></td>
+          <td class="text-right tabular-nums text-yellow-300 pr-5">${totalMesesCob.toFixed(2)} m<span class="text-[10px] text-ink-400 font-normal"> · ${totalPctOH.toFixed(1).replace('.',',')}%</span></td>
+        </tr>
+      </tfoot>
+    </table>
   </div>
   `;
 }
