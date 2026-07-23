@@ -1097,6 +1097,9 @@ function renderDashboard() {
   const receitaAprovada = aprovados.reduce((s,x)=>s + x.c.receitaTotal, 0);
   const ebitdaTotal = ativos.reduce((s,x)=>s + x.c.ebitda, 0);
   const margemMedia = receitaPipeline>0 ? ebitdaTotal/receitaPipeline : 0;
+  // Margem de Contribuição (nova métrica principal, sem overhead)
+  const mcTotalPipeline = ativos.reduce((s,x)=>s + mcTotal(x.o, x.c), 0);
+  const mcMediaPipeline = receitaPipeline>0 ? mcTotalPipeline/receitaPipeline : 0;
 
   // Cobertura de overhead
   const overheadAlvo = PREMISSAS.overhead_fixo_mensal || 0;
@@ -1137,15 +1140,15 @@ function renderDashboard() {
         <div class="text-3xl font-display font-bold mt-2 text-azul-400">${fmtBRL(receitaAprovada)}</div>
         <div class="text-xs text-ink-300 mt-2">${orcs.filter(x=>x.o.status==='Aprovada').length} fechados</div>
       </div>
-      <div class="card p-5 card-hover">
-        <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">EBITDA Pipeline</div>
-        <div class="text-3xl font-display font-bold mt-2 ${ebitdaTotal<0?'text-red-400':'text-white'}">${fmtBRL(ebitdaTotal)}</div>
-        <div class="text-xs text-ink-300 mt-2">soma de todos ativos</div>
+      <div class="card p-5 card-hover" style="border-color: rgba(234,179,8,.28);">
+        <div class="text-[11px] uppercase tracking-widest text-yellow-400 font-semibold">MC Pipeline</div>
+        <div class="text-3xl font-display font-bold mt-2 ${mcTotalPipeline<0?'text-red-400':'text-yellow-300'}">${fmtBRL(mcTotalPipeline)}</div>
+        <div class="text-xs text-ink-300 mt-2">Margem de Contribuição · soma de ativos</div>
       </div>
-      <div class="card p-5 card-hover">
-        <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">Margem Média</div>
-        <div class="text-3xl font-display font-bold mt-2 ${margemMedia<PREMISSAS.margem_min?'text-orange':margemMedia<PREMISSAS.margem_ideal?'text-yellow-400':'text-green-400'}">${fmtPct(margemMedia)}</div>
-        <div class="text-xs text-ink-300 mt-2">alvo: ${fmtPct(PREMISSAS.margem_ideal)} ideal · ${fmtPct(PREMISSAS.margem_min)} mín</div>
+      <div class="card p-5 card-hover" style="border-color: rgba(234,179,8,.28);">
+        <div class="text-[11px] uppercase tracking-widest text-yellow-400 font-semibold">MC Média</div>
+        <div class="text-3xl font-display font-bold mt-2 ${mcMediaPipeline<0.30?'text-orange':mcMediaPipeline<0.50?'text-yellow-400':'text-green-400'}">${fmtPct(mcMediaPipeline)}</div>
+        <div class="text-xs text-ink-300 mt-2">alvo: 50% mín · MC / Receita do pipeline</div>
       </div>
     </div>
 
