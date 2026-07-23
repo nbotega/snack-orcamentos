@@ -654,6 +654,22 @@ function calcular(orc) {
   const feeMin = feeAlvo(p.margem_min);
   const feeIdeal = feeAlvo(p.margem_ideal);
 
+  // Fee necessário pra atingir Margem de Contribuição alvo (MC = Receita − Impostos − Comissão − CustoDireto − SquadConsumido)
+  // MC_alvo = mcAlvo * Receita  →  Receita = (CustoDireto + SquadConsumido) / [(1−imposto)(1−comissão) − mcAlvo]
+  function feeAlvoMC(mcAlvo){
+    // Squad consumido = M + N + P (SEM overhead — MC não inclui overhead)
+    let custoFixo = J + M + N + P;
+    // Pass-through: cachês não geram receita nem imposto — descontamos do custo direto pro cálculo aqui
+    if (cachePassThrough) custoFixo -= (orc.caches || 0);
+    const fatorLiq = (1 - p.imposto) * (1 - p.comissao);
+    const den = fatorLiq - mcAlvo;
+    if (den <= 0) return null; // impossível atingir esse MC dado imposto+comissão
+    const receitaAlvo = custoFixo / den;
+    const feeTotalAlvo = Math.max(0, receitaAlvo - K);
+    return feeTotalAlvo / (orc.meses||1);
+  }
+  const feeMC50 = feeAlvoMC(0.50);
+
   let statusMargem;
   if (Y < 0) statusMargem = 'PREJUIZO';
   else if (Z < p.margem_min) statusMargem = 'ABAIXO_MIN';
@@ -678,7 +694,7 @@ function calcular(orc) {
     receitaFeeTotal:U, receitaTotal:W,
     imposto: impostoCalc, baseImposto, cachePassThrough,
     receitaLiquida: receitaLiq, comissao:X, ebitda:Y, margem:Z,
-    feeMin, feeIdeal, statusMargem,
+    feeMin, feeIdeal, feeMC50, statusMargem,
     upsellMinAnual, upsellIdealAnual
   };
 }
@@ -1955,18 +1971,21 @@ function renderNovoOrcamento(ctx) {
           <div class="w-7 h-7 rounded-lg bg-green-500/15 border border-green-500/30 flex items-center justify-center text-green-400 text-sm font-bold">5</div>
           Fee Mensal & Simulador de Negociação
         </div>
-        <p class="text-xs text-ink-400 mb-4 ml-10">Mande o Fee Ideal na proposta. Negocie até o Mínimo se precisar.</p>
+        <p class="text-xs text-ink-400 mb-4 ml-10">Cobre pelo menos o Fee mínimo pra atingir <strong class="text-yellow-300">Margem de Contribuição ≥ 50%</strong>.</p>
 
-        <div class="grid grid-cols-2 gap-3 mb-4">
-          <div class="p-3 rounded-lg border border-orange/30 bg-orange/5">
-            <div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Fee Mínimo (margem ${fmtPct(PREMISSAS.margem_min)})</div>
-            <div id="display-fee-min" class="font-display font-bold text-2xl text-orange mt-1">—</div>
-          </div>
-          <div class="p-3 rounded-lg border border-green-500/30 bg-green-500/5">
-            <div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Fee Ideal (margem ${fmtPct(PREMISSAS.margem_ideal)})</div>
-            <div id="display-fee-ideal" class="font-display font-bold text-2xl text-green-400 mt-1">—</div>
+        <div class="mb-4">
+          <div class="p-4 rounded-xl border-2 border-yellow-500/40" style="background: linear-gradient(180deg, rgba(234,179,8,.08) 0%, rgba(0,0,0,0) 100%);">
+            <div class="text-[10px] uppercase tracking-widest text-yellow-400 font-bold flex items-center gap-2">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+              Fee mínimo p/ MC ≥ 50%
+            </div>
+            <div id="display-fee-mc50" class="font-display font-bold text-3xl text-yellow-300 mt-1">—</div>
+            <div class="text-[11px] text-ink-400 mt-1">Abaixo disso, o contrato não paga o custo direto + squad + impostos + comissão em 50%.</div>
           </div>
         </div>
+
+        <!-- IDs legados hidden (compat com recalc antigo) -->
+        <div class="hidden"><span id="display-fee-min"></span><span id="display-fee-ideal"></span></div>
 
         <div class="mb-3 flex items-center justify-between">
           <label class="label mb-0">Fee Mensal Proposto</label>
@@ -1986,20 +2005,8 @@ function renderNovoOrcamento(ctx) {
 
     <!-- COLUNA DIREITA: PAINEL DE CÁLCULO AO VIVO -->
     <div class="space-y-4">
-      <div class="card p-6 border-2 xl:sticky xl:top-24 z-20" id="painel-margem" style="background: linear-gradient(180deg, #161620 0%, #0E0E14 100%); backdrop-filter: blur(8px);">
-        <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">Status da margem</div>
-        <div id="display-status" class="mt-2 text-3xl font-display font-bold">—</div>
-        <div class="mt-4 grid grid-cols-2 gap-4">
-          <div>
-            <div class="text-[10px] uppercase tracking-wider text-ink-400">EBITDA</div>
-            <div id="display-ebitda" class="text-xl font-bold tabular-nums">—</div>
-          </div>
-          <div>
-            <div class="text-[10px] uppercase tracking-wider text-ink-400">Margem</div>
-            <div id="display-margem" class="text-xl font-bold tabular-nums">—</div>
-          </div>
-        </div>
-      </div>
+      <!-- IDs legados escondidos (compat com recalc que ainda referencia display-ebitda/margem/status) -->
+      <div class="hidden" id="painel-margem"><span id="display-status"></span><span id="display-ebitda"></span><span id="display-margem"></span></div>
 
       <!-- DRE DE MARGEM DE CONTRIBUIÇÃO (métrica chave do orçamento) -->
       <div class="card p-5" id="painel-mc" style="border-color: rgba(234,179,8,.35); background: linear-gradient(180deg, rgba(234,179,8,.06) 0%, rgba(0,0,0,0) 100%);">
@@ -2669,6 +2676,8 @@ function recalc(){
   if (frilasEl) frilasEl.textContent = fmtBRL(c.totalFrilas || 0);
   document.getElementById('display-fee-min').textContent = c.feeMin==null ? 'Inviável' : fmtBRL(c.feeMin);
   document.getElementById('display-fee-ideal').textContent = c.feeIdeal==null ? 'Inviável' : fmtBRL(c.feeIdeal);
+  const elMC50 = document.getElementById('display-fee-mc50');
+  if (elMC50) elMC50.textContent = c.feeMC50==null ? 'Inviável' : fmtBRL(c.feeMC50);
 
   document.getElementById('display-ebitda').textContent = fmtBRL(c.ebitda);
   document.getElementById('display-ebitda').className = 'text-xl font-bold tabular-nums ' + (c.ebitda<0?'text-red-400':'text-white');
