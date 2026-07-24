@@ -3692,10 +3692,15 @@ function bindInputBRL(input, decimals){
     return isNaN(n) ? 0 : n;
   }
 
+  // CAPTURE phase: atualiza dataset.numericValue ANTES do oninput do atributo rodar.
+  // Sem isso, oninput lê o valor atrasado por 1 keystroke (bug clássico).
   input.addEventListener('input', function(){
     const num = parseBR(this.value);
     this.dataset.numericValue = String(num);
-    // Não reformata enquanto digita — mantém o que o user vê
+  }, {capture: true});
+
+  input.addEventListener('input', function(){
+    const num = parseBR(this.value);
     // Dispara evento pra atualizar cálculos
     this.dispatchEvent(new CustomEvent('brlchange', { detail: { value: num } }));
   });
