@@ -1220,24 +1220,28 @@ function renderDashboard() {
             <th class="text-left font-semibold">Cliente</th>
             <th class="text-left font-semibold">Tipo</th>
             <th class="text-right font-semibold">Receita</th>
-            <th class="text-right font-semibold">Margem</th>
+            <th class="text-right font-semibold" title="Margem de Contribuição sobre a receita">MC %</th>
             <th class="text-center font-semibold">Status</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
-          ${recentes.map(({o,c})=>`
+          ${recentes.map(({o,c})=>{
+            const _mcT = mcTotal(o,c);
+            const _mcPct = c.receitaTotal>0 ? _mcT/c.receitaTotal : 0;
+            const _mcCor = _mcPct>=0.5?'text-green-400':_mcPct>=0.3?'text-yellow-400':'text-red-400';
+            return `
             <tr class="border-b border-ink-800 hover:bg-ink-850 cursor-pointer" onclick="navigate('detalhe',{id:'${o.id}'})">
               <td class="py-3 font-mono text-ink-300">${o.id}</td>
               <td class="text-ink-300 tabular-nums whitespace-nowrap">${fmtData(o.data)}</td>
               <td class="font-semibold">${o.cliente}</td>
               <td><span class="pill pill-ink" title="${escapeHtml(o.tipo)}">${grupoDoTipo(o.tipo)}</span></td>
               <td class="text-right tabular-nums">${fmtBRL(c.receitaTotal)}</td>
-              <td class="text-right tabular-nums font-bold">${fmtPct(c.margem)}</td>
+              <td class="text-right tabular-nums font-bold ${_mcCor}">${c.receitaTotal>0 ? (_mcPct*100).toFixed(1).replace('.',',')+'%' : '—'}</td>
               <td class="text-center">${statusPill(c.statusMargem)}</td>
               <td class="text-right">${statusPropostaPill(o.status)}</td>
             </tr>
-          `).join('')}
+          `;}).join('')}
         </tbody>
       </table>
     </div>
@@ -1441,7 +1445,7 @@ function renderListaOrcamentos() {
             <th class="text-center font-semibold">Meses</th>
             <th class="text-right font-semibold">Fee/mês</th>
             <th class="text-right font-semibold">Receita</th>
-            <th class="text-right font-semibold">Margem</th>
+            <th class="text-right font-semibold" title="Margem de Contribuição sobre a receita">MC %</th>
             <th class="text-right font-semibold" title="MC total do contrato e equivalente em meses de overhead Snack coberto">MC contrato</th>
             <th class="text-center font-semibold">Saúde</th>
             <th class="text-center font-semibold">Status</th>
@@ -1467,7 +1471,7 @@ function renderListaOrcamentos() {
               <td class="text-center tabular-nums">${o.meses}</td>
               <td class="text-right tabular-nums">${fmtBRL(o.fee_mensal)}</td>
               <td class="text-right tabular-nums font-bold">${fmtBRL(c.receitaTotal)}</td>
-              <td class="text-right tabular-nums font-bold">${fmtPct(c.margem)}</td>
+              <td class="text-right tabular-nums font-bold ${(function(){const p=c.receitaTotal>0?mcT/c.receitaTotal:0; return p>=0.5?'text-green-400':p>=0.3?'text-yellow-400':'text-red-400';})()}" title="Margem de Contribuição sobre a receita">${c.receitaTotal>0 ? ((mcT/c.receitaTotal)*100).toFixed(1).replace('.',',')+'%' : '—'}</td>
               <td class="text-right tabular-nums font-bold ${mcCls}" title="MC total do contrato\n≈ ${mesesCob.toFixed(2)} mês${mesesCob>=2?'es':''} de overhead Snack">${fmtBRL(mcT)}<div class="text-[10px] text-ink-400 font-normal">${mesesCob.toFixed(2)} mês${mesesCob>=2?'es':''} OH</div></td>
               <td class="text-center">${statusPill(c.statusMargem)}</td>
               <td class="text-center">${statusPropostaPill(o.status)}</td>
