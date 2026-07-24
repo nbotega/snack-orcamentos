@@ -1537,7 +1537,9 @@ function calcularPLDoGrupo(orcsFiltrados){
   const custoOp = custoDireto + squad + encargos + heads + overhead;
   const custoIndireto = squad + encargos + heads + overhead; // tudo menos o direto
   // Margem de Contribuição = receita líquida − custos diretos (antes de squad/overhead/comissão)
-  const mc = receitaLiq - custoDireto;
+  // Margem de Contribuição = Receita − Impostos − Comissão − Custos diretos − Squad consumido (SEM overhead)
+  const squadConsumido = squad + encargos + heads;
+  const mc = receitaLiq - comissao - custoDireto - squadConsumido;
   const mcPct = receita > 0 ? mc/receita : 0;
   const margem = receita > 0 ? ebitda/receita : 0;
   return { receita, receitaLiq, custoDireto, squad, encargos, heads, overhead, imposto, comissao, custoOp, custoIndireto, mc, mcPct, ebitda, margem };
@@ -1568,7 +1570,7 @@ function renderPLGrupo(){
         </div>
         ${filtrados.length === 0 ? '<div class="text-sm text-yellow-400">Nenhum orçamento no filtro atual</div>' : ''}
       </div>
-      <div class="grid grid-cols-2 md:grid-cols-6 gap-3">
+      <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
         <div class="rounded-xl p-3 bg-ink-900/50 border border-white/5">
           <div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">Receita bruta</div>
           <div class="font-display font-bold text-xl mt-1 tabular-nums">${fmtMoeda(pl.receita, 0)}</div>
@@ -1583,20 +1585,15 @@ function renderPLGrupo(){
           <div class="font-display font-bold text-xl mt-1 tabular-nums text-ink-300">${fmtMoeda(pl.custoDireto, 0)}</div>
           <div class="text-[10px] text-ink-500 mt-0.5">Cachês + Mídia + Prod + Frilas</div>
         </div>
-        <div class="rounded-xl p-3 border-2" style="border-color:${pl.mc>=0?'rgba(234,179,8,.45)':'rgba(239,68,68,.4)'}; background:${pl.mc>=0?'rgba(234,179,8,.08)':'rgba(239,68,68,.06)'};" title="Margem de Contribuição = Receita líquida − Custos diretos. É o que sobra antes de squad, overhead e comissão.">
+        <div class="rounded-xl p-3 bg-ink-900/50 border border-white/5">
+          <div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">(−) Squad consumido</div>
+          <div class="font-display font-bold text-xl mt-1 tabular-nums text-ink-300">${fmtMoeda(pl.squad + pl.encargos + pl.heads, 0)}</div>
+          <div class="text-[10px] text-ink-500 mt-0.5">Squad ${fmtMoeda(pl.squad,0)}${pl.comissao>0?' · Com. '+fmtMoeda(pl.comissao,0):''}</div>
+        </div>
+        <div class="rounded-xl p-3 border-2" style="border-color:${pl.mc>=0?'rgba(234,179,8,.45)':'rgba(239,68,68,.4)'}; background:${pl.mc>=0?'rgba(234,179,8,.08)':'rgba(239,68,68,.06)'};" title="Margem de Contribuição = Receita − Impostos − Comissão − Custos diretos − Squad consumido. Sem overhead.">
           <div class="text-[10px] uppercase tracking-widest font-semibold" style="color:${pl.mc>=0?'#FDE047':'#F87171'};">= MC</div>
           <div class="font-display font-bold text-2xl mt-1 tabular-nums" style="color:${pl.mc>=0?'#FDE047':'#F87171'};">${fmtMoeda(pl.mc, 0)}</div>
           <div class="text-[10px] mt-0.5" style="color:${pl.mc>=0?'#FCD34D':'#F87171'};">${(pl.mcPct*100).toFixed(1).replace('.',',')}% da receita</div>
-        </div>
-        <div class="rounded-xl p-3 bg-ink-900/50 border border-white/5">
-          <div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">(−) Squad + OH</div>
-          <div class="font-display font-bold text-xl mt-1 tabular-nums text-ink-300">${fmtMoeda(pl.custoIndireto, 0)}</div>
-          <div class="text-[10px] text-ink-500 mt-0.5">Squad ${fmtMoeda(pl.squad,0)} · OH ${fmtMoeda(pl.overhead,0)}${pl.comissao>0?' · Com. '+fmtMoeda(pl.comissao,0):''}</div>
-        </div>
-        <div class="rounded-xl p-3 border-2" style="border-color:${pl.ebitda>=0?'rgba(74,222,128,.4)':'rgba(239,68,68,.4)'}; background:${pl.ebitda>=0?'rgba(74,222,128,.06)':'rgba(239,68,68,.06)'};">
-          <div class="text-[10px] uppercase tracking-widest ${cor} font-semibold">= EBITDA</div>
-          <div class="font-display font-bold text-2xl mt-1 tabular-nums ${cor}">${fmtMoeda(pl.ebitda, 0)}</div>
-          <div class="text-[10px] mt-0.5 ${corMg}">Margem: <strong>${(pl.margem*100).toFixed(1).replace('.',',')}%</strong></div>
         </div>
       </div>
     </div>
@@ -2053,54 +2050,8 @@ function renderNovoOrcamento(ctx) {
       <!-- IDs legado mantidos (compat com recalc) -->
       <div class="hidden"><span id="display-mc-total"></span><span id="display-mc"></span><span id="display-mc-pct"></span></div>
 
-      <!-- META DE UPSELL (só Always-On) -->
-      <div id="painel-upsell" class="card p-6 hidden" style="background: linear-gradient(180deg, rgba(255,87,34,.08) 0%, rgba(46,107,255,.06) 100%); border: 1px solid rgba(255,87,34,.25);">
-        <div class="flex items-start justify-between mb-2">
-          <div>
-            <div class="text-[11px] uppercase tracking-widest text-orange font-semibold flex items-center gap-2">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>
-              Meta de upsell pra fechar o gap
-            </div>
-            <div class="text-[10px] text-ink-400 mt-1">Receita anualizada de upsell necessária pra atingir cada alvo de margem</div>
-          </div>
-        </div>
-
-        <div class="space-y-3 mt-4">
-          <div class="p-3 rounded-lg border border-orange/30 bg-ink-900">
-            <div class="flex items-center justify-between">
-              <div>
-                <div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Pra atingir mín (${(PREMISSAS.margem_min*100).toFixed(0)}%)</div>
-                <div id="display-upsell-min" class="font-display font-bold text-2xl text-orange mt-0.5">—</div>
-                <div id="display-upsell-min-mes" class="text-[11px] text-ink-400 mt-0.5">—</div>
-              </div>
-            </div>
-          </div>
-          <div class="p-3 rounded-lg border border-green-500/30 bg-ink-900">
-            <div class="flex items-center justify-between">
-              <div>
-                <div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Pra atingir ideal (${(PREMISSAS.margem_ideal*100).toFixed(0)}%)</div>
-                <div id="display-upsell-ideal" class="font-display font-bold text-2xl text-green-400 mt-0.5">—</div>
-                <div id="display-upsell-ideal-mes" class="text-[11px] text-ink-400 mt-0.5">—</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <details class="mt-4 text-[11px] text-ink-300">
-          <summary class="cursor-pointer text-ink-400 hover:text-white flex items-center gap-1.5 font-semibold">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-            Como isso é calculado
-          </summary>
-          <div class="mt-2.5 space-y-1.5 leading-relaxed pl-4">
-            <div>• Upsell usa o <strong>mesmo squad</strong> do AON-mãe (você pode alocar heads incrementais se quiser)</div>
-            <div>• Cobre custos diretos próprios (cachês, mídia, produção)</div>
-            <div>• Handling ${(PREMISSAS.handling_upsell_pct*100).toFixed(0)}% sobre terceiros</div>
-            <div>• Comissão ${(PREMISSAS.comissao*100).toFixed(1)}% + imposto ${(PREMISSAS.imposto*100).toFixed(0)}%</div>
-            <div>• Margem esperada padrão de upsell: <strong>${(PREMISSAS.margem_upsell*100).toFixed(0)}%</strong></div>
-            <div class="text-ink-400 mt-2 italic">Resultado anualizado. Pra mudar a margem esperada de upsell, edite premissa <code class="bg-ink-800 px-1 rounded">margem_upsell</code>.</div>
-          </div>
-        </details>
-      </div>
+      <!-- (Meta de Upsell removida — deprecated) -->
+      <div id="painel-upsell" class="hidden"><span id="display-upsell-min"></span><span id="display-upsell-min-mes"></span><span id="display-upsell-ideal"></span><span id="display-upsell-ideal-mes"></span></div>
 
       <div class="card p-6 space-y-2.5 text-sm">
         <div class="font-display font-bold mb-2">Demonstrativo</div>
@@ -2571,9 +2522,13 @@ function alterarAlocacao(idx, val){
   recalc();
 }
 
-function alterarSalarioOverride(idx, val){
+function alterarSalarioOverride(idx, valorStr){
   const cargo = CARGOS.find(c=>c.id===CURRENT_ORC.squad[idx].cargo_id);
-  const n = val === '' ? null : Number(val);
+  // Parse BR direto do valor cru do input (não usa dataset.numericValue que está atrasado por 1 handler)
+  let s = String(valorStr == null ? '' : valorStr).replace(/[^0-9.,]/g, '');
+  if (s.indexOf(',') !== -1) s = s.replace(/\./g, '').replace(',', '.');
+  else s = s.replace(/\./g, '');
+  const n = s === '' ? null : (parseFloat(s) || 0);
   // Se o valor for igual ao do catálogo, limpa o override
   if (n === null || (cargo && n === cargo.salario)) {
     CURRENT_ORC.squad[idx].salario_override = null;
@@ -2603,7 +2558,7 @@ function renderLinhaSquad(l, i){
       <div class="font-semibold text-sm truncate">${cargo.cargo} <span class="text-ink-400 font-normal">${cargo.nivel}</span></div>
       <div class="flex items-center gap-1.5 mt-0.5">
         <span class="text-[10px] uppercase tracking-wider text-ink-500">salário</span>
-        <input type="text" inputmode="decimal" class="input input-brl py-0.5 px-2 w-24 text-xs tabular-nums ${isOverride?'border-orange/60 text-orange':'border-transparent text-ink-400'}" data-brl-decimals="2" value="${salEf}" oninput="alterarSalarioOverride(${i}, parseFloat(this.dataset.numericValue||0))" title="${isOverride?`Override desse orçamento. Salário do catálogo: ${fmtBRL(cargo.salario)}`:'Salário do catálogo. Edite pra sobrescrever só nesse orçamento.'}">
+        <input type="text" inputmode="decimal" class="input input-brl py-0.5 px-2 w-24 text-xs tabular-nums ${isOverride?'border-orange/60 text-orange':'border-transparent text-ink-400'}" data-brl-decimals="2" value="${salEf}" oninput="alterarSalarioOverride(${i}, this.value)" title="${isOverride?`Override desse orçamento. Salário do catálogo: ${fmtBRL(cargo.salario)}`:'Salário do catálogo. Edite pra sobrescrever só nesse orçamento.'}">
         <span class="text-[10px] text-ink-500">/mês</span>
         ${isOverride ? `<button class="text-[10px] text-orange hover:text-white font-semibold ml-1" onclick="resetSalarioOverride(${i})" title="Voltar ao salário do catálogo (${fmtBRL(cargo.salario)})">reset</button>` : ''}
       </div>
