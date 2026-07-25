@@ -3199,21 +3199,106 @@ function bindComparador(){
    VIEW: CLIENTES
 ============================================================= */
 function renderClientes() {
+  // Estado dos filtros (persiste na sessão)
+  if (!STATE.clientesFiltro) STATE.clientesFiltro = { statusDesativados: new Set(['Perdida']), view: 'grid', ord: 'mc' };
+  const f = STATE.clientesFiltro;
+  const STATUS_LISTA = ['Rascunho','Proposta','Aprovada','Perdida'];
+
+  // Aplica filtro de status ao agregar
   const clientes = {};
   STATE.orcamentos.forEach(o=>{
+    if (f.statusDesativados.has(o.status)) return;
     if (!clientes[o.cliente]) clientes[o.cliente] = {nome:o.cliente, orcs:[]};
     clientes[o.cliente].orcs.push({o, c:calcular(o)});
   });
+
   const lista = Object.values(clientes).map(cl=>{
     const totalReceita = cl.orcs.reduce((s,x)=>s+x.c.receitaTotal,0);
-    const totalEbitda = cl.orcs.reduce((s,x)=>s+x.c.ebitda,0);
-    const margemMedia = totalReceita>0 ? totalEbitda/totalReceita : 0;
+    const totalMC = cl.orcs.reduce((s,x)=>s+mcTotal(x.o,x.c),0);
+    const mcPct = totalReceita>0 ? totalMC/totalReceita : 0;
     const tickets = cl.orcs.map(x=>x.c.receitaTotal).sort((a,b)=>b-a);
-    return {...cl, totalReceita, totalEbitda, margemMedia, ticketMedio: totalReceita/cl.orcs.length, qtd: cl.orcs.length, maiorTicket: tickets[0]||0};
-  }).sort((a,b)=>b.totalReceita-a.totalReceita);
+    const overheadAlvo = PREMISSAS.overhead_fixo_mensal || 1;
+    const mesesOH = totalMC / overheadAlvo;
+    return {...cl, totalReceita, totalMC, mcPct, mesesOH, ticketMedio: totalReceita/cl.orcs.length, qtd: cl.orcs.length, maiorTicket: tickets[0]||0};
+  });
+
+  // Ordenação
+  if (f.ord === 'mc') lista.sort((a,b)=>b.totalMC - a.totalMC);
+  else if (f.ord === 'mcpct') lista.sort((a,b)=>b.mcPct - a.mcPct);
+  else if (f.ord === 'receita') lista.sort((a,b)=>b.totalReceita - a.totalReceita);
+  else if (f.ord === 'qtd') lista.sort((a,b)=>b.qtd - a.qtd);
+
+  const totalGeralMC = lista.reduce((s,x)=>s+x.totalMC, 0);
+  const totalGeralReceita = lista.reduce((s,x)=>s+x.totalReceita, 0);
+  const totalGeralPct = totalGeralReceita>0 ? totalGeralMC/totalGeralReceita : 0;
+
+  const corMC = p => p>=0.5?'text-green-400':p>=0.3?'text-yellow-400':'text-red-400';
 
   return `
   <div class="space-y-5">
+    <!-- FILTROS -->
+    <div class="card p-4 space-y-3">
+      <div class="flex items-center justify-between gap-3 flex-wrap">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">Status:</span>
+          ${STATUS_LISTA.map(s=>{
+            const ativo = !f.statusDesativados.has(s);
+            return `<button class="chip-filtro ${ativo?'chip-on':'chip-off'}" onclick="toggleFiltroClientesStatus('${s}')">${s}</button>`;
+          }).join('')}
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">Ordenar:</span>
+          <select class="input py-1.5 text-xs" onchange="STATE.clientesFiltro.ord=this.value; render();">
+            <option value="mc" ${f.ord==='mc'?'selected':''}>Maior MC total</option>
+            <option value="mcpct" ${f.ord==='mcpct'?'selected':''}>Maior MC%</option>
+            <option value="receita" ${f.ord==='receita'?'selected':''}>Maior receita</option>
+            <option value="qtd" ${f.ord==='qtd'?'selected':''}>Mais orçamentos</option>
+          </select>
+          <div class="flex bg-ink-900 rounded-lg p-1 gap-0.5">
+            <button class="px-3 py-1 rounded text-xs font-semibold ${f.view==='grid'?'bg-orange/20 text-orange':'text-ink-400 hover:text-white'}" onclick="STATE.clientesFiltro.view='grid'; render();"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:inline-block;vertical-align:-2px;margin-right:4px"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>Grid</button>
+            <button class="px-3 py-1 rounded text-xs font-semibold ${f.view==='lista'?'bg-orange/20 text-orange':'text-ink-400 hover:text-white'}" onclick="STATE.clientesFiltro.view='lista'; render();"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:inline-block;vertical-align:-2px;margin-right:4px"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>Lista</button>
+          </div>
+        </div>
+      </div>
+      <div class="flex items-center justify-between text-xs pt-1 border-t border-white/5">
+        <div class="text-ink-400"><strong class="text-white">${lista.length}</strong> cliente${lista.length===1?'':'s'} no filtro atual</div>
+        <div class="text-yellow-300">MC total: <strong>${fmtBRL(totalGeralMC)}</strong> · MC% médio: <strong>${(totalGeralPct*100).toFixed(1).replace('.',',')}%</strong></div>
+      </div>
+    </div>
+
+    ${lista.length === 0 ? `<div class="card p-10 text-center text-ink-400">Nenhum cliente com o filtro atual.</div>` :
+      f.view === 'lista' ? `
+    <div class="card overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-ink-900">
+          <tr class="text-[11px] uppercase tracking-wider text-ink-400 text-left">
+            <th class="py-3 px-5">#</th>
+            <th class="font-semibold">Cliente</th>
+            <th class="text-center font-semibold">Orçs</th>
+            <th class="text-right font-semibold">Receita</th>
+            <th class="text-right font-semibold">Ticket médio</th>
+            <th class="text-right font-semibold">MC total</th>
+            <th class="text-right font-semibold" title="Margem de Contribuição sobre a receita">MC %</th>
+            <th class="text-right font-semibold pr-5" title="Meses do overhead Snack que essa MC cobre">OH cobertos</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${lista.map((cl, i)=>`
+            <tr class="border-t border-ink-800 hover:bg-ink-850 cursor-pointer" onclick="navigate('cliente',{nome:'${cl.nome.replace(/'/g,"\\'")}'})">
+              <td class="py-3 px-5 text-ink-400 tabular-nums">${i+1}</td>
+              <td class="font-semibold">${cl.nome}</td>
+              <td class="text-center tabular-nums text-ink-300">${cl.qtd}</td>
+              <td class="text-right tabular-nums">${fmtBRL(cl.totalReceita)}</td>
+              <td class="text-right tabular-nums text-ink-300">${fmtBRL(cl.ticketMedio)}</td>
+              <td class="text-right tabular-nums font-bold text-yellow-300">${fmtBRL(cl.totalMC)}</td>
+              <td class="text-right tabular-nums font-bold ${corMC(cl.mcPct)}">${(cl.mcPct*100).toFixed(1).replace('.',',')}%</td>
+              <td class="text-right tabular-nums font-bold text-yellow-300 pr-5">${cl.mesesOH.toFixed(2)} m</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+      ` : `
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       ${lista.map(cl=>`
         <div class="card p-6 card-hover cursor-pointer" onclick="navigate('cliente',{nome:'${cl.nome.replace(/'/g,"\\'")}'})">
@@ -3230,23 +3315,32 @@ function renderClientes() {
               <div class="font-bold tabular-nums">${fmtBRL(cl.totalReceita)}</div>
             </div>
             <div>
-              <div class="text-[10px] uppercase tracking-wider text-ink-400">Margem média</div>
-              <div class="font-bold tabular-nums ${cl.margemMedia<PREMISSAS.margem_min?'text-orange':cl.margemMedia<PREMISSAS.margem_ideal?'text-yellow-400':'text-green-400'}">${fmtPct(cl.margemMedia)}</div>
+              <div class="text-[10px] uppercase tracking-wider text-ink-400">MC %</div>
+              <div class="font-bold tabular-nums ${corMC(cl.mcPct)}">${(cl.mcPct*100).toFixed(1).replace('.',',')}%</div>
             </div>
             <div>
-              <div class="text-[10px] uppercase tracking-wider text-ink-400">Ticket médio</div>
-              <div class="font-bold tabular-nums">${fmtBRL(cl.ticketMedio)}</div>
+              <div class="text-[10px] uppercase tracking-wider text-ink-400">MC total</div>
+              <div class="font-bold tabular-nums text-yellow-300">${fmtBRL(cl.totalMC)}</div>
             </div>
             <div>
-              <div class="text-[10px] uppercase tracking-wider text-ink-400">Maior ticket</div>
-              <div class="font-bold tabular-nums">${fmtBRL(cl.maiorTicket)}</div>
+              <div class="text-[10px] uppercase tracking-wider text-ink-400">OH cobertos</div>
+              <div class="font-bold tabular-nums text-yellow-300">${cl.mesesOH.toFixed(2)} m</div>
             </div>
           </div>
         </div>
       `).join('')}
     </div>
+      `
+    }
   </div>
   `;
+}
+
+function toggleFiltroClientesStatus(s){
+  if (!STATE.clientesFiltro) STATE.clientesFiltro = { statusDesativados: new Set(), view: 'grid', ord: 'mc' };
+  const set = STATE.clientesFiltro.statusDesativados;
+  if (set.has(s)) set.delete(s); else set.add(s);
+  render();
 }
 
 /* =============================================================
