@@ -4120,13 +4120,37 @@ function pagoTotalPorCategoria(orcId, categoria){
   return pagoPorCategoria(orcId, categoria) + realizadoPorCategoria(orcId, categoria);
 }
 
+// Notas rápidas JÁ VALIDADAS pelo financeiro (liberadas na tela de Validação)
+function validadoNotaRapidaPorCategoria(orcId, categoria){
+  return STATE.pagamentos
+    .filter(p=>p.orcamento_id === orcId && p.categoria === categoria)
+    .filter(p=>p.origem === 'nota_rapida' && p.validado === true)
+    .reduce((s,p)=>s + (Number(p.valor)||0), 0);
+}
+
+// Notas rápidas AINDA NÃO VALIDADAS (aguardando liberação do financeiro)
+function naoValidadoNotaRapidaPorCategoria(orcId, categoria){
+  return STATE.pagamentos
+    .filter(p=>p.orcamento_id === orcId && p.categoria === categoria)
+    .filter(p=>p.origem === 'nota_rapida' && !p.validado)
+    .reduce((s,p)=>s + (Number(p.valor)||0), 0);
+}
+
+// Pagamentos manuais (não vieram da Nota Rápida) já marcados como Pago
+function pagoManualPorCategoria(orcId, categoria){
+  return STATE.pagamentos
+    .filter(p=>p.orcamento_id === orcId && p.categoria === categoria)
+    .filter(p=>p.origem !== 'nota_rapida' && p.status === 'Pago')
+    .reduce((s,p)=>s + (Number(p.valor)||0), 0);
+}
+
 function renderCustos(){
   const aprovados = STATE.orcamentos.filter(o=>o.status==='Aprovada');
 
   // KPIs globais
   // "Base" = realizado quando existir, senão previsto. Saldo amortiza a partir da base.
   // "Pago total" já INCLUI o realizado importado (baixa automática) + pagamentos manuais
-  let totPrevisto = 0, totRealizado = 0, totBase = 0, totPago = 0, totAPagar = 0;
+  let totPrevisto = 0, totRealizado = 0, totBase = 0, totPago = 0, totAPagar = 0, totNaoValidado = 0;
   aprovados.forEach(o=>{
     ['cache','midia','producao'].forEach(cat=>{
       totPrevisto += previstoPorCategoria(o, cat);
@@ -4134,6 +4158,7 @@ function renderCustos(){
       totBase += baseAmortizacao(o, cat);
       totPago += pagoTotalPorCategoria(o.id, cat);
       totAPagar += aPagarPorCategoria(o.id, cat);
+      totNaoValidado += naoValidadoNotaRapidaPorCategoria(o.id, cat);
     });
   });
   const saldo = totBase - totPago - totAPagar;
@@ -4160,14 +4185,14 @@ function renderCustos(){
         <div class="text-xs text-ink-300 mt-2">Base da amortização</div>
       </div>
       <div class="card p-4">
-        <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">Já pago</div>
+        <div class="text-[11px] uppercase tracking-widest text-green-400 font-semibold">Validado</div>
         <div class="text-2xl font-display font-bold mt-2 text-green-400">${fmtBRL(totPago)}</div>
         <div class="text-xs text-ink-300 mt-2">${pctPago.toFixed(0)}% da base</div>
       </div>
       <div class="card p-4">
-        <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">A pagar</div>
+        <div class="text-[11px] uppercase tracking-widest text-yellow-400 font-semibold">Não validado</div>
         <div class="text-2xl font-display font-bold mt-2 text-yellow-400">${fmtBRL(totAPagar)}</div>
-        <div class="text-xs text-ink-300 mt-2">${STATE.pagamentos.filter(p=>p.status==='A pagar').length} em aberto</div>
+        <div class="text-xs text-ink-300 mt-2">${totNaoValidado>0?fmtBRL(totNaoValidado)+' em nota rápida':''}${totNaoValidado>0 && (totAPagar-totNaoValidado)>0?' · ':''}${(totAPagar-totNaoValidado)>0?fmtBRL(totAPagar-totNaoValidado)+' manual':''}${totAPagar===0?'nada pendente':''}</div>
       </div>
       <div class="card p-4">
         <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">Saldo</div>
@@ -4235,9 +4260,14 @@ function renderPainelCustosDetalhe(orc){
     const pagoManual = pagoPorCategoria(orc.id, cat);
     const pago = pagoManual + realizado; // realizado importado já dá baixa como pago
     const aPagar = aPagarPorCategoria(orc.id, cat);
+    // Quebra de nota rápida: validado × não validado (pedido do financeiro)
+    const nrValidado = validadoNotaRapidaPorCategoria(orc.id, cat);
+    const nrNaoValidado = naoValidadoNotaRapidaPorCategoria(orc.id, cat);
+    const manualPago = pagoManualPorCategoria(orc.id, cat);
     return {
       cat, nome: NOMES_CAT[cat], cor: CORES_CAT[cat],
       previsto, realizado, base, pago, pagoManual, aPagar,
+      nrValidado, nrNaoValidado, manualPago,
       saldo: base - pago - aPagar,
       pct: base > 0 ? (pago/base*100) : 0,
       temReal: realizado > 0
@@ -4282,9 +4312,14 @@ function renderPainelCustosDetalhe(orc){
             ` : `
               <div class="flex justify-between pt-1 mt-1 border-t border-white/10"><span class="text-ink-300 font-semibold">Base amortização</span><span class="font-semibold tabular-nums">${fmtBRL(t.base)}</span></div>
             `}
-            <div class="flex justify-between"><span class="text-ink-400">Pago${t.temReal?' <span class="text-[9px] text-ink-500">(inclui realizado)</span>':''}</span><span class="text-green-400 font-semibold tabular-nums">${fmtBRL(t.pago)}</span></div>
-            ${t.temReal && t.pagoManual>0 ? `<div class="flex justify-between text-[10px]"><span class="text-ink-500 pl-2">↳ realizado importado</span><span class="text-ink-400 tabular-nums">${fmtBRL(t.realizado)}</span></div><div class="flex justify-between text-[10px]"><span class="text-ink-500 pl-2">↳ pagamentos manuais</span><span class="text-ink-400 tabular-nums">${fmtBRL(t.pagoManual)}</span></div>` : ''}
-            ${t.aPagar>0 ? `<div class="flex justify-between"><span class="text-ink-400">A pagar</span><span class="text-yellow-400 font-semibold tabular-nums">${fmtBRL(t.aPagar)}</span></div>` : ''}
+            <div class="flex justify-between"><span class="text-green-400">Validado</span><span class="text-green-400 font-semibold tabular-nums">${fmtBRL(t.nrValidado + t.manualPago + t.realizado)}</span></div>
+            ${(t.nrValidado>0 || t.realizado>0) && (t.manualPago>0 || t.realizado>0) ? `
+              ${t.nrValidado>0 ? `<div class="flex justify-between text-[10px]"><span class="text-ink-500 pl-2">↳ nota rápida validada</span><span class="text-ink-400 tabular-nums">${fmtBRL(t.nrValidado)}</span></div>` : ''}
+              ${t.realizado>0 ? `<div class="flex justify-between text-[10px]"><span class="text-ink-500 pl-2">↳ realizado importado</span><span class="text-ink-400 tabular-nums">${fmtBRL(t.realizado)}</span></div>` : ''}
+              ${t.manualPago>0 ? `<div class="flex justify-between text-[10px]"><span class="text-ink-500 pl-2">↳ pagamento manual</span><span class="text-ink-400 tabular-nums">${fmtBRL(t.manualPago)}</span></div>` : ''}
+            ` : ''}
+            <div class="flex justify-between"><span class="text-yellow-400">Não validado</span><span class="text-yellow-400 font-semibold tabular-nums">${fmtBRL(t.nrNaoValidado)}</span></div>
+            ${t.aPagar - t.nrNaoValidado > 0 ? `<div class="flex justify-between"><span class="text-ink-400">A pagar (manual)</span><span class="text-yellow-400 font-semibold tabular-nums">${fmtBRL(t.aPagar - t.nrNaoValidado)}</span></div>` : ''}
             <div class="flex justify-between pt-1 border-t border-ink-800"><span class="text-ink-300 font-semibold">Saldo</span><span class="font-bold tabular-nums ${t.saldo>0?'text-orange':t.saldo<0?'text-red-400':'text-green-400'}">${fmtBRL(t.saldo)}</span></div>
           </div>
         </div>
