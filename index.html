@@ -181,6 +181,10 @@ tailwind.config = {
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
           Clientes
         </div>
+        <div class="nav-item" data-route="backlog" title="Faturamento previsto mês a mês (só aprovados)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="9" y1="4" x2="9" y2="20"/><line x1="15" y1="4" x2="15" y2="20"/></svg>
+          Backlog
+        </div>
         <div class="nav-item" data-route="custos">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
           Custos
@@ -215,6 +219,10 @@ tailwind.config = {
           <div class="nav-item" data-route="tipos">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
             Tipos de Orçamento
+          </div>
+          <div class="nav-item" data-route="usuarios" title="Controle de acesso: país e abas por usuário">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            Usuários
           </div>
         </div>
       </nav>
@@ -336,6 +344,7 @@ function fmtMoeda(v, decimals){
 
 async function trocarPais(novoPais){
   if (novoPais === STATE.pais) return;
+  if (!podePais(novoPais)){ alert('Seu usuário não tem acesso à unidade ' + (novoPais==='PT'?'Portugal':'Brasil') + '.'); return; }
   STATE.pais = novoPais;
   try { localStorage.setItem('snack_pais', novoPais); } catch(e){}
   // Atualiza visual do toggle
@@ -408,7 +417,8 @@ async function carregarDoSupabase(){
       squadByOrc[s.orcamento_id].push({
         cargo_id: s.cargo_id,
         alocacao: Number(s.alocacao),
-        salario_override: s.salario_override != null ? Number(s.salario_override) : null
+        salario_override: s.salario_override != null ? Number(s.salario_override) : null,
+        meses: s.meses != null ? Number(s.meses) : null
       });
     });
     STATE.orcamentos = (o.data||[]).map(x=>({
@@ -426,7 +436,9 @@ async function carregarDoSupabase(){
       observacoes: x.observacoes || '',
       vendedor: x.vendedor || '',
       carta_ia: x.carta_ia || null,
-      carta_overrides: x.carta_overrides || null
+      carta_overrides: x.carta_overrides || null,
+      repasse: x.repasse || {},
+      comissao_item: x.comissao_item || {}
     }));
     // Calcular próximo ID
     let max = 0;
@@ -468,6 +480,8 @@ async function salvarOrcamentoSupabase(orc){
       vendedor: orc.vendedor || null,
       carta_ia: orc.carta_ia || null,
       carta_overrides: orc.carta_overrides || null,
+      repasse: orc.repasse || {},
+      comissao_item: orc.comissao_item || {},
       updated_at: new Date().toISOString()
     });
     if (e1) throw e1;
@@ -478,7 +492,8 @@ async function salvarOrcamentoSupabase(orc){
         orcamento_id: orc.id,
         cargo_id: s.cargo_id,
         alocacao: s.alocacao,
-        salario_override: (s.salario_override != null && s.salario_override !== '') ? Number(s.salario_override) : null
+        salario_override: (s.salario_override != null && s.salario_override !== '') ? Number(s.salario_override) : null,
+        meses: (s.meses != null && s.meses !== '') ? Number(s.meses) : null
       }));
       if (linhas.length){
         const { error: e2 } = await sb.from('orcamento_squad').insert(linhas.map(l=>({...l, pais: STATE.pais})));
@@ -577,12 +592,23 @@ function salarioEfetivo(linha, cargo){
   return cargo ? cargo.salario : 0;
 }
 
-function squadCustoMensal(orc){
+// Meses efetivos de um cargo: override por linha ou meses do JOB
+function mesesCargo(l, orc){
+  const m = (l.meses != null && l.meses !== '' && Number(l.meses) > 0) ? Number(l.meses) : (orc.meses||1);
+  return m;
+}
+// Custo TOTAL do squad no contrato (cada cargo × seus próprios meses)
+function squadCustoTotal(orc){
   return (orc.squad||[]).reduce((s,l)=>{
     const c = CARGOS.find(x=>x.id===l.cargo_id);
     if (!c) return s;
-    return s + salarioEfetivo(l, c) * (l.alocacao||0);
+    return s + salarioEfetivo(l, c) * (l.alocacao||0) * mesesCargo(l, orc);
   }, 0);
+}
+// Custo mensal MÉDIO (total ÷ meses do JOB) — mantido pra displays e compat
+function squadCustoMensal(orc){
+  const m = orc.meses||1;
+  return squadCustoTotal(orc) / m;
 }
 
 function calcular(orc) {
@@ -594,10 +620,17 @@ function calcular(orc) {
   // Quando custos_mensais = true, os valores digitados são POR MÊS — multiplica pelos meses
   const mult = orc.custos_mensais ? (orc.meses||1) : 1;
   const totalFrilas = (orc.frilas||[]).reduce((s,f)=>s + (Number(f.valor)||0) * mult, 0);
-  const J = ((orc.caches||0) + (orc.midia||0) + (orc.producao||0)) * mult + totalFrilas; // custo direto total
-  const K = isUpsell ? J * p.handling_upsell_pct : J * p.taxa_admin;          // receita taxa admin / handling
+  // Repasse por item (24/07/2026): se marcado, o valor NÃO é custo da Snack (cliente paga direto)
+  const rep = orc.repasse || {};
+  const comI = orc.comissao_item || {};
+  const cacheV = (orc.caches||0)*mult, midiaV = (orc.midia||0)*mult, prodV = (orc.producao||0)*mult;
+  const repasseTotal = (rep.cache?cacheV:0) + (rep.midia?midiaV:0) + (rep.producao?prodV:0);
+  const J = (rep.cache?0:cacheV) + (rep.midia?0:midiaV) + (rep.producao?0:prodV) + totalFrilas; // custo direto REAL
+  // Comissão por item → receita Snack (vale pra repasse ou custo direto)
+  const Kitem = cacheV*(Number(comI.cache)||0) + midiaV*(Number(comI.midia)||0) + prodV*(Number(comI.producao)||0);
+  const K = (isUpsell ? J * p.handling_upsell_pct : J * p.taxa_admin) + Kitem; // taxa admin/handling + comissão por item
   const L = squadCustoMensal(orc);                                            // squad mensal
-  const M = L * (orc.meses||0);                                               // squad total
+  const M = squadCustoTotal(orc);                                             // squad total (cada cargo × seus meses)
   const N = M * p.encargo;                                                    // encargos
   const T = orc.fee_mensal || 0;                                              // fee mensal proposto
   const U = T * (orc.meses||0);                                               // receita fee total
@@ -611,7 +644,8 @@ function calcular(orc) {
   else O = M * tipo.overhead_mult;
 
   // Governança incremental Upsell (AC)
-  const AC = isUpsell ? U * (1 - p.imposto) * (orc.gov_upsell||0) : 0;
+  // Governança incremental REMOVIDA (24/07/2026) — distorcia a MC real do Upsell
+  const AC = 0;
 
   // Custo total op (Q) = J + M + N + O + P + AC
   const Q = J + M + N + O + P + AC;
@@ -622,8 +656,10 @@ function calcular(orc) {
 
   // Em Influ-repasse / UGC, cachês são pass-through (creators recebem direto, sem NF Snack).
   // Imposto incide só sobre a parte que vira receita Snack de fato.
-  const cachePassThrough = tipo && !tipo.cache_na_receita;
-  const baseImposto = cachePassThrough ? Math.max(0, W - (orc.caches||0)) : W;
+  const cachePassThrough = (tipo && !tipo.cache_na_receita) || !!rep.cache;
+  // Base de imposto: tira do faturamento tudo que é repasse (não passa pela NF Snack)
+  const passThroughVal = (tipo && !tipo.cache_na_receita && !rep.cache ? (orc.caches||0)*mult : 0) + repasseTotal;
+  const baseImposto = Math.max(0, W - passThroughVal);
   const impostoCalc = baseImposto * p.imposto;
   const receitaLiq = W - impostoCalc;
   const X = receitaLiq * p.comissao;        // comissão sobre receita líquida
@@ -633,10 +669,9 @@ function calcular(orc) {
   // Fee mínimo / ideal — fórmula linear, ajustada pra pass-through
   function feeAlvo(alvo){
     if (isUpsell) {
-      const gov = orc.gov_upsell || 0;
-      const den = 1 - p.imposto - (1-p.imposto)*p.comissao - alvo - (1-p.imposto)*gov;
+      const den = 1 - p.imposto - (1-p.imposto)*p.comissao - alvo;
       if (den <= 0) return null;
-      const num = J - K*(1-p.imposto)*gov;
+      const num = J;
       const ft = num/den - K;
       return ft / (orc.meses||1);
     }
@@ -692,7 +727,7 @@ function calcular(orc) {
     custoDireto:J, totalFrilas, receitaTaxaAdmin:K, squadMensal:L, squadTotal:M, encargos:N,
     feeTotal:U, heads:P, overhead:O, govIncrUpsell:AC, custoOp:Q,
     receitaFeeTotal:U, receitaTotal:W,
-    imposto: impostoCalc, baseImposto, cachePassThrough,
+    imposto: impostoCalc, baseImposto, cachePassThrough, repasseTotal, comissaoItem: Kitem,
     receitaLiquida: receitaLiq, comissao:X, ebitda:Y, margem:Z,
     feeMin, feeIdeal, feeMC50, statusMargem,
     upsellMinAnual, upsellIdealAnual
@@ -736,7 +771,9 @@ const VIEW_TITLES = {
   detalhe:'Orçamento', cliente:'Cliente', carta:'Carta pro Cliente',
   custos:'Custos & Pagamentos',
   'nota-rapida':'Nota Rápida',
-  'relatorio-mensal':'Relatório de Custos'
+  'relatorio-mensal':'Relatório de Custos',
+  'backlog':'Backlog de Faturamento',
+  'usuarios':'Usuários & Acessos', realizado:'Realizado × Orçado', validador:'Validar NF Rápida'
 };
 
 function navigate(r, ctx) {
@@ -748,6 +785,14 @@ function navigate(r, ctx) {
   if (r === 'validador' && !usuarioPodeValidar(STATE.currentUser)){
     alert('Só os usuários financeiro@, daniel@ e administracao@redesnack.com.br podem validar notas rápidas.');
     r = 'dashboard';
+  }
+  // Bloqueia por controle de acesso (Configuração → Usuários)
+  if (!podeAba(r)){
+    const alvo = primeiraAbaPermitida();
+    if (alvo !== r){
+      alert('Seu usuário não tem acesso à aba "' + (VIEW_TITLES[r]||r) + '". Fale com um administrador.');
+      r = alvo; ctx = undefined;
+    }
   }
   STATE.route = r;
   STATE.ctx = ctx;
@@ -784,11 +829,13 @@ function render() {
   else if (r==='custos') el.innerHTML = renderCustos();
   else if (r==='nota-rapida') { el.innerHTML = renderNotaRapida(); bindNotaRapida(); }
   else if (r==='validador') el.innerHTML = renderValidadorNotas();
+  else if (r==='backlog') { el.innerHTML = renderBacklog(); carregarBacklogStatus(); }
   else if (r==='relatorio-mensal') el.innerHTML = renderRelatorioMensal();
   else if (r==='realizado') { el.innerHTML = renderRealizado(); carregarRealizados(); }
   else if (r==='premissas') { el.innerHTML = renderPremissas(); bindPremissas(); }
   else if (r==='cargos') el.innerHTML = renderCargos();
   else if (r==='tipos') el.innerHTML = renderTipos();
+  else if (r==='usuarios') { el.innerHTML = renderUsuarios(); carregarUsuariosAcesso(); }
   // Aplica formatação BRL em todos inputs marcados depois do render
   aplicarBRLEmTodos();
 }
@@ -809,6 +856,8 @@ async function entrar(){
     if (!usuarioPodeValidar(user)){
       document.querySelectorAll('.nav-item[data-route="validador"]').forEach(el => el.style.display = 'none');
     }
+    await carregarMeuAcesso(user);
+    aplicarAcessoNaUI();
   } catch(e){ console.error(e); }
   document.querySelectorAll('.nav-item').forEach(n=>{
     n.addEventListener('click', ()=>navigate(n.dataset.route));
@@ -825,7 +874,7 @@ async function entrar(){
   await carregarDoSupabase();
   await carregarPagamentos();
   await carregarRealizadosSilent();
-  navigate('dashboard');
+  navigate(podeAba('dashboard') ? 'dashboard' : primeiraAbaPermitida());
 }
 
 // Carrega STATE.realizados sem depender da UI (usado no boot)
@@ -1678,7 +1727,7 @@ function renderNovoOrcamento(ctx) {
       data: hoje(), data_inicio: hoje(),
       cliente: '', projeto: '', tipo: 'Always-On', status: 'Rascunho',
       meses: 6, caches: 0, midia: 0, producao: 0, fee_mensal: 100000,
-      squad: [], frilas: [], gov_upsell: 0.05, observacoes: '', vendedor: ''
+      squad: [], frilas: [], gov_upsell: 0.05, observacoes: '', vendedor: '', repasse: {}, comissao_item: {}
     };
   }
   if (!orc.data) orc.data = hoje();
@@ -1811,10 +1860,12 @@ function renderNovoOrcamento(ctx) {
               ${(orc.caches_itens||[]).length === 0 ? `<button class="text-[10px] text-azul-400 hover:text-azul font-semibold" onclick="abrirDetalheCustos('caches')" type="button">+ detalhar</button>` : ''}
             </div>
             <input id="i-caches" type="text" inputmode="decimal" class="input input-brl" data-brl-decimals="2" value="${orc.caches}" oninput="onChange('caches', parseFloat(this.dataset.numericValue||0))" ${(orc.caches_itens||[]).length>0?'readonly title="Valor calculado dos sub-itens"':''}>
+            ${repasseComissaoUI('cache')}
           </div>
           <div>
             <label class="label">Mídia ${moedaAtual().simbolo} ${orc.custos_mensais?'(/mês)':'(total)'}</label>
             <input id="i-midia" type="text" inputmode="decimal" class="input input-brl" data-brl-decimals="2" value="${orc.midia}" oninput="onChange('midia', parseFloat(this.dataset.numericValue||0))">
+            ${repasseComissaoUI('midia')}
           </div>
           <div>
             <div class="flex items-center justify-between mb-1.5">
@@ -1822,12 +1873,13 @@ function renderNovoOrcamento(ctx) {
               ${(orc.producao_itens||[]).length === 0 ? `<button class="text-[10px] text-azul-400 hover:text-azul font-semibold" onclick="abrirDetalheCustos('producao')" type="button">+ detalhar</button>` : ''}
             </div>
             <input id="i-producao" type="text" inputmode="decimal" class="input input-brl" data-brl-decimals="2" value="${orc.producao}" oninput="onChange('producao', parseFloat(this.dataset.numericValue||0))" ${(orc.producao_itens||[]).length>0?'readonly title="Valor calculado dos sub-itens"':''}>
+            ${repasseComissaoUI('producao')}
           </div>
         </div>
 
         ${(orc.caches_itens||[]).length > 0 ? renderDetalheCustos(orc, 'caches') : ''}
         ${(orc.producao_itens||[]).length > 0 ? renderDetalheCustos(orc, 'producao') : ''}
-        <div id="upsell-extra" class="mt-4 hidden">
+        <div id="upsell-extra" class="mt-4 hidden" style="display:none!important">
           <label class="label">Governança Incremental (Upsell) — % sobre receita líquida</label>
           <input id="i-gov" type="number" min="0" max="0.15" step="0.005" class="input max-w-xs" value="${orc.gov_upsell}" oninput="onChange('gov_upsell', +this.value)">
           <p class="text-xs text-ink-400 mt-1.5">0 a 15%. Default 5%.</p>
@@ -2025,9 +2077,11 @@ function renderNovoOrcamento(ctx) {
         <!-- Cascata linha a linha -->
         <div class="space-y-1 text-xs">
           <div class="flex justify-between py-1 border-b border-white/5"><span class="text-ink-300">Receita bruta</span><span id="dre-receita" class="font-bold tabular-nums">—</span></div>
+          <div id="dre-linha-comitem" class="flex justify-between py-1 border-b border-white/5 hidden"><span class="text-ink-500 pl-2">↳ inclui comissão s/ itens</span><span id="dre-comitem" class="tabular-nums text-azul-400">—</span></div>
           <div class="flex justify-between py-1 border-b border-white/5"><span class="text-ink-500">(−) Impostos</span><span id="dre-impostos" class="tabular-nums text-ink-400">—</span></div>
           <div class="flex justify-between py-1 border-b border-white/5"><span class="text-ink-500">(−) Comissão</span><span id="dre-comissao" class="tabular-nums text-ink-400">—</span></div>
           <div class="flex justify-between py-1 border-b border-white/5"><span class="text-ink-500">(−) Custos diretos</span><span id="dre-custos" class="tabular-nums text-ink-400">—</span></div>
+          <div id="dre-linha-repasse" class="flex justify-between py-1 border-b border-white/5 hidden"><span class="text-ink-500 pl-2">↳ repasse (fora do custo)</span><span id="dre-repasse" class="tabular-nums text-ink-500">—</span></div>
           <div class="flex justify-between py-1 border-b border-white/5"><span class="text-ink-500" title="Squad + encargos + heads alocados nesse orçamento">(−) Squad consumido</span><span id="dre-squad" class="tabular-nums text-ink-400">—</span></div>
           <div class="flex justify-between py-2 mt-1 border-t-2 border-yellow-500/40"><span class="font-bold text-yellow-300">= Margem de Contribuição</span><span id="dre-mc-total" class="font-display font-bold text-base tabular-nums text-yellow-300">—</span></div>
           <div class="flex justify-between text-[11px] text-ink-400"><span>MC mensal (média)</span><span id="dre-mc-mensal" class="tabular-nums">—</span></div>
@@ -2521,6 +2575,41 @@ function removerCargo(idx){
   recalc();
 }
 
+
+// Linha de controle repasse + % comissão embaixo de cada caixa de custo direto
+function repasseComissaoUI(chave){
+  const orc = CURRENT_ORC || {};
+  const rep = (orc.repasse||{})[chave] ? 'checked' : '';
+  const com = ((orc.comissao_item||{})[chave] || 0) * 100;
+  return `<div class="flex items-center gap-2 mt-1.5">
+    <label class="flex items-center gap-1 cursor-pointer text-[10px] text-ink-400 hover:text-white" title="Se marcado, o cliente paga direto ao fornecedor — o valor NÃO entra como custo da Snack nem paga imposto">
+      <input type="checkbox" class="accent-azul w-3 h-3" ${rep} onchange="toggleRepasse('${chave}', this.checked)"> repasse
+    </label>
+    <span class="text-ink-700">·</span>
+    <label class="flex items-center gap-1 text-[10px] text-ink-400" title="% de comissionamento Snack sobre esse valor (vira receita)">
+      com. <input type="number" min="0" max="100" step="0.5" value="${com}" class="w-12 px-1 py-0.5 rounded bg-ink-950 border border-ink-800 text-[11px] text-center tabular-nums" oninput="setComissaoItem('${chave}', (+this.value||0)/100)">%
+    </label>
+  </div>`;
+}
+function toggleRepasse(chave, on){
+  CURRENT_ORC.repasse = CURRENT_ORC.repasse || {};
+  CURRENT_ORC.repasse[chave] = !!on;
+  recalc();
+}
+function setComissaoItem(chave, pct){
+  CURRENT_ORC.comissao_item = CURRENT_ORC.comissao_item || {};
+  CURRENT_ORC.comissao_item[chave] = pct;
+  recalc();
+}
+
+function alterarMesesCargo(idx, val){
+  const n = parseInt(val,10);
+  // vazio ou igual ao contrato = volta pro default (null)
+  if (!n || n <= 0 || n === Number(CURRENT_ORC.meses)) CURRENT_ORC.squad[idx].meses = null;
+  else CURRENT_ORC.squad[idx].meses = n;
+  recalc();
+}
+
 function alterarAlocacao(idx, val){
   CURRENT_ORC.squad[idx].alocacao = val;
   recalc();
@@ -2567,16 +2656,29 @@ function renderLinhaSquad(l, i){
         ${isOverride ? `<button class="text-[10px] text-orange hover:text-white font-semibold ml-1" onclick="resetSalarioOverride(${i})" title="Voltar ao salário do catálogo (${fmtBRL(cargo.salario)})">reset</button>` : ''}
       </div>
     </div>
-    <div class="flex items-center gap-2">
-      <div class="relative">
+    <div class="flex items-center gap-1.5">
+      <div class="text-center" title="Dias trabalhados/mês (160h ÷ 8h × dedicação)">
+        <div class="text-[9px] uppercase tracking-wider text-ink-500">dias</div>
+        <div class="w-11 py-1 rounded bg-ink-950 border border-ink-800 text-[11px] tabular-nums text-ink-300 text-center">${(160*(l.alocacao||0)/8).toFixed(1).replace('.0','')}</div>
+      </div>
+      <div class="text-center" title="Horas trabalhadas/mês (160h × dedicação)">
+        <div class="text-[9px] uppercase tracking-wider text-ink-500">horas</div>
+        <div class="w-11 py-1 rounded bg-ink-950 border border-ink-800 text-[11px] tabular-nums text-ink-300 text-center">${Math.round(160*(l.alocacao||0))}</div>
+      </div>
+      <div class="relative ml-1">
         <input type="number" min="0" max="200" step="10" value="${Math.round((l.alocacao||0)*100)}" class="input w-20 pr-7 text-center tabular-nums" oninput="alterarAlocacao(${i}, (+this.value || 0) / 100)">
         <span class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-ink-400 pointer-events-none">%</span>
       </div>
       <span class="text-xs text-ink-400">×</span>
+      <div class="relative" title="Meses que esse cargo fica no JOB (default = meses do contrato)">
+        <input type="number" min="1" max="60" step="1" value="${mesesCargo(l, CURRENT_ORC)}" class="input w-16 pr-6 text-center tabular-nums ${(l.meses!=null && l.meses!=='' && Number(l.meses)!==Number(CURRENT_ORC.meses))?'border-orange/60 text-orange':''}" oninput="alterarMesesCargo(${i}, this.value)">
+        <span class="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-ink-400 pointer-events-none">m</span>
+      </div>
     </div>
-    <div class="w-28 text-right">
-      <div class="text-[10px] uppercase tracking-wider text-ink-400">custo/mês</div>
-      <div class="font-bold tabular-nums text-sm">${fmtBRL(custo)}</div>
+    <div class="w-32 text-right">
+      <div class="text-[10px] uppercase tracking-wider text-ink-400">custo total</div>
+      <div class="font-bold tabular-nums text-sm">${fmtBRL(custo * mesesCargo(l, CURRENT_ORC))}</div>
+      <div class="text-[10px] text-ink-500 tabular-nums">${fmtBRL(custo)}/mês</div>
     </div>
     <button class="text-ink-500 hover:text-red-400 p-1" onclick="removerCargo(${i})">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg>
@@ -2687,6 +2789,9 @@ function recalc(){
   document.getElementById('dre-impostos').textContent = '-' + fmtBRL(c.imposto);
   document.getElementById('dre-comissao').textContent = '-' + fmtBRL(c.comissao);
   document.getElementById('dre-custos').textContent = '-' + fmtBRL(c.custoDireto);
+  const lr=document.getElementById('dre-linha-repasse'), lc=document.getElementById('dre-linha-comitem');
+  if (lr){ lr.classList.toggle('hidden', !(c.repasseTotal>0)); document.getElementById('dre-repasse').textContent = fmtBRL(c.repasseTotal||0); }
+  if (lc){ lc.classList.toggle('hidden', !(c.comissaoItem>0)); document.getElementById('dre-comitem').textContent = '+' + fmtBRL(c.comissaoItem||0); }
   document.getElementById('dre-squad').textContent = '-' + fmtBRL(squadConsumido);
   document.getElementById('dre-mc-total').textContent = fmtBRL(mcT);
   document.getElementById('dre-mc-mensal').textContent = fmtBRL(mc) + '/mês × ' + meses + (meses===1?' mês':' meses');
@@ -2736,7 +2841,7 @@ function recalc(){
   document.getElementById('tipo-nota').innerHTML = tipo
     ? `<strong class="text-white">${grupoDoTipo(tipo.tipo)}</strong>${grupoDoTipo(tipo.tipo)==='PROJETO' && tipo.tipo !== 'Projeto Criativo' ? ` <span class="text-ink-400">(${tipo.tipo})</span>` : ''} · overhead ${(tipo.overhead_mult*100).toFixed(0)}% · cachês na receita: ${tipo.cache_na_receita?'sim':'não'}. ${tipo.notas}`
     : '';
-  document.getElementById('upsell-extra').classList.toggle('hidden', CURRENT_ORC.tipo!=='Upsell em AON');
+  // governança incremental removida — bloco permanece oculto
 
   // Painel de meta de upsell — só pra Always-On
   const painelUp = document.getElementById('painel-upsell');
@@ -4091,8 +4196,8 @@ function aPagarPorCategoria(orcId, categoria){
     .reduce((s,p)=>s + (Number(p.valor)||0), 0);
 }
 
-const NOMES_CAT = { cache:'Cachê', midia:'Mídia', producao:'Produção' };
-const CORES_CAT = { cache:'#FF5722', midia:'#2E6BFF', producao:'#A855F7' };
+const NOMES_CAT = { cache:'Cachê', midia:'Mídia', producao:'Produção', frila:'Freela' };
+const CORES_CAT = { cache:'#FF5722', midia:'#2E6BFF', producao:'#A855F7', frila:'#EC4899' };
 
 // Realizado importado da planilha do financeiro (por categoria)
 // Mapeamento: planilha.cache -> cat cache; (planilha.producao + planilha.freela) -> cat producao;
@@ -4101,12 +4206,13 @@ function realizadoPorCategoria(orcId, categoria){
   const rs = (STATE.realizados||[]).filter(r=>String(r.orcamento_id) === String(orcId));
   if (rs.length === 0) return 0;
   if (categoria === 'cache')    return rs.reduce((s,r)=>s + (Number(r.cache)||0), 0);
-  if (categoria === 'producao') return rs.reduce((s,r)=>s + (Number(r.producao)||0) + (Number(r.freela)||0), 0);
+  if (categoria === 'producao') return rs.reduce((s,r)=>s + (Number(r.producao)||0), 0);
+  if (categoria === 'frila')    return rs.reduce((s,r)=>s + (Number(r.freela)||0), 0);
   return 0; // midia não existe na planilha
 }
 
 function totalRealizado(orcId){
-  return realizadoPorCategoria(orcId,'cache') + realizadoPorCategoria(orcId,'producao');
+  return realizadoPorCategoria(orcId,'cache') + realizadoPorCategoria(orcId,'producao') + realizadoPorCategoria(orcId,'frila');
 }
 
 // Base pra amortização: se tem realizado importado, usa ele; senão, cai no previsto
@@ -4152,7 +4258,7 @@ function renderCustos(){
   // "Pago total" já INCLUI o realizado importado (baixa automática) + pagamentos manuais
   let totPrevisto = 0, totRealizado = 0, totBase = 0, totPago = 0, totAPagar = 0, totNaoValidado = 0;
   aprovados.forEach(o=>{
-    ['cache','midia','producao'].forEach(cat=>{
+    ['cache','midia','producao','frila'].forEach(cat=>{
       totPrevisto += previstoPorCategoria(o, cat);
       totRealizado += realizadoPorCategoria(o.id, cat);
       totBase += baseAmortizacao(o, cat);
@@ -4214,11 +4320,11 @@ function renderCustos(){
         <div id="lista-projetos-custos" class="space-y-2 max-h-[calc(100vh-380px)] overflow-y-auto pr-1">
           ${aprovados.length === 0 ? '<div class="text-sm text-ink-400 italic p-4 text-center">Nenhum orçamento aprovado ainda.</div>' :
             aprovados.map(o=>{
-              const prev = ['cache','midia','producao'].reduce((s,c)=>s + previstoPorCategoria(o,c), 0);
-              const real = ['cache','midia','producao'].reduce((s,c)=>s + realizadoPorCategoria(o.id,c), 0);
-              const base = ['cache','midia','producao'].reduce((s,c)=>s + baseAmortizacao(o,c), 0);
-              const pago = ['cache','midia','producao'].reduce((s,c)=>s + pagoTotalPorCategoria(o.id,c), 0);
-              const aPagar = ['cache','midia','producao'].reduce((s,c)=>s + aPagarPorCategoria(o.id,c), 0);
+              const prev = ['cache','midia','producao','frila'].reduce((s,c)=>s + previstoPorCategoria(o,c), 0);
+              const real = ['cache','midia','producao','frila'].reduce((s,c)=>s + realizadoPorCategoria(o.id,c), 0);
+              const base = ['cache','midia','producao','frila'].reduce((s,c)=>s + baseAmortizacao(o,c), 0);
+              const pago = ['cache','midia','producao','frila'].reduce((s,c)=>s + pagoTotalPorCategoria(o.id,c), 0);
+              const aPagar = ['cache','midia','producao','frila'].reduce((s,c)=>s + aPagarPorCategoria(o.id,c), 0);
               const saldoProj = base - pago - aPagar;
               const pct = base > 0 ? (pago/base*100) : 0;
               const isSel = o.id === selectedId;
@@ -4252,7 +4358,7 @@ function renderCustos(){
 }
 
 function renderPainelCustosDetalhe(orc){
-  const cats = ['cache','midia','producao'];
+  const cats = ['cache','midia','producao','frila'];
   const totais = cats.map(cat => {
     const previsto = previstoPorCategoria(orc, cat);
     const realizado = realizadoPorCategoria(orc.id, cat);
@@ -4291,7 +4397,7 @@ function renderPainelCustosDetalhe(orc){
     </div>
 
     <!-- 3 categorias -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-6">
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-6">
       ${totais.map(t=>{
         const delta = t.realizado - t.previsto;
         return `
@@ -4413,6 +4519,7 @@ function abrirModalPagamento(orcamentoId, pagamentoId){
             <option value="cache" ${p?.categoria==='cache'?'selected':''}>Cachê</option>
             <option value="midia" ${p?.categoria==='midia'?'selected':''}>Mídia</option>
             <option value="producao" ${p?.categoria==='producao'?'selected':''}>Produção</option>
+            <option value="frila" ${p?.categoria==='frila'?'selected':''}>Freela</option>
           </select>
         </div>
       </div>
@@ -4555,6 +4662,207 @@ function statusPagamentoPill(p){
       : `<span class="pill pill-yellow" style="font-size:10px;">Não Validado</span>`;
   }
   return `<span class="pill ${p.status==='Pago'?'pill-green':'pill-yellow'}" style="font-size:10px;">${p.status}</span>`;
+}
+
+// ==================== CONTROLE DE ACESSO (Configuração → Usuários) ====================
+// Tabela usuarios_acesso: email, nome, paises TEXT[] (BR/PT), abas TEXT[] ('*' = todas), admin, ativo
+const ABAS_DEF = [
+  {id:'dashboard', nome:'Dashboard'},
+  {id:'orcamentos', nome:'Orçamentos'},
+  {id:'novo', nome:'Novo Orçamento'},
+  {id:'comparador', nome:'Comparador'},
+  {id:'clientes', nome:'Clientes'},
+  {id:'backlog', nome:'Backlog'},
+  {id:'custos', nome:'Custos'},
+  {id:'nota-rapida', nome:'Nota rápida'},
+  {id:'validador', nome:'Validar NF Rápida'},
+  {id:'relatorio-mensal', nome:'Relatório mensal'},
+  {id:'realizado', nome:'Realizado × Orçado'},
+  {id:'premissas', nome:'Premissas'},
+  {id:'cargos', nome:'Cargos & Salários'},
+  {id:'tipos', nome:'Tipos de Orçamento'}
+];
+// Sub-rotas herdam a permissão da aba "pai"
+const ABA_PAI = { detalhe:'orcamentos', carta:'orcamentos', cliente:'clientes' };
+STATE.acesso = null; // registro do usuário logado
+STATE.usuariosAcesso = []; // lista (só admin)
+
+async function carregarMeuAcesso(user){
+  STATE.acesso = null;
+  const email = (user?.email||'').toLowerCase();
+  if (!email) return;
+  try {
+    const { data, error } = await sb.from('usuarios_acesso').select('*').eq('email', email).maybeSingle();
+    if (error) { console.warn('usuarios_acesso:', error.message); return; }
+    STATE.acesso = data || null;
+  } catch(e){ console.warn(e); }
+}
+function isAdminAcesso(){ return !!(STATE.acesso && STATE.acesso.admin); }
+function podePais(pais){
+  const a = STATE.acesso;
+  if (!a) return true; // sem registro = sem restrição (compatibilidade)
+  if (a.ativo === false) return false;
+  return (a.paises||[]).includes(pais);
+}
+function podeAba(r){
+  if (r === 'usuarios') return isAdminAcesso();
+  const a = STATE.acesso;
+  if (!a) return true;
+  if (a.ativo === false) return false;
+  if (a.admin) return true;
+  const abas = a.abas || [];
+  if (abas.includes('*')) return true;
+  const base = ABA_PAI[r] || r;
+  return abas.includes(base);
+}
+function primeiraAbaPermitida(){
+  const ordem = ['dashboard','orcamentos','novo','clientes','backlog','custos','nota-rapida','validador','relatorio-mensal','realizado','comparador','premissas','cargos','tipos'];
+  return ordem.find(r => podeAba(r)) || 'nota-rapida';
+}
+function aplicarAcessoNaUI(){
+  // Esconde abas sem permissão
+  document.querySelectorAll('.nav-item[data-route]').forEach(el => {
+    const r = el.dataset.route;
+    if (r === 'validador' && !usuarioPodeValidar()) { el.style.display = 'none'; return; }
+    el.style.display = podeAba(r) ? '' : 'none';
+  });
+  // Esconde botão de país sem permissão e força país permitido
+  const permitidos = ['BR','PT'].filter(podePais);
+  document.querySelectorAll('.pais-btn').forEach(b => { b.style.display = permitidos.includes(b.dataset.pais) ? '' : 'none'; });
+  const tg = document.getElementById('pais-toggle');
+  if (tg) tg.style.display = permitidos.length > 1 ? '' : 'none';
+  if (permitidos.length && !permitidos.includes(STATE.pais)){
+    STATE.pais = permitidos[0];
+    try { localStorage.setItem('snack_pais', STATE.pais); } catch(e){}
+  }
+  // Esconde seção Configuração inteira se nada dela é permitido
+  const secConf = document.querySelector('.nav-item[data-route="premissas"]')?.parentElement;
+  if (secConf){
+    const algum = ['premissas','cargos','tipos','usuarios'].some(podeAba);
+    secConf.style.display = algum ? '' : 'none';
+  }
+}
+
+// ---- Tela de gestão (admin) ----
+async function carregarUsuariosAcesso(){
+  if (!isAdminAcesso()) return;
+  const { data, error } = await sb.from('usuarios_acesso').select('*').order('admin',{ascending:false}).order('email');
+  if (error){ alert('Erro ao carregar usuários: ' + error.message); return; }
+  STATE.usuariosAcesso = data || [];
+  const el = document.getElementById('usuarios-tabela');
+  if (el) el.innerHTML = renderUsuariosTabela();
+}
+function renderUsuarios(){
+  if (!isAdminAcesso()){
+    return `<div class="card p-8 text-center text-ink-400">Somente administradores podem gerenciar usuários.</div>`;
+  }
+  return `
+  <div class="space-y-4">
+    <div class="card p-5">
+      <div class="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h2 class="text-lg font-bold">Usuários & Acessos</h2>
+          <p class="text-sm text-ink-400 mt-1">Controle qual <b>unidade</b> (Brasil / Portugal) e quais <b>abas</b> cada usuário pode acessar. As mudanças valem no próximo login (ou ao recarregar a página).</p>
+          <p class="text-xs text-ink-500 mt-1">O login e senha continuam sendo criados no Supabase Auth — aqui só se define o que cada e-mail enxerga. Você pode cadastrar o e-mail antes mesmo de criar o login.</p>
+        </div>
+        <div class="flex items-end gap-2">
+          <div>
+            <label class="text-xs text-ink-400">Adicionar e-mail</label>
+            <input id="novo-usuario-email" type="email" class="input mt-1" placeholder="nome@redesnack.com.br" style="min-width:260px">
+          </div>
+          <button class="btn-primary" onclick="adicionarUsuarioAcesso()">Adicionar</button>
+        </div>
+      </div>
+    </div>
+    <div class="card p-0 overflow-x-auto">
+      <div id="usuarios-tabela"><div class="p-6 text-ink-400 text-sm">Carregando…</div></div>
+    </div>
+  </div>`;
+}
+function renderUsuariosTabela(){
+  const lista = STATE.usuariosAcesso || [];
+  const th = (t, extra='') => `<th class="px-3 py-2 text-[11px] uppercase tracking-wider text-ink-400 font-semibold text-left whitespace-nowrap ${extra}">${t}</th>`;
+  return `
+  <table class="w-full text-sm">
+    <thead class="bg-ink-900/60 border-b border-ink-800">
+      <tr>
+        ${th('Usuário')}
+        ${th('Admin','text-center')}
+        ${th('Ativo','text-center')}
+        ${th('🇧🇷 BR','text-center')}
+        ${th('🇵🇹 PT','text-center')}
+        ${th('Todas as abas','text-center')}
+        ${ABAS_DEF.map(a=>th(a.nome,'text-center')).join('')}
+        ${th('')}
+      </tr>
+    </thead>
+    <tbody>
+      ${lista.map((u,i)=>{
+        const todas = (u.abas||[]).includes('*');
+        const cb = (checked, on, dis=false) => `<input type="checkbox" ${checked?'checked':''} ${dis?'disabled':''} onchange="${on}" class="accent-orange-500 w-4 h-4 cursor-pointer">`;
+        const ehEu = (u.email||'').toLowerCase() === (STATE.currentUser?.email||'').toLowerCase();
+        return `<tr class="border-b border-ink-800/60 hover:bg-ink-900/40 ${u.ativo===false?'opacity-50':''}">
+          <td class="px-3 py-2 whitespace-nowrap">
+            <div class="font-semibold">${u.nome||u.email.split('@')[0]}</div>
+            <div class="text-xs text-ink-500">${u.email}${ehEu?' <span class="text-orange-400">(você)</span>':''}</div>
+          </td>
+          <td class="px-3 py-2 text-center">${cb(!!u.admin, `setAcessoCampo(${i},'admin',this.checked)`, ehEu)}</td>
+          <td class="px-3 py-2 text-center">${cb(u.ativo!==false, `setAcessoCampo(${i},'ativo',this.checked)`, ehEu)}</td>
+          <td class="px-3 py-2 text-center">${cb((u.paises||[]).includes('BR'), `toggleAcessoPais(${i},'BR',this.checked)`)}</td>
+          <td class="px-3 py-2 text-center">${cb((u.paises||[]).includes('PT'), `toggleAcessoPais(${i},'PT',this.checked)`)}</td>
+          <td class="px-3 py-2 text-center bg-ink-900/30">${cb(todas, `toggleAcessoTodas(${i},this.checked)`)}</td>
+          ${ABAS_DEF.map(a=>`<td class="px-3 py-2 text-center">${cb(todas || (u.abas||[]).includes(a.id), `toggleAcessoAba(${i},'${a.id}',this.checked)`, todas)}</td>`).join('')}
+          <td class="px-3 py-2 text-right whitespace-nowrap">
+            <button class="btn-ghost text-xs" onclick="salvarUsuarioAcesso(${i})" id="btn-salvar-user-${i}">Salvar</button>
+            ${ehEu?'':`<button class="btn-ghost text-xs text-red-400" onclick="removerUsuarioAcesso(${i})" title="Remove só o controle de acesso (o login continua existindo)">Remover</button>`}
+          </td>
+        </tr>`;
+      }).join('')}
+      ${lista.length?'':'<tr><td colspan="30" class="p-6 text-center text-ink-400">Nenhum usuário cadastrado.</td></tr>'}
+    </tbody>
+  </table>
+  <div class="p-3 text-xs text-ink-500 border-t border-ink-800">Dica: "Todas as abas" libera tudo, inclusive abas novas que forem criadas no futuro. Desmarque pra escolher aba por aba. A aba <b>Validar NF Rápida</b> além disso exige um dos e-mails validadores (financeiro@, daniel@, administracao@).</div>`;
+}
+function marcarPendente(i){ const b=document.getElementById('btn-salvar-user-'+i); if(b){ b.classList.add('btn-primary'); b.classList.remove('btn-ghost'); b.textContent='Salvar *'; } }
+function setAcessoCampo(i,campo,val){ STATE.usuariosAcesso[i][campo]=val; marcarPendente(i); }
+function toggleAcessoPais(i,pais,on){
+  const u=STATE.usuariosAcesso[i]; let p=(u.paises||[]).filter(x=>x!==pais); if(on) p.push(pais); u.paises=p; marcarPendente(i);
+}
+function toggleAcessoTodas(i,on){
+  const u=STATE.usuariosAcesso[i];
+  u.abas = on ? ['*'] : ABAS_DEF.map(a=>a.id);
+  marcarPendente(i);
+  const el=document.getElementById('usuarios-tabela'); if(el) el.innerHTML=renderUsuariosTabela();
+  marcarPendente(i);
+}
+function toggleAcessoAba(i,aba,on){
+  const u=STATE.usuariosAcesso[i]; let a=(u.abas||[]).filter(x=>x!==aba && x!=='*'); if(on) a.push(aba); u.abas=a; marcarPendente(i);
+}
+async function salvarUsuarioAcesso(i){
+  const u=STATE.usuariosAcesso[i];
+  if (!(u.paises||[]).length && u.ativo!==false){ if(!confirm('Esse usuário ficou sem nenhuma unidade (BR/PT) — ele não vai conseguir usar a plataforma. Salvar mesmo assim?')) return; }
+  const payload={ email:u.email.toLowerCase(), nome:u.nome||null, paises:u.paises||[], abas:u.abas||[], admin:!!u.admin, ativo:u.ativo!==false, updated_at:new Date().toISOString() };
+  const { error } = await sb.from('usuarios_acesso').upsert(payload, { onConflict:'email' });
+  if (error){ alert('Erro ao salvar: '+error.message); return; }
+  const b=document.getElementById('btn-salvar-user-'+i); if(b){ b.classList.remove('btn-primary'); b.classList.add('btn-ghost'); b.textContent='Salvo ✓'; setTimeout(()=>{ if(b) b.textContent='Salvar'; },1500); }
+  if (payload.email === (STATE.currentUser?.email||'').toLowerCase()){ STATE.acesso = payload; aplicarAcessoNaUI(); }
+}
+async function adicionarUsuarioAcesso(){
+  const inp=document.getElementById('novo-usuario-email'); const email=(inp?.value||'').trim().toLowerCase();
+  if (!email || !email.includes('@')){ alert('Informe um e-mail válido.'); return; }
+  if ((STATE.usuariosAcesso||[]).some(u=>u.email===email)){ alert('Esse e-mail já está na lista.'); return; }
+  const payload={ email, nome:email.split('@')[0], paises:['BR'], abas:['nota-rapida'], admin:false, ativo:true };
+  const { error } = await sb.from('usuarios_acesso').insert(payload);
+  if (error){ alert('Erro: '+error.message); return; }
+  inp.value='';
+  await carregarUsuariosAcesso();
+}
+async function removerUsuarioAcesso(i){
+  const u=STATE.usuariosAcesso[i];
+  if (!confirm('Remover o controle de acesso de '+u.email+'? O login continua existindo e o usuário volta a ter acesso total (sem restrição).')) return;
+  const { error } = await sb.from('usuarios_acesso').delete().eq('email', u.email);
+  if (error){ alert('Erro: '+error.message); return; }
+  await carregarUsuariosAcesso();
 }
 
 // Emails autorizados a validar notas rápidas
@@ -5360,6 +5668,151 @@ async function salvarImportRealizado(){
   }
 }
 
+
+
+// ============================================================
+// BACKLOG DE FATURAMENTO
+// ============================================================
+const BACKLOG_STATUS = {
+  pendente:    { nome:'Pendente',         cor:'transparent', txt:'#9C9CAB', border:'rgba(255,255,255,.08)' },
+  invoice:     { nome:'Invoice emitida',  cor:'rgba(74,222,128,.22)',  txt:'#4ADE80', border:'rgba(74,222,128,.5)' },
+  provisionado:{ nome:'Provisionado',     cor:'rgba(255,87,34,.22)',   txt:'#FFB99F', border:'rgba(255,87,34,.5)' },
+  estornado:   { nome:'Estornado',        cor:'rgba(46,107,255,.22)',  txt:'#93B4FF', border:'rgba(46,107,255,.5)' },
+  observacao:  { nome:'Observação',       cor:'rgba(250,204,21,.22)',  txt:'#FDE68A', border:'rgba(250,204,21,.5)' },
+  diferido:    { nome:'Diferido',         cor:'rgba(168,85,247,.22)',  txt:'#D8B4FE', border:'rgba(168,85,247,.5)' },
+};
+const MESES_PT = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+
+// Distribui a receita de um orçamento aprovado nos meses do ano-base
+function backlogLinhas(ano){
+  const out = [];
+  (STATE.orcamentos||[]).filter(o=>o.status==='Aprovada' && o.data_inicio && (o.meses||0)>0).forEach(o=>{
+    const c = calcular(o);
+    const ini = new Date(o.data_inicio+'T00:00:00');
+    const y0 = ini.getFullYear(), m0 = ini.getMonth(); // 0-based
+    const porMes = c.receitaTotal / o.meses;
+    const meses = new Array(12).fill(0);
+    let tem = false;
+    for (let k=0; k<o.meses; k++){
+      const d = new Date(y0, m0+k, 1);
+      if (d.getFullYear() === ano){ meses[d.getMonth()] += porMes; tem = true; }
+    }
+    if (tem) out.push({ o, c, meses, total: meses.reduce((a,b)=>a+b,0) });
+  });
+  return out.sort((a,b)=>b.total-a.total);
+}
+
+function renderBacklog(){
+  if (!STATE.backlogAno) STATE.backlogAno = new Date().getFullYear();
+  const ano = STATE.backlogAno;
+  const linhas = backlogLinhas(ano);
+  const totMes = new Array(12).fill(0);
+  linhas.forEach(l=>l.meses.forEach((v,i)=>totMes[i]+=v));
+  const totAno = totMes.reduce((a,b)=>a+b,0);
+  const anos = [ano-1, ano, ano+1, ano+2];
+  const st = STATE.backlogStatus || {};
+  const key = (id,m)=>`${id}|${ano}|${m+1}`;
+
+  return `
+  <div class="space-y-4 fade-in">
+    <div class="flex items-center justify-between gap-4 flex-wrap">
+      <div>
+        <h1 class="font-display font-bold text-2xl">Backlog de Faturamento</h1>
+        <div class="text-sm text-ink-400">Receita dos JOBs <strong class="text-green-400">aprovados</strong>, distribuída a partir do mês de início pelos meses do contrato. Clique numa célula pra marcar a situação do faturamento.</div>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">Ano base</span>
+        <select class="input py-2 text-sm" onchange="STATE.backlogAno=+this.value; render();">
+          ${anos.map(a=>`<option value="${a}" ${a===ano?'selected':''}>${a}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-3 flex-wrap text-[11px]">
+      <span class="text-ink-500 uppercase tracking-widest font-semibold">Legenda:</span>
+      ${Object.entries(BACKLOG_STATUS).filter(([k])=>k!=='pendente').map(([k,v])=>`<span class="px-2 py-0.5 rounded" style="background:${v.cor};color:${v.txt};border:1px solid ${v.border}">${v.nome}</span>`).join('')}
+    </div>
+
+    <div class="card overflow-x-auto">
+      <table class="w-full text-xs" id="tabela-backlog">
+        <thead class="bg-ink-900">
+          <tr class="text-[10px] uppercase tracking-wider text-ink-400">
+            <th class="text-left font-semibold py-3 px-3 sticky left-0 bg-ink-900 z-10">ID</th>
+            <th class="text-left font-semibold">Cliente</th>
+            <th class="text-left font-semibold">Projeto</th>
+            <th class="text-left font-semibold">Cat.</th>
+            ${MESES_PT.map(m=>`<th class="text-right font-semibold px-1.5">${m}</th>`).join('')}
+            <th class="text-right font-semibold px-3">Total</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${linhas.length===0 ? `<tr><td colspan="17" class="p-8 text-center text-ink-400">Nenhum JOB aprovado com receita em ${ano}.</td></tr>` :
+          linhas.map(({o,c,meses,total})=>`
+            <tr class="border-t border-ink-800 hover:bg-ink-850">
+              <td class="py-2 px-3 font-mono text-ink-300 sticky left-0 bg-ink-950 z-10">${o.id}</td>
+              <td class="font-semibold whitespace-nowrap">${escapeHtml(o.cliente)}</td>
+              <td class="text-ink-300 max-w-[140px] truncate" title="${escapeHtml(o.projeto||'')}">${escapeHtml(o.projeto||'—')}</td>
+              <td><span class="pill pill-ink" style="font-size:9px">${grupoDoTipo(o.tipo)}</span></td>
+              ${meses.map((v,i)=>{
+                if (v<=0) return `<td class="text-right px-1.5 text-ink-700">—</td>`;
+                const sk = st[key(o.id,i)] || 'pendente'; const cf = BACKLOG_STATUS[sk] || BACKLOG_STATUS.pendente;
+                return `<td class="text-right px-1 py-1"><button class="w-full text-right px-1.5 py-1 rounded tabular-nums font-semibold transition hover:brightness-125" style="background:${cf.cor};color:${cf.txt};border:1px solid ${cf.border}" onclick="abrirStatusBacklog('${o.id}',${i},event)" title="${cf.nome} — clique pra alterar">${fmtNum(v)}</button></td>`;
+              }).join('')}
+              <td class="text-right px-3 font-bold tabular-nums">${fmtBRL(total)}</td>
+            </tr>`).join('')}
+        </tbody>
+        <tfoot>
+          <tr class="border-t-2 border-white/20 bg-white/5 font-bold">
+            <td class="py-3 px-3 sticky left-0 bg-ink-900 z-10" colspan="4">Total mês</td>
+            ${totMes.map(v=>`<td class="text-right px-1.5 tabular-nums">${v>0?fmtNum(v):'—'}</td>`).join('')}
+            <td class="text-right px-3 tabular-nums text-orange">${fmtBRL(totAno)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+
+    <!-- Popover de status -->
+    <div id="backlog-pop" class="hidden fixed z-50 bg-[#0a0f1c] border border-white/10 rounded-xl shadow-2xl p-2 w-52">
+      <div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold px-2 py-1">Situação do faturamento</div>
+      ${Object.entries(BACKLOG_STATUS).map(([k,v])=>`<button class="w-full text-left px-2 py-1.5 rounded text-xs hover:bg-white/5 flex items-center gap-2" onclick="setStatusBacklog('${k}')"><span class="w-3 h-3 rounded-sm" style="background:${k==='pendente'?'#3a3a46':v.cor};border:1px solid ${v.border}"></span>${v.nome}</button>`).join('')}
+    </div>
+  </div>`;
+}
+
+async function carregarBacklogStatus(){
+  const ano = STATE.backlogAno || new Date().getFullYear();
+  const { data } = await sb.from('backlog_status').select('*').eq('pais', STATE.pais).eq('ano', ano);
+  STATE.backlogStatus = {};
+  (data||[]).forEach(r=>{ STATE.backlogStatus[`${r.orcamento_id}|${r.ano}|${r.mes}`] = r.status; });
+  // Repinta sem re-render completo
+  const el = document.getElementById('view'); if (el && STATE.route==='backlog') el.innerHTML = renderBacklog();
+}
+
+function abrirStatusBacklog(orcId, mesIdx, ev){
+  ev.stopPropagation();
+  STATE._backlogSel = { orcId, mes: mesIdx+1 };
+  const pop = document.getElementById('backlog-pop');
+  const r = ev.currentTarget.getBoundingClientRect();
+  pop.style.left = Math.min(r.left, window.innerWidth-220) + 'px';
+  pop.style.top = (r.bottom + 4) + 'px';
+  pop.classList.remove('hidden');
+  const fechar = (e)=>{ if(!pop.contains(e.target)){ pop.classList.add('hidden'); document.removeEventListener('click', fechar); } };
+  setTimeout(()=>document.addEventListener('click', fechar), 0);
+}
+
+async function setStatusBacklog(status){
+  const sel = STATE._backlogSel; if (!sel) return;
+  const ano = STATE.backlogAno;
+  document.getElementById('backlog-pop').classList.add('hidden');
+  try {
+    const { data: { user } } = await sb.auth.getUser();
+    const row = { orcamento_id: sel.orcId, ano, mes: sel.mes, status, pais: STATE.pais, updated_by: user?.id||null, updated_at: new Date().toISOString() };
+    const { error } = await sb.from('backlog_status').upsert(row, { onConflict: 'orcamento_id,ano,mes,pais' });
+    if (error) throw error;
+    STATE.backlogStatus[`${sel.orcId}|${ano}|${sel.mes}`] = status;
+    document.getElementById('view').innerHTML = renderBacklog();
+  } catch(e){ alert('Erro ao salvar status: '+e.message); }
+}
 
 // ============================================================
 // VALIDADOR DE NOTA RÁPIDA
