@@ -5702,38 +5702,62 @@ function backlogLinhas(ano){
   return out.sort((a,b)=>b.total-a.total);
 }
 
-function renderBacklog(){
-  if (!STATE.backlogAno) STATE.backlogAno = new Date().getFullYear();
+const fmtNum2 = v => (v==null||isNaN(v)) ? '—' : Number(v).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+
+function backlogFiltroAtual(){
+  if (!STATE.backlogFiltro) STATE.backlogFiltro = { id:'', cliente:'', cat:'', status:'' };
+  return STATE.backlogFiltro;
+}
+function setBacklogFiltro(campo, val){
+  backlogFiltroAtual()[campo] = (val||'').trim();
+  const wrap = document.getElementById('backlog-tabela-wrap');
+  if (wrap) wrap.innerHTML = renderBacklogTabela();
+  // Atualiza destaque das legendas clicáveis
+  document.querySelectorAll('.backlog-legenda').forEach(b=>{
+    const ativo = b.dataset.status === backlogFiltroAtual().status;
+    b.style.outline = ativo ? '2px solid #fff' : 'none';
+    b.style.opacity = (backlogFiltroAtual().status && !ativo) ? '0.45' : '1';
+  });
+  const sel = document.getElementById('backlog-f-status'); if (sel && sel.value !== backlogFiltroAtual().status) sel.value = backlogFiltroAtual().status;
+}
+function toggleBacklogLegenda(k){
+  const f = backlogFiltroAtual();
+  setBacklogFiltro('status', f.status === k ? '' : k);
+}
+function limparBacklogFiltro(){
+  STATE.backlogFiltro = { id:'', cliente:'', cat:'', status:'' };
+  const el = document.getElementById('view'); if (el) el.innerHTML = renderBacklog();
+}
+// Linhas do ano já com filtros aplicados
+function backlogLinhasFiltradas(){
   const ano = STATE.backlogAno;
-  const linhas = backlogLinhas(ano);
+  const f = backlogFiltroAtual();
+  const st = STATE.backlogStatus || {};
+  const norm = x => String(x||'').toLowerCase();
+  return backlogLinhas(ano).filter(({o,meses})=>{
+    if (f.id && !norm(o.id).includes(norm(f.id))) return false;
+    if (f.cliente && !norm(o.cliente).includes(norm(f.cliente))) return false;
+    if (f.cat && grupoDoTipo(o.tipo) !== f.cat) return false;
+    if (f.status){
+      const temStatus = meses.some((v,i)=> v>0 && (st[`${o.id}|${ano}|${i+1}`] || 'pendente') === f.status);
+      if (!temStatus) return false;
+    }
+    return true;
+  });
+}
+
+function renderBacklogTabela(){
+  const ano = STATE.backlogAno;
+  const linhas = backlogLinhasFiltradas();
   const totMes = new Array(12).fill(0);
   linhas.forEach(l=>l.meses.forEach((v,i)=>totMes[i]+=v));
   const totAno = totMes.reduce((a,b)=>a+b,0);
-  const anos = [ano-1, ano, ano+1, ano+2];
   const st = STATE.backlogStatus || {};
   const key = (id,m)=>`${id}|${ano}|${m+1}`;
-
+  const f = backlogFiltroAtual();
+  const temFiltro = !!(f.id||f.cliente||f.cat||f.status);
   return `
-  <div class="space-y-4 fade-in">
-    <div class="flex items-center justify-between gap-4 flex-wrap">
-      <div>
-        <h1 class="font-display font-bold text-2xl">Backlog de Faturamento</h1>
-        <div class="text-sm text-ink-400">Receita dos JOBs <strong class="text-green-400">aprovados</strong>, distribuída a partir do mês de início pelos meses do contrato. Clique numa célula pra marcar a situação do faturamento.</div>
-      </div>
-      <div class="flex items-center gap-2">
-        <span class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">Ano base</span>
-        <select class="input py-2 text-sm" onchange="STATE.backlogAno=+this.value; render();">
-          ${anos.map(a=>`<option value="${a}" ${a===ano?'selected':''}>${a}</option>`).join('')}
-        </select>
-      </div>
-    </div>
-
-    <div class="flex items-center gap-3 flex-wrap text-[11px]">
-      <span class="text-ink-500 uppercase tracking-widest font-semibold">Legenda:</span>
-      ${Object.entries(BACKLOG_STATUS).filter(([k])=>k!=='pendente').map(([k,v])=>`<span class="px-2 py-0.5 rounded" style="background:${v.cor};color:${v.txt};border:1px solid ${v.border}">${v.nome}</span>`).join('')}
-    </div>
-
-    <div class="card overflow-auto" style="max-height:calc(100vh - 230px)">
+    <div class="card overflow-auto" style="max-height:calc(100vh - 290px)">
       <table class="w-full text-xs" id="tabela-backlog">
         <thead class="bg-ink-900 sticky top-0 z-20 shadow-[0_1px_0_0_rgba(255,255,255,0.12)]">
           <tr class="text-[10px] uppercase tracking-wider text-ink-400">
@@ -5746,7 +5770,7 @@ function renderBacklog(){
           </tr>
         </thead>
         <tbody>
-          ${linhas.length===0 ? `<tr><td colspan="17" class="p-8 text-center text-ink-400">Nenhum JOB aprovado com receita em ${ano}.</td></tr>` :
+          ${linhas.length===0 ? `<tr><td colspan="17" class="p-8 text-center text-ink-400">${temFiltro ? 'Nenhum JOB bate com os filtros.' : `Nenhum JOB aprovado com receita em ${ano}.`}</td></tr>` :
           linhas.map(({o,c,meses,total})=>`
             <tr class="border-t border-ink-800 hover:bg-ink-850">
               <td class="py-2 px-3 font-mono text-ink-300 sticky left-0 bg-ink-950 z-10">${o.id}</td>
@@ -5756,20 +5780,82 @@ function renderBacklog(){
               ${meses.map((v,i)=>{
                 if (v<=0) return `<td class="text-right px-1.5 text-ink-700">—</td>`;
                 const sk = st[key(o.id,i)] || 'pendente'; const cf = BACKLOG_STATUS[sk] || BACKLOG_STATUS.pendente;
-                return `<td class="text-right px-1 py-1"><button class="w-full text-right px-1.5 py-1 rounded tabular-nums font-semibold transition hover:brightness-125" style="background:${cf.cor};color:${cf.txt};border:1px solid ${cf.border}" onclick="abrirStatusBacklog('${o.id}',${i},event)" title="${cf.nome} — clique pra alterar">${fmtNum(v)}</button></td>`;
+                const apagado = f.status && sk !== f.status;
+                return `<td class="text-right px-1 py-1"><button class="w-full text-right px-1.5 py-1 rounded tabular-nums font-semibold transition hover:brightness-125" style="background:${cf.cor};color:${cf.txt};border:1px solid ${cf.border};${apagado?'opacity:.35':''}" onclick="abrirStatusBacklog('${o.id}',${i},event)" title="${cf.nome} — clique pra alterar">${fmtNum2(v)}</button></td>`;
               }).join('')}
-              <td class="text-right px-3 font-bold tabular-nums">${fmtBRL(total)}</td>
+              <td class="text-right px-3 font-bold tabular-nums whitespace-nowrap">${fmtMoeda(total,2)}</td>
             </tr>`).join('')}
         </tbody>
         <tfoot>
           <tr class="border-t-2 border-white/20 bg-white/5 font-bold">
-            <td class="py-3 px-3 sticky left-0 bg-ink-900 z-10" colspan="4">Total mês</td>
-            ${totMes.map(v=>`<td class="text-right px-1.5 tabular-nums">${v>0?fmtNum(v):'—'}</td>`).join('')}
-            <td class="text-right px-3 tabular-nums text-orange">${fmtBRL(totAno)}</td>
+            <td class="py-3 px-3 sticky left-0 bg-ink-900 z-10" colspan="4">Total mês${temFiltro?' <span class="text-ink-500 font-normal">(filtrado)</span>':''}</td>
+            ${totMes.map(v=>`<td class="text-right px-1.5 tabular-nums whitespace-nowrap">${v>0?fmtNum2(v):'—'}</td>`).join('')}
+            <td class="text-right px-3 tabular-nums text-orange whitespace-nowrap">${fmtMoeda(totAno,2)}</td>
           </tr>
         </tfoot>
       </table>
+    </div>`;
+}
+
+function renderBacklog(){
+  if (!STATE.backlogAno) STATE.backlogAno = new Date().getFullYear();
+  const ano = STATE.backlogAno;
+  const anos = [ano-1, ano, ano+1, ano+2];
+  const f = backlogFiltroAtual();
+  const clientes = [...new Set(backlogLinhas(ano).map(l=>l.o.cliente).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+
+  return `
+  <div class="space-y-4 fade-in">
+    <div class="flex items-center justify-between gap-4 flex-wrap">
+      <div>
+        <h1 class="font-display font-bold text-2xl">Backlog de Faturamento</h1>
+        <div class="text-sm text-ink-400">Receita dos JOBs <strong class="text-green-400">aprovados</strong>, distribuída a partir do mês de início pelos meses do contrato. Clique numa célula pra marcar a situação do faturamento.</div>
+      </div>
+      <div class="flex items-center gap-2">
+        <span class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">Ano base</span>
+        <select class="input py-2 text-sm" onchange="STATE.backlogAno=+this.value; render(); carregarBacklogStatus();">
+          ${anos.map(a=>`<option value="${a}" ${a===ano?'selected':''}>${a}</option>`).join('')}
+        </select>
+        <button class="btn btn-primary text-sm" onclick="exportarCSVBacklog()" title="Exporta as linhas visíveis (com filtros) em CSV pra Excel">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Exportar CSV
+        </button>
+      </div>
     </div>
+
+    <!-- Filtros -->
+    <div class="card p-3 flex items-end gap-3 flex-wrap">
+      <div>
+        <label class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">ID</label>
+        <input class="input py-1.5 text-sm mt-1" style="width:120px" placeholder="C317…" value="${escapeHtml(f.id)}" oninput="setBacklogFiltro('id', this.value)">
+      </div>
+      <div>
+        <label class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">Cliente</label>
+        <input class="input py-1.5 text-sm mt-1" style="width:200px" list="backlog-clientes-list" placeholder="Todos" value="${escapeHtml(f.cliente)}" oninput="setBacklogFiltro('cliente', this.value)">
+        <datalist id="backlog-clientes-list">${clientes.map(c=>`<option value="${escapeHtml(c)}">`).join('')}</datalist>
+      </div>
+      <div>
+        <label class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">Cat.</label>
+        <select class="input py-1.5 text-sm mt-1" onchange="setBacklogFiltro('cat', this.value)">
+          <option value="">Todas</option>
+          ${GRUPOS_TIPO.map(g=>`<option value="${g}" ${f.cat===g?'selected':''}>${g}</option>`).join('')}
+        </select>
+      </div>
+      <div>
+        <label class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">Situação</label>
+        <select id="backlog-f-status" class="input py-1.5 text-sm mt-1" onchange="setBacklogFiltro('status', this.value)">
+          <option value="">Todas</option>
+          ${Object.entries(BACKLOG_STATUS).map(([k,v])=>`<option value="${k}" ${f.status===k?'selected':''}>${k==='pendente'?'Sem marcação':v.nome}</option>`).join('')}
+        </select>
+      </div>
+      <button class="btn btn-ghost text-sm" onclick="limparBacklogFiltro()">Limpar</button>
+      <div class="flex items-center gap-2 flex-wrap text-[11px] ml-auto">
+        <span class="text-ink-500 uppercase tracking-widest font-semibold">Legenda (clique pra filtrar):</span>
+        ${Object.entries(BACKLOG_STATUS).filter(([k])=>k!=='pendente').map(([k,v])=>`<button class="backlog-legenda px-2 py-0.5 rounded transition" data-status="${k}" style="background:${v.cor};color:${v.txt};border:1px solid ${v.border};${f.status===k?'outline:2px solid #fff':''};${f.status&&f.status!==k?'opacity:.45':''}" onclick="toggleBacklogLegenda('${k}')">${v.nome}</button>`).join('')}
+      </div>
+    </div>
+
+    <div id="backlog-tabela-wrap">${renderBacklogTabela()}</div>
 
     <!-- Popover de status -->
     <div id="backlog-pop" class="hidden fixed z-50 bg-[#0a0f1c] border border-white/10 rounded-xl shadow-2xl p-2 w-52">
@@ -5779,13 +5865,49 @@ function renderBacklog(){
   </div>`;
 }
 
+function exportarCSVBacklog(){
+  const ano = STATE.backlogAno;
+  const linhas = backlogLinhasFiltradas();
+  const st = STATE.backlogStatus || {};
+  const dec = v => (Number(v)||0).toFixed(2).replace('.', ',');
+  const moeda = STATE.pais === 'PT' ? 'EUR' : 'BRL';
+  const rows = [[
+    'ID','Cliente','Projeto','Categoria','Inicio','Meses contrato',
+    ...MESES_PT.map(m=>`${m}/${ano}`), `Total ${ano}`,
+    ...MESES_PT.map(m=>`Situacao ${m}`), 'Moeda'
+  ]];
+  linhas.forEach(({o,meses,total})=>{
+    rows.push([
+      o.id, o.cliente, o.projeto||'', grupoDoTipo(o.tipo), fmtData(o.data_inicio), o.meses,
+      ...meses.map(v=> v>0 ? dec(v) : ''), dec(total),
+      ...meses.map((v,i)=> v>0 ? (BACKLOG_STATUS[st[`${o.id}|${ano}|${i+1}`]||'pendente']||{}).nome||'' : ''), moeda
+    ]);
+  });
+  const totMes = new Array(12).fill(0);
+  linhas.forEach(l=>l.meses.forEach((v,i)=>totMes[i]+=v));
+  rows.push(['TOTAL','','','','','', ...totMes.map(v=> v>0 ? dec(v) : ''), dec(totMes.reduce((a,b)=>a+b,0)), ...new Array(12).fill(''), moeda]);
+  const csv = rows.map(r=>r.map(v=>{
+    const x = String(v==null?'':v);
+    return x.includes(';')||x.includes(',')||x.includes('\n')||x.includes('"') ? '"'+x.replace(/"/g,'""')+'"' : x;
+  }).join(';')).join('\n');
+  const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const f = backlogFiltroAtual(); const suf = (f.id||f.cliente||f.cat||f.status) ? '_filtrado' : '';
+  a.download = `backlog_${ano}_${STATE.pais}${suf}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 async function carregarBacklogStatus(){
   const ano = STATE.backlogAno || new Date().getFullYear();
   const { data } = await sb.from('backlog_status').select('*').eq('pais', STATE.pais).eq('ano', ano);
   STATE.backlogStatus = {};
   (data||[]).forEach(r=>{ STATE.backlogStatus[`${r.orcamento_id}|${r.ano}|${r.mes}`] = r.status; });
-  // Repinta sem re-render completo
-  const el = document.getElementById('view'); if (el && STATE.route==='backlog') el.innerHTML = renderBacklog();
+  // Repinta só a tabela (preserva filtros e foco)
+  const wrap = document.getElementById('backlog-tabela-wrap');
+  if (wrap && STATE.route==='backlog') wrap.innerHTML = renderBacklogTabela();
 }
 
 function abrirStatusBacklog(orcId, mesIdx, ev){
@@ -5810,7 +5932,8 @@ async function setStatusBacklog(status){
     const { error } = await sb.from('backlog_status').upsert(row, { onConflict: 'orcamento_id,ano,mes,pais' });
     if (error) throw error;
     STATE.backlogStatus[`${sel.orcId}|${ano}|${sel.mes}`] = status;
-    document.getElementById('view').innerHTML = renderBacklog();
+    const wrap = document.getElementById('backlog-tabela-wrap');
+    if (wrap) wrap.innerHTML = renderBacklogTabela(); else document.getElementById('view').innerHTML = renderBacklog();
   } catch(e){ alert('Erro ao salvar status: '+e.message); }
 }
 
