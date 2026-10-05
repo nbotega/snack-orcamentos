@@ -783,7 +783,7 @@ function navigate(r, ctx) {
   }
   // Bloqueia: só financeiro@ acessa a rota "validador"
   if (r === 'validador' && !usuarioPodeValidar(STATE.currentUser)){
-    alert('Só os usuários financeiro@, daniel@ e administracao@redesnack.com.br podem validar notas rápidas.');
+    alert('Seu usuário não tem permissão pra validar notas rápidas. Um administrador pode liberar em Configuração → Usuários (coluna "Valida NF").');
     r = 'dashboard';
   }
   // Bloqueia por controle de acesso (Configuração → Usuários)
@@ -4751,6 +4751,55 @@ async function carregarUsuariosAcesso(){
   STATE.usuariosAcesso = data || [];
   const el = document.getElementById('usuarios-tabela');
   if (el) el.innerHTML = renderUsuariosTabela();
+  // Situação do login (auth) — via função segura, só admin
+  try {
+    const { data: logins, error: e2 } = await sb.rpc('admin_listar_logins');
+    STATE.usuariosLogin = {};
+    if (!e2) (logins||[]).forEach(l=>{ STATE.usuariosLogin[l.email] = l; });
+  } catch(e){ STATE.usuariosLogin = {}; }
+  if (el) el.innerHTML = renderUsuariosTabela();
+}
+
+// ---- Senha / criação de login (via RPC admin_definir_senha, SECURITY DEFINER) ----
+function abrirModalSenha(email, criar){
+  const old = document.getElementById('modal-senha'); if (old) old.remove();
+  const div = document.createElement('div');
+  div.id = 'modal-senha';
+  div.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/60';
+  div.innerHTML = `
+    <div class="card p-6 w-full max-w-sm" onclick="event.stopPropagation()">
+      <h3 class="font-bold text-lg">${criar ? 'Criar login' : 'Definir nova senha'}</h3>
+      <div class="text-xs text-ink-400 mt-1 mb-4 break-all">${escapeHtml(email)}</div>
+      ${criar ? `<label class="text-xs text-ink-400">Nome</label><input id="senha-nome" class="input mt-1 mb-3" placeholder="Nome da pessoa" value="${escapeHtml(email.split('@')[0])}">` : ''}
+      <label class="text-xs text-ink-400">Senha (mín. 8 caracteres)</label>
+      <input id="senha-1" type="password" class="input mt-1 mb-3" autocomplete="new-password">
+      <label class="text-xs text-ink-400">Repetir senha</label>
+      <input id="senha-2" type="password" class="input mt-1" autocomplete="new-password">
+      <div id="senha-erro" class="text-xs text-red-400 mt-2 hidden"></div>
+      <div class="flex justify-end gap-2 mt-5">
+        <button class="btn-ghost" onclick="document.getElementById('modal-senha').remove()">Cancelar</button>
+        <button class="btn-primary" id="senha-ok" onclick="confirmarSenha('${email}', ${criar?'true':'false'})">${criar ? 'Criar' : 'Salvar senha'}</button>
+      </div>
+      <div class="text-[11px] text-ink-500 mt-4">A pessoa entra com esse e-mail e a senha definida aqui. Passe a senha por um canal seguro — ela não fica visível em lugar nenhum da plataforma.</div>
+    </div>`;
+  div.addEventListener('click', ()=>div.remove());
+  document.body.appendChild(div);
+  setTimeout(()=>document.getElementById(criar?'senha-nome':'senha-1')?.focus(), 50);
+}
+async function confirmarSenha(email, criar){
+  const s1 = document.getElementById('senha-1')?.value || '';
+  const s2 = document.getElementById('senha-2')?.value || '';
+  const nome = document.getElementById('senha-nome')?.value || null;
+  const erro = document.getElementById('senha-erro');
+  const mostrar = m => { erro.textContent = m; erro.classList.remove('hidden'); };
+  if (s1.length < 8) return mostrar('A senha precisa ter pelo menos 8 caracteres.');
+  if (s1 !== s2) return mostrar('As senhas não conferem.');
+  const btn = document.getElementById('senha-ok'); btn.disabled = true; btn.textContent = 'Salvando…';
+  const { data, error } = await sb.rpc('admin_definir_senha', { p_email: email, p_senha: s1, p_nome: nome });
+  if (error){ btn.disabled = false; btn.textContent = criar ? 'Criar' : 'Salvar senha'; return mostrar(error.message || 'Erro ao salvar.'); }
+  document.getElementById('modal-senha')?.remove();
+  alert(data && data.created ? `Login criado pra ${email}. Agora ajuste país e abas na linha dela e clique em Salvar.` : `Senha de ${email} atualizada.`);
+  await carregarUsuariosAcesso();
 }
 function renderUsuarios(){
   if (!isAdminAcesso()){
@@ -4763,7 +4812,7 @@ function renderUsuarios(){
         <div>
           <h2 class="text-lg font-bold">Usuários & Acessos</h2>
           <p class="text-sm text-ink-400 mt-1">Controle qual <b>unidade</b> (Brasil / Portugal) e quais <b>abas</b> cada usuário pode acessar. As mudanças valem no próximo login (ou ao recarregar a página).</p>
-          <p class="text-xs text-ink-500 mt-1">O login e senha continuam sendo criados no Supabase Auth — aqui só se define o que cada e-mail enxerga. Você pode cadastrar o e-mail antes mesmo de criar o login.</p>
+          <p class="text-xs text-ink-500 mt-1">Na coluna <b>Login</b> dá pra criar o login de quem ainda não tem (define a senha inicial) ou trocar a senha de alguém. Senha de administrador só o próprio troca.</p>
         </div>
         <div class="flex items-end gap-2">
           <div>
@@ -4791,6 +4840,8 @@ function renderUsuariosTabela(){
         ${th('Ativo','text-center')}
         ${th('🇧🇷 BR','text-center')}
         ${th('🇵🇹 PT','text-center')}
+        ${th('Valida NF','text-center')}
+        ${th('Login')}
         ${th('Todas as abas','text-center')}
         ${ABAS_DEF.map(a=>th(a.nome,'text-center')).join('')}
         ${th('')}
@@ -4810,6 +4861,15 @@ function renderUsuariosTabela(){
           <td class="px-3 py-2 text-center">${cb(u.ativo!==false, `setAcessoCampo(${i},'ativo',this.checked)`, ehEu)}</td>
           <td class="px-3 py-2 text-center">${cb((u.paises||[]).includes('BR'), `toggleAcessoPais(${i},'BR',this.checked)`)}</td>
           <td class="px-3 py-2 text-center">${cb((u.paises||[]).includes('PT'), `toggleAcessoPais(${i},'PT',this.checked)`)}</td>
+          <td class="px-3 py-2 text-center" title="Pode validar notas rápidas (aba Validar NF Rápida)">${cb(!!u.validador || EMAILS_VALIDADORES.includes(u.email), `setAcessoCampo(${i},'validador',this.checked)`, EMAILS_VALIDADORES.includes(u.email))}</td>
+          <td class="px-3 py-2 whitespace-nowrap">${(()=>{
+            const lg = (STATE.usuariosLogin||{})[u.email];
+            if (STATE.usuariosLogin == null) return '<span class="text-ink-500 text-xs">…</span>';
+            if (!lg) return `<span class="text-xs text-yellow-400">sem login</span> <button class="btn-ghost text-xs ml-1" onclick="abrirModalSenha('${u.email}', true)">Criar login</button>`;
+            const ult = lg.last_sign_in_at ? new Date(lg.last_sign_in_at).toLocaleDateString('pt-BR') : 'nunca entrou';
+            const podeSenha = !u.admin || ehEu;
+            return `<span class="text-xs text-green-400" title="Último acesso: ${ult}">ativo</span> ${podeSenha?`<button class="btn-ghost text-xs ml-1" onclick="abrirModalSenha('${u.email}', false)">Senha</button>`:''}`;
+          })()}</td>
           <td class="px-3 py-2 text-center bg-ink-900/30">${cb(todas, `toggleAcessoTodas(${i},this.checked)`)}</td>
           ${ABAS_DEF.map(a=>`<td class="px-3 py-2 text-center">${cb(todas || (u.abas||[]).includes(a.id), `toggleAcessoAba(${i},'${a.id}',this.checked)`, todas)}</td>`).join('')}
           <td class="px-3 py-2 text-right whitespace-nowrap">
@@ -4841,7 +4901,7 @@ function toggleAcessoAba(i,aba,on){
 async function salvarUsuarioAcesso(i){
   const u=STATE.usuariosAcesso[i];
   if (!(u.paises||[]).length && u.ativo!==false){ if(!confirm('Esse usuário ficou sem nenhuma unidade (BR/PT) — ele não vai conseguir usar a plataforma. Salvar mesmo assim?')) return; }
-  const payload={ email:u.email.toLowerCase(), nome:u.nome||null, paises:u.paises||[], abas:u.abas||[], admin:!!u.admin, ativo:u.ativo!==false, updated_at:new Date().toISOString() };
+  const payload={ email:u.email.toLowerCase(), nome:u.nome||null, paises:u.paises||[], abas:u.abas||[], admin:!!u.admin, ativo:u.ativo!==false, validador:!!u.validador, updated_at:new Date().toISOString() };
   const { error } = await sb.from('usuarios_acesso').upsert(payload, { onConflict:'email' });
   if (error){ alert('Erro ao salvar: '+error.message); return; }
   const b=document.getElementById('btn-salvar-user-'+i); if(b){ b.classList.remove('btn-primary'); b.classList.add('btn-ghost'); b.textContent='Salvo ✓'; setTimeout(()=>{ if(b) b.textContent='Salvar'; },1500); }
@@ -4873,7 +4933,12 @@ const EMAILS_VALIDADORES = [
 ];
 function usuarioPodeValidar(user){
   const u = user || STATE.currentUser;
-  return u && EMAILS_VALIDADORES.includes((u.email||'').toLowerCase());
+  if (!u) return false;
+  const email = (u.email||'').toLowerCase();
+  if (EMAILS_VALIDADORES.includes(email)) return true;
+  // Flag "Valida NF" definida em Configuração → Usuários (só vale pro usuário logado)
+  const a = STATE.acesso;
+  return !!(a && a.email === email && a.validador && a.ativo !== false);
 }
 
 // Modo produtor: user com raw_user_meta_data.only_notas = true fica preso na tela de nota rápida
@@ -5946,7 +6011,7 @@ function renderValidadorNotas(){
     return `<div class="max-w-xl mx-auto card p-8 text-center">
       <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2" class="mx-auto mb-3"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
       <div class="font-display font-bold text-lg">Acesso restrito</div>
-      <div class="text-sm text-ink-400 mt-1">Só os usuários <strong>financeiro@</strong>, <strong>daniel@</strong> e <strong>administracao@</strong> podem validar notas rápidas.</div>
+      <div class="text-sm text-ink-400 mt-1">Só usuários autorizados podem validar notas rápidas. Um administrador libera em <strong>Configuração → Usuários</strong> (coluna "Valida NF").</div>
     </div>`;
   }
   const naoValidados = (STATE.pagamentos||[]).filter(p => p.origem === 'nota_rapida' && !p.validado);
