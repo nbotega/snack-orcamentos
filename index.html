@@ -5030,8 +5030,12 @@ function renderNotaRapida(){
 
     <!-- DESCRIÇÃO -->
     <div>
-      <label class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold mb-2 block">O que é <span class="text-ink-500 normal-case font-normal ml-1">(descrição curta)</span></label>
-      <input id="nota-descricao" type="text" class="input text-base py-3" placeholder="Ex: peruca produção, catering dia 2, gasolina">
+      <label class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold mb-2 block">O que é</label>
+      <div class="grid grid-cols-2 gap-3" id="nota-oque-btns">
+        <button type="button" class="nota-btn-cat" data-val="Verba de Produção" onclick="escolherOQueE(this)" style="--sel-cor:#FF5722;--sel-bg:rgba(255,87,34,.15)">Verba de Produção</button>
+        <button type="button" class="nota-btn-cat" data-val="Alimentação" onclick="escolherOQueE(this)" style="--sel-cor:#4ADE80;--sel-bg:rgba(74,222,128,.15)">Alimentação</button>
+      </div>
+      <input id="nota-descricao" type="hidden" value="">
     </div>
 
     <!-- FINAL DO CARTÃO -->
@@ -5063,6 +5067,10 @@ function renderNotaRapida(){
   `;
 }
 
+function escolherOQueE(btn){
+  document.querySelectorAll('#nota-oque-btns .nota-btn-cat').forEach(b=>b.classList.toggle('sel', b===btn));
+  const inp = document.getElementById('nota-descricao'); if (inp) inp.value = btn.dataset.val || '';
+}
 function bindNotaRapida(){
   document.body.classList.add('modo-nota-rapida');
   setTimeout(aplicarBRLEmTodos, 0);
@@ -5199,7 +5207,7 @@ async function salvarNotaRapida(){
 
   if (!orcId){ alert('Escolhe o projeto (ID) primeiro.'); return; }
   if (!valor || valor <= 0){ alert('Coloca o valor da nota.'); return; }
-  if (!descricao){ alert('Descreve rapidinho o que é (ex: peruca produção).'); return; }
+  if (!descricao){ alert('Escolhe o que é: Verba de Produção ou Alimentação.'); return; }
   if (finalCartao && finalCartao.length !== 4){ alert('Final do cartão precisa ter 4 dígitos ou ficar em branco.'); return; }
 
   const btn = document.getElementById('nota-salvar-btn');
@@ -6018,6 +6026,8 @@ function renderValidadorNotas(){
   // atualiza badge da sidebar
   const badge = document.getElementById('nav-valid-count');
   if (badge) badge.textContent = naoValidados.length;
+  if (!STATE.validadorAba) STATE.validadorAba = 'pendentes';
+  if (STATE.validadorAba === 'validadas') return renderValidadasNotas(naoValidados.length);
   const orcById = Object.fromEntries((STATE.orcamentos||[]).map(o=>[String(o.id), o]));
   // Ordena por data_compra desc
   naoValidados.sort((a,b)=> String(b.data_compra||b.data_pagamento||'').localeCompare(String(a.data_compra||a.data_pagamento||'')));
@@ -6032,6 +6042,8 @@ function renderValidadorNotas(){
         <div class="text-sm text-ink-400">Bate cada lançamento da Nota Rápida contra a fatura do cartão. Depois de validado, entra em <strong class="text-green-400">Pago</strong> no custo do job.</div>
       </div>
       <div class="flex items-center gap-2 flex-wrap">
+        ${abasValidadorHTML(naoValidados.length)}
+        <button class="btn btn-ghost text-sm" onclick="exportarCSVValidador()" title="Exporta as linhas visíveis (com filtros) em CSV">⬇ CSV</button>
         <input id="valid-busca" type="text" placeholder="Buscar ID, cliente, cartão…" class="input py-2 text-sm" style="min-width:220px" oninput="filtrarValidador(this.value)">
         <input id="valid-cartao-filtro" type="text" placeholder="Só cartão XXXX" maxlength="4" inputmode="numeric" class="input py-2 text-sm font-mono" style="width:130px" oninput="filtrarValidador()">
         <input id="valid-de" type="date" class="input py-2 text-sm" title="Compra a partir de" oninput="filtrarValidador()">
@@ -6068,7 +6080,7 @@ function renderValidadorNotas(){
             const orc = orcById[String(p.orcamento_id)];
             const cliente = orc ? escapeHtml(orc.cliente || '—') + (orc.projeto ? ' · ' + escapeHtml(orc.projeto) : '') : '<span class="text-yellow-400">⚠ não encontrado</span>';
             return `
-              <tr class="border-t border-white/5 hover:bg-white/5" data-cli="${(orc?.cliente||'').toLowerCase()}" data-jid="${String(p.orcamento_id).toLowerCase()}" data-cartao="${p.final_cartao||''}" data-dc="${p.data_compra||''}">
+              <tr class="border-t border-white/5 hover:bg-white/5" data-cli="${(orc?.cliente||'').toLowerCase()}" data-jid="${String(p.orcamento_id).toLowerCase()}" data-cartao="${p.final_cartao||''}" data-dc="${p.data_compra||''}" data-pid="${p.id}">
                 <td class="p-3"><input type="checkbox" class="chk-validar" data-pid="${p.id}"></td>
                 <td class="p-3 font-mono font-bold text-laranja">${escapeHtml(String(p.orcamento_id))}</td>
                 <td class="p-3">${cliente}</td>
@@ -6093,6 +6105,132 @@ function renderValidadorNotas(){
     </div>
   </div>
   `;
+}
+
+function abasValidadorHTML(nPend){
+  const aba = STATE.validadorAba || 'pendentes';
+  const nVal = (STATE.pagamentos||[]).filter(p => p.origem === 'nota_rapida' && p.validado).length;
+  const b = (id, txt) => `<button class="px-3 py-1.5 rounded-lg text-xs font-semibold transition ${aba===id?'bg-white/10 text-white':'text-ink-400 hover:text-white'}" onclick="STATE.validadorAba='${id}'; render();">${txt}</button>`;
+  return `<div class="flex items-center gap-1 bg-ink-900 rounded-lg p-1 mr-2">${b('pendentes', `Pendentes <span class="ml-1 badge-num" style="background:#EAB308;color:#000">${nPend}</span>`)}${b('validadas', `Validadas <span class="ml-1 badge-num" style="background:#22c55e;color:#000">${nVal}</span>`)}</div>`;
+}
+
+function renderValidadasNotas(nPend){
+  const validados = (STATE.pagamentos||[]).filter(p => p.origem === 'nota_rapida' && p.validado);
+  const orcById = Object.fromEntries((STATE.orcamentos||[]).map(o=>[String(o.id), o]));
+  validados.sort((a,b)=> String(b.validado_em||'').localeCompare(String(a.validado_em||'')));
+  const total = validados.reduce((s,p)=>s + Number(p.valor||0), 0);
+  const mesAtual = new Date().toISOString().slice(0,7);
+  const noMes = validados.filter(p => String(p.validado_em||'').slice(0,7) === mesAtual);
+  const totalMes = noMes.reduce((s,p)=>s + Number(p.valor||0), 0);
+  const quem = p => p.validado_por_email ? escapeHtml(p.validado_por_email.split('@')[0]) : '<span class="text-ink-600">—</span>';
+  return `
+  <div class="max-w-full space-y-5 fade-in">
+    <div class="flex items-center justify-between gap-4 flex-wrap">
+      <div>
+        <h1 class="font-display font-bold text-2xl">Validar NF Rápida</h1>
+        <div class="text-sm text-ink-400">Histórico do que já foi validado (já está em <strong class="text-green-400">Pago</strong> no custo do job). Dá pra desfazer uma validação se bateu errado.</div>
+      </div>
+      <div class="flex items-center gap-2 flex-wrap">
+        ${abasValidadorHTML(nPend)}
+        <button class="btn btn-ghost text-sm" onclick="exportarCSVValidador()" title="Exporta as linhas visíveis (com filtros) em CSV">⬇ CSV</button>
+        <input id="valid-busca" type="text" placeholder="Buscar ID, cliente, cartão…" class="input py-2 text-sm" style="min-width:220px" oninput="filtrarValidador(this.value)">
+        <input id="valid-cartao-filtro" type="text" placeholder="Só cartão XXXX" maxlength="4" inputmode="numeric" class="input py-2 text-sm font-mono" style="width:130px" oninput="filtrarValidador()">
+        <input id="valid-de" type="date" class="input py-2 text-sm" title="Compra a partir de" oninput="filtrarValidador()">
+        <input id="valid-ate" type="date" class="input py-2 text-sm" title="Compra até" oninput="filtrarValidador()">
+      </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <div class="card p-4"><div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Validadas (total)</div><div class="font-display font-bold text-2xl mt-1 text-green-400">${validados.length}</div><div class="text-xs text-ink-300 mt-1">lançamento${validados.length===1?'':'s'}</div></div>
+      <div class="card p-4"><div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Valor validado (total)</div><div class="font-display font-bold text-2xl mt-1">${fmtMoeda(total,2)}</div></div>
+      <div class="card p-4"><div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Validado neste mês</div><div class="font-display font-bold text-2xl mt-1">${fmtMoeda(totalMes,2)}</div><div class="text-xs text-ink-300 mt-1">${noMes.length} lançamento${noMes.length===1?'':'s'}</div></div>
+    </div>
+
+    <div class="card p-0 overflow-hidden">
+      ${validados.length === 0 ? '<div class="p-10 text-center text-ink-400">Nenhuma nota validada ainda.</div>' :
+      `<div class="overflow-x-auto"><table class="w-full text-sm" id="tabela-validador">
+        <thead class="bg-white/5">
+          <tr class="text-[10px] uppercase tracking-widest text-ink-400 text-left">
+            <th class="p-3">ID Job</th>
+            <th class="p-3">Cliente</th>
+            <th class="p-3">Final cartão</th>
+            <th class="p-3 text-right">Valor</th>
+            <th class="p-3">Data compra</th>
+            <th class="p-3">O que é</th>
+            <th class="p-3">OBS</th>
+            <th class="p-3">Anexo</th>
+            <th class="p-3">Validado em</th>
+            <th class="p-3">Por</th>
+            <th class="p-3 text-center">Ações</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${validados.map(p => {
+            const orc = orcById[String(p.orcamento_id)];
+            const cliente = orc ? escapeHtml(orc.cliente || '—') + (orc.projeto ? ' · ' + escapeHtml(orc.projeto) : '') : '<span class="text-yellow-400">⚠ não encontrado</span>';
+            const vem = p.validado_em ? new Date(p.validado_em).toLocaleString('pt-BR', {day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'}) : '—';
+            return `
+              <tr class="border-t border-white/5 hover:bg-white/5" data-cli="${(orc?.cliente||'').toLowerCase()}" data-jid="${String(p.orcamento_id).toLowerCase()}" data-cartao="${p.final_cartao||''}" data-dc="${p.data_compra||''}" data-pid="${p.id}">
+                <td class="p-3 font-mono font-bold text-laranja">${escapeHtml(String(p.orcamento_id))}</td>
+                <td class="p-3">${cliente}</td>
+                <td class="p-3 font-mono text-center ${p.final_cartao?'':'text-ink-600'}">${p.final_cartao ? '••••'+p.final_cartao : '—'}</td>
+                <td class="p-3 text-right font-bold tabular-nums">${fmtMoeda(p.valor, 2)}</td>
+                <td class="p-3 tabular-nums whitespace-nowrap">${p.data_compra ? fmtData(p.data_compra) : '<span class="text-ink-600">—</span>'}</td>
+                <td class="p-3 max-w-[220px] truncate" title="${escapeHtml(p.descricao||'')}">${escapeHtml(p.descricao||'—')}</td>
+                <td class="p-3 max-w-[160px] truncate text-ink-300 text-xs" title="${escapeHtml(p.obs||'')}">${escapeHtml(p.obs||'—')}</td>
+                <td class="p-3 text-center">${p.anexo_url ? `<button onclick="baixarAnexo('${p.anexo_url}')" class="text-azul-400 hover:text-azul" title="Abrir anexo"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></button>` : '<span class="text-ink-600">—</span>'}</td>
+                <td class="p-3 tabular-nums whitespace-nowrap text-green-400">${vem}</td>
+                <td class="p-3 text-xs text-ink-300">${quem(p)}</td>
+                <td class="p-3 text-center"><button onclick="desfazerValidacao('${p.id}')" class="px-2.5 py-1 rounded-md text-yellow-400 hover:bg-yellow-500/15 text-xs font-semibold" title="Volta pra pendente (sai de Pago)">↩ Desfazer</button></td>
+              </tr>`;
+          }).join('')}
+        </tbody>
+      </table></div>`}
+    </div>
+  </div>`;
+}
+
+async function desfazerValidacao(id){
+  if (!confirm('Desfazer a validação? O lançamento volta pra "Pendentes" e sai de Pago no custo do job.')) return;
+  try {
+    const { error } = await sb.from('pagamentos').update({ validado: false, validado_em: null, validado_por: null, validado_por_email: null, status: 'A pagar', updated_at: new Date().toISOString() }).eq('id', id);
+    if (error) throw error;
+    await carregarPagamentos();
+    render();
+  } catch(e){ alert('Erro: '+e.message); }
+}
+
+function exportarCSVValidador(){
+  const aba = STATE.validadorAba || 'pendentes';
+  const visiveis = new Set([...document.querySelectorAll('#tabela-validador tbody tr')].filter(tr => tr.style.display !== 'none').map(tr => tr.dataset.pid || tr.querySelector('.chk-validar')?.dataset.pid));
+  const lista = (STATE.pagamentos||[]).filter(p => p.origem === 'nota_rapida' && (aba === 'validadas' ? p.validado : !p.validado) && visiveis.has(String(p.id)));
+  if (!lista.length){ alert('Nada pra exportar com os filtros atuais.'); return; }
+  const orcById = Object.fromEntries((STATE.orcamentos||[]).map(o=>[String(o.id), o]));
+  const dec = v => (Number(v)||0).toFixed(2).replace('.', ',');
+  const rows = [['ID Job','Cliente','Projeto','Final cartao','Valor','Data compra','Data lancamento','O que e','OBS','Anexo','Situacao','Validado em','Validado por','Moeda']];
+  lista.forEach(p => {
+    const orc = orcById[String(p.orcamento_id)] || {};
+    rows.push([
+      p.orcamento_id, orc.cliente||'', orc.projeto||'', p.final_cartao||'', dec(p.valor),
+      p.data_compra ? fmtData(p.data_compra) : '', p.data_pagamento ? fmtData(p.data_pagamento) : '',
+      p.descricao||'', p.obs||'', p.anexo_url ? 'sim' : 'nao',
+      p.validado ? 'Validado' : 'Nao validado',
+      p.validado_em ? new Date(p.validado_em).toLocaleString('pt-BR') : '', p.validado_por_email||'',
+      STATE.pais === 'PT' ? 'EUR' : 'BRL'
+    ]);
+  });
+  rows.push(['TOTAL','','','', dec(lista.reduce((s,p)=>s+Number(p.valor||0),0)), '', '', '', '', '', '', '', '', '']);
+  const csv = rows.map(r=>r.map(v=>{
+    const x = String(v==null?'':v);
+    return x.includes(';')||x.includes(',')||x.includes('\n')||x.includes('"') ? '"'+x.replace(/"/g,'""')+'"' : x;
+  }).join(';')).join('\n');
+  const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `nf_rapida_${aba}_${new Date().toISOString().slice(0,10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 function filtrarValidador(){
@@ -6128,6 +6266,7 @@ async function validarNota(id){
       validado: true,
       validado_em: new Date().toISOString(),
       validado_por: user?.id || null,
+      validado_por_email: user?.email || null,
       status: 'Pago',
       updated_at: new Date().toISOString()
     }).eq('id', id);
@@ -6143,7 +6282,7 @@ async function validarSelecionadas(){
   if (!confirm(`Validar ${ids.length} lançamento${ids.length===1?'':'s'}? Vão pra "Pago" no custo do job.`)) return;
   try {
     const { data: { user } } = await sb.auth.getUser();
-    const payload = { validado: true, validado_em: new Date().toISOString(), validado_por: user?.id || null, status: 'Pago', updated_at: new Date().toISOString() };
+    const payload = { validado: true, validado_em: new Date().toISOString(), validado_por: user?.id || null, validado_por_email: user?.email || null, status: 'Pago', updated_at: new Date().toISOString() };
     const { error } = await sb.from('pagamentos').update(payload).in('id', ids);
     if (error) throw error;
     await carregarPagamentos();
