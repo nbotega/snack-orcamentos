@@ -773,7 +773,7 @@ const VIEW_TITLES = {
   'nota-rapida':'Nota Rápida',
   'relatorio-mensal':'Relatório de Custos',
   'backlog':'Backlog de Faturamento',
-  'usuarios':'Usuários & Acessos', realizado:'Realizado × Orçado', validador:'Validar NF Rápida'
+  'usuarios':'Usuários & Acessos', realizado:'Realizado × Orçado', validador:'Validar NF Rápida', anexo:'Anexo'
 };
 
 function navigate(r, ctx) {
@@ -836,6 +836,7 @@ function render() {
   else if (r==='cargos') el.innerHTML = renderCargos();
   else if (r==='tipos') el.innerHTML = renderTipos();
   else if (r==='usuarios') { el.innerHTML = renderUsuarios(); carregarUsuariosAcesso(); }
+  else if (r==='anexo') el.innerHTML = renderAnexoView();
   // Aplica formatação BRL em todos inputs marcados depois do render
   aplicarBRLEmTodos();
 }
@@ -922,6 +923,8 @@ async function bootAuth(){
       const hashRota = (location.hash||'').replace(/^#\/?/, '');
       if (usuarioSoNotaRapida(session.user) || hashRota === 'nota-rapida'){
         STATE.route = 'nota-rapida'; render();
+      } else if (hashRota.startsWith('anexo/')){
+        navigate('anexo', hashRota.slice(6));
       }
     }
   } catch(e){
@@ -4683,7 +4686,7 @@ const ABAS_DEF = [
   {id:'tipos', nome:'Tipos de Orçamento'}
 ];
 // Sub-rotas herdam a permissão da aba "pai"
-const ABA_PAI = { detalhe:'orcamentos', carta:'orcamentos', cliente:'clientes' };
+const ABA_PAI = { detalhe:'orcamentos', carta:'orcamentos', cliente:'clientes', anexo:'validador' };
 STATE.acesso = null; // registro do usuário logado
 STATE.usuariosAcesso = []; // lista (só admin)
 
@@ -4973,10 +4976,14 @@ function renderNotaRapida(){
   <div class="max-w-lg mx-auto space-y-5 fade-in pb-8">
     <div class="flex items-center gap-3 mb-2">
       <div class="w-12 h-12 rounded-2xl grad-snack flex items-center justify-center text-white font-black text-lg glow-orange">S</div>
-      <div>
+      <div class="flex-1">
         <div class="font-display font-bold text-xl">Nota rápida</div>
         <div class="text-xs text-ink-400">Registre uma nota da produção em campo</div>
       </div>
+      <button class="btn btn-ghost text-xs py-1.5 px-3" onclick="logout()" title="Sair da plataforma">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Sair
+      </button>
     </div>
 
     ${conf ? `<div class="rounded-xl p-4 border border-green-500/40 bg-green-500/10 mb-3 fade-in">
@@ -4992,7 +4999,7 @@ function renderNotaRapida(){
 
     <!-- FOTO -->
     <div>
-      <label class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold mb-2 block">📸 Foto da nota</label>
+      <label class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold mb-2 block">📸 Foto da nota <span class="text-laranja normal-case font-normal ml-1">(obrigatória)</span></label>
       <div id="nota-photo-container">
         <div class="grid grid-cols-2 gap-2">
           <label class="nota-photo-btn block">
@@ -5208,6 +5215,7 @@ async function salvarNotaRapida(){
   if (!orcId){ alert('Escolhe o projeto (ID) primeiro.'); return; }
   if (!valor || valor <= 0){ alert('Coloca o valor da nota.'); return; }
   if (!descricao){ alert('Escolhe o que é: Verba de Produção ou Alimentação.'); return; }
+  if (!arquivo){ alert('Anexa a foto ou o arquivo da nota antes de salvar — é obrigatório.'); return; }
   if (finalCartao && finalCartao.length !== 4){ alert('Final do cartão precisa ter 4 dígitos ou ficar em branco.'); return; }
 
   const btn = document.getElementById('nota-salvar-btn');
@@ -6094,6 +6102,7 @@ function renderValidadorNotas(){
                 <td class="p-3">
                   <div class="flex items-center gap-1 justify-center">
                     <button onclick="validarNota('${p.id}')" class="px-2.5 py-1 rounded-md bg-green-500/15 text-green-400 hover:bg-green-500/25 text-xs font-semibold" title="Validar (bate com fatura)">✓ Validar</button>
+                    <button onclick="abrirEdicaoNota('${p.id}')" class="px-2 py-1 rounded-md text-azul-400 hover:bg-azul/15 text-xs" title="Editar dados do lançamento (só pendente)">✎</button>
                     <button onclick="rejeitarNota('${p.id}')" class="px-2 py-1 rounded-md text-red-400 hover:bg-red-500/15 text-xs" title="Deletar (nota errada/duplicada)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg></button>
                   </div>
                 </td>
@@ -6190,6 +6199,109 @@ function renderValidadasNotas(nPend){
   </div>`;
 }
 
+// ---- Edição de lançamento pendente (só quem valida NF; item validado não edita) ----
+function abrirEdicaoNota(id){
+  if (!usuarioPodeValidar()) { alert('Só quem valida NF pode editar lançamentos.'); return; }
+  const p = (STATE.pagamentos||[]).find(x => String(x.id) === String(id));
+  if (!p) return;
+  if (p.validado){ alert('Lançamento já validado não pode ser editado. Desfaça a validação primeiro.'); return; }
+  const aprovados = (STATE.orcamentos||[]).filter(o=>o.status==='Aprovada').sort((a,b)=>String(a.cliente).localeCompare(String(b.cliente)));
+  const old = document.getElementById('modal-edit-nota'); if (old) old.remove();
+  const div = document.createElement('div');
+  div.id = 'modal-edit-nota';
+  div.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4';
+  const opcoesOQue = ['Verba de Produção','Alimentação'];
+  const descAtual = p.descricao || '';
+  const descNaLista = opcoesOQue.includes(descAtual);
+  div.innerHTML = `
+    <div class="card p-6 w-full max-w-lg max-h-[92vh] overflow-y-auto" onclick="event.stopPropagation()">
+      <h3 class="font-bold text-lg">Editar lançamento</h3>
+      <div class="text-xs text-ink-400 mt-1 mb-4">Pendente de validação · registrado em ${fmtData(p.data_pagamento)}</div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div class="md:col-span-2">
+          <label class="text-xs text-ink-400">Projeto (ID)</label>
+          <select id="en-orc" class="input mt-1">
+            ${aprovados.map(o=>`<option value="${o.id}" ${String(o.id)===String(p.orcamento_id)?'selected':''}>${escapeHtml(o.id)} · ${escapeHtml(o.cliente||'')}${o.projeto?' · '+escapeHtml(o.projeto):''}</option>`).join('')}
+            ${aprovados.some(o=>String(o.id)===String(p.orcamento_id))?'':`<option value="${escapeHtml(String(p.orcamento_id))}" selected>${escapeHtml(String(p.orcamento_id))} (atual)</option>`}
+          </select>
+        </div>
+        <div>
+          <label class="text-xs text-ink-400">Valor</label>
+          <input id="en-valor" type="text" inputmode="decimal" class="input mt-1" value="${fmtNumBR(p.valor,2)}">
+        </div>
+        <div>
+          <label class="text-xs text-ink-400">Data da compra</label>
+          <input id="en-data" type="date" class="input mt-1" value="${p.data_compra||''}">
+        </div>
+        <div>
+          <label class="text-xs text-ink-400">O que é</label>
+          <select id="en-desc" class="input mt-1">
+            ${opcoesOQue.map(o=>`<option ${o===descAtual?'selected':''}>${o}</option>`).join('')}
+            ${descNaLista||!descAtual?'':`<option selected>${escapeHtml(descAtual)}</option>`}
+          </select>
+        </div>
+        <div>
+          <label class="text-xs text-ink-400">Final do cartão</label>
+          <input id="en-cartao" type="text" inputmode="numeric" maxlength="4" class="input mt-1 font-mono" value="${p.final_cartao||''}" placeholder="0000">
+        </div>
+        <div class="md:col-span-2">
+          <label class="text-xs text-ink-400">OBS</label>
+          <textarea id="en-obs" rows="2" class="input mt-1">${escapeHtml(p.obs||'')}</textarea>
+        </div>
+        <div class="md:col-span-2">
+          <label class="text-xs text-ink-400">Anexo</label>
+          <div class="flex items-center gap-2 mt-1 flex-wrap">
+            ${p.anexo_url ? `<button class="btn btn-ghost text-xs" onclick="baixarAnexo('${p.anexo_url}')">Ver anexo atual</button>` : '<span class="text-xs text-yellow-400">sem anexo</span>'}
+            <label class="btn btn-ghost text-xs cursor-pointer">Substituir arquivo<input id="en-arquivo" type="file" accept="image/*,application/pdf" class="hidden" onchange="document.getElementById('en-arquivo-nome').textContent=this.files[0]?this.files[0].name:''"></label>
+            <span id="en-arquivo-nome" class="text-xs text-ink-300"></span>
+          </div>
+        </div>
+      </div>
+      <div id="en-erro" class="text-xs text-red-400 mt-2 hidden"></div>
+      <div class="flex justify-end gap-2 mt-5">
+        <button class="btn-ghost" onclick="document.getElementById('modal-edit-nota').remove()">Cancelar</button>
+        <button class="btn-primary" id="en-ok" onclick="salvarEdicaoNota('${p.id}')">Salvar</button>
+      </div>
+    </div>`;
+  div.addEventListener('click', ()=>div.remove());
+  document.body.appendChild(div);
+}
+async function salvarEdicaoNota(id){
+  const p = (STATE.pagamentos||[]).find(x => String(x.id) === String(id));
+  if (!p || p.validado) return;
+  const erro = document.getElementById('en-erro');
+  const mostrar = m => { erro.textContent = m; erro.classList.remove('hidden'); };
+  const orcId = document.getElementById('en-orc').value;
+  const valorStr = (document.getElementById('en-valor').value||'').replace(/\./g,'').replace(',','.');
+  const valor = parseFloat(valorStr);
+  const dataCompra = document.getElementById('en-data').value || null;
+  const descricao = document.getElementById('en-desc').value;
+  const finalCartao = (document.getElementById('en-cartao').value||'').replace(/\D/g,'').slice(0,4);
+  const obs = (document.getElementById('en-obs').value||'').trim();
+  const arquivo = document.getElementById('en-arquivo')?.files?.[0];
+  if (!orcId) return mostrar('Escolhe o projeto.');
+  if (!valor || valor <= 0) return mostrar('Valor inválido.');
+  if (finalCartao && finalCartao.length !== 4) return mostrar('Final do cartão precisa ter 4 dígitos ou ficar em branco.');
+  const btn = document.getElementById('en-ok'); btn.disabled = true; btn.textContent = 'Salvando…';
+  try {
+    let anexoPath = p.anexo_url || null;
+    if (arquivo){
+      const nomeArquivo = `${orcId}/${Date.now()}_${arquivo.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
+      const { error: upErr } = await sb.storage.from('comprovantes').upload(nomeArquivo, arquivo);
+      if (upErr) throw upErr;
+      anexoPath = nomeArquivo;
+    }
+    const { data: { user } } = await sb.auth.getUser();
+    const payload = { orcamento_id: orcId, valor, data_compra: dataCompra, descricao, final_cartao: finalCartao || null, obs: obs || null, anexo_url: anexoPath, updated_at: new Date().toISOString() };
+    const { error } = await sb.from('pagamentos').update(payload).eq('id', id).eq('validado', false);
+    if (error) throw error;
+    try { await sb.from('usuarios_auditoria').insert({ acao: 'edit_nota_rapida', alvo: String(id), por: (user?.email||'').toLowerCase() }); } catch(e){}
+    document.getElementById('modal-edit-nota')?.remove();
+    await carregarPagamentos();
+    render();
+  } catch(e){ btn.disabled = false; btn.textContent = 'Salvar'; mostrar('Erro: ' + (e.message||e)); }
+}
+
 async function desfazerValidacao(id){
   if (!confirm('Desfazer a validação? O lançamento volta pra "Pendentes" e sai de Pago no custo do job.')) return;
   try {
@@ -6200,6 +6312,27 @@ async function desfazerValidacao(id){
   } catch(e){ alert('Erro: '+e.message); }
 }
 
+// Link permanente do anexo: abre a plataforma (exige login) e baixa o arquivo com URL assinada
+function linkAnexoPlataforma(pagamentoId){
+  return `${location.origin}${location.pathname}#/anexo/${pagamentoId}`;
+}
+function renderAnexoView(){
+  if (!usuarioPodeValidar()) return `<div class="max-w-md mx-auto card p-8 text-center"><div class="font-bold">Acesso restrito</div><div class="text-sm text-ink-400 mt-1">Só quem valida NF Rápida pode abrir anexos por link.</div></div>`;
+  const id = STATE.ctx;
+  const p = (STATE.pagamentos||[]).find(x => String(x.id) === String(id));
+  if (!p) return `<div class="max-w-md mx-auto card p-8 text-center"><div class="font-bold">Lançamento não encontrado</div><div class="text-sm text-ink-400 mt-1">Confira se está no país certo (BR/PT) e se o lançamento ainda existe.</div><button class="btn btn-ghost mt-4" onclick="navigate('validador')">Ir pro Validador</button></div>`;
+  if (!p.anexo_url) return `<div class="max-w-md mx-auto card p-8 text-center"><div class="font-bold">Esse lançamento não tem anexo</div><button class="btn btn-ghost mt-4" onclick="navigate('validador')">Ir pro Validador</button></div>`;
+  const orc = (STATE.orcamentos||[]).find(o => String(o.id) === String(p.orcamento_id));
+  return `<div class="max-w-md mx-auto card p-8 text-center space-y-3">
+    <div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">Anexo da nota rápida</div>
+    <div class="font-display font-bold text-lg">${escapeHtml(String(p.orcamento_id))} · ${escapeHtml(orc?.cliente||'')}</div>
+    <div class="text-sm text-ink-300">${escapeHtml(p.descricao||'')} · ${fmtMoeda(p.valor,2)} · ${p.data_compra ? fmtData(p.data_compra) : ''}</div>
+    <button class="btn btn-primary w-full justify-center mt-2" onclick="baixarAnexo('${p.anexo_url}')">Abrir anexo</button>
+    <button class="btn btn-ghost w-full justify-center" onclick="navigate('validador')">Ir pro Validador</button>
+    <div class="text-[11px] text-ink-500">O arquivo abre numa aba nova com link válido por 5 minutos.</div>
+  </div>`;
+}
+
 function exportarCSVValidador(){
   const aba = STATE.validadorAba || 'pendentes';
   const visiveis = new Set([...document.querySelectorAll('#tabela-validador tbody tr')].filter(tr => tr.style.display !== 'none').map(tr => tr.dataset.pid || tr.querySelector('.chk-validar')?.dataset.pid));
@@ -6207,19 +6340,20 @@ function exportarCSVValidador(){
   if (!lista.length){ alert('Nada pra exportar com os filtros atuais.'); return; }
   const orcById = Object.fromEntries((STATE.orcamentos||[]).map(o=>[String(o.id), o]));
   const dec = v => (Number(v)||0).toFixed(2).replace('.', ',');
-  const rows = [['ID Job','Cliente','Projeto','Final cartao','Valor','Data compra','Data lancamento','O que e','OBS','Anexo','Situacao','Validado em','Validado por','Moeda']];
+  const rows = [['ID Job','Cliente','Projeto','Final cartao','Valor','Data compra','Data lancamento','O que e','OBS','Anexo','Link anexo','Situacao','Validado em','Validado por','Moeda']];
   lista.forEach(p => {
     const orc = orcById[String(p.orcamento_id)] || {};
     rows.push([
       p.orcamento_id, orc.cliente||'', orc.projeto||'', p.final_cartao||'', dec(p.valor),
       p.data_compra ? fmtData(p.data_compra) : '', p.data_pagamento ? fmtData(p.data_pagamento) : '',
       p.descricao||'', p.obs||'', p.anexo_url ? 'sim' : 'nao',
+      p.anexo_url ? linkAnexoPlataforma(p.id) : '',
       p.validado ? 'Validado' : 'Nao validado',
       p.validado_em ? new Date(p.validado_em).toLocaleString('pt-BR') : '', p.validado_por_email||'',
       STATE.pais === 'PT' ? 'EUR' : 'BRL'
     ]);
   });
-  rows.push(['TOTAL','','','', dec(lista.reduce((s,p)=>s+Number(p.valor||0),0)), '', '', '', '', '', '', '', '', '']);
+  rows.push(['TOTAL','','','', dec(lista.reduce((s,p)=>s+Number(p.valor||0),0)), '', '', '', '', '', '', '', '', '', '']);
   const csv = rows.map(r=>r.map(v=>{
     const x = String(v==null?'':v);
     return x.includes(';')||x.includes(',')||x.includes('\n')||x.includes('"') ? '"'+x.replace(/"/g,'""')+'"' : x;
