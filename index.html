@@ -6333,27 +6333,40 @@ function renderAnexoView(){
   </div>`;
 }
 
-function exportarCSVValidador(){
+const CSV_ANEXO_VALIDADE_DIAS = 7; // validade dos links assinados do Supabase no CSV
+
+async function exportarCSVValidador(){
   const aba = STATE.validadorAba || 'pendentes';
   const visiveis = new Set([...document.querySelectorAll('#tabela-validador tbody tr')].filter(tr => tr.style.display !== 'none').map(tr => tr.dataset.pid || tr.querySelector('.chk-validar')?.dataset.pid));
   const lista = (STATE.pagamentos||[]).filter(p => p.origem === 'nota_rapida' && (aba === 'validadas' ? p.validado : !p.validado) && visiveis.has(String(p.id)));
   if (!lista.length){ alert('Nada pra exportar com os filtros atuais.'); return; }
   const orcById = Object.fromEntries((STATE.orcamentos||[]).map(o=>[String(o.id), o]));
   const dec = v => (Number(v)||0).toFixed(2).replace('.', ',');
-  const rows = [['ID Job','Cliente','Projeto','Final cartao','Valor','Data compra','Data lancamento','O que e','OBS','Anexo','Link anexo','Situacao','Validado em','Validado por','Moeda']];
+  // Links diretos do Supabase (assinados, validade limitada) pra cada anexo
+  const linkDireto = {};
+  const paths = [...new Set(lista.filter(p=>p.anexo_url).map(p=>p.anexo_url))];
+  if (paths.length){
+    try {
+      const { data, error } = await sb.storage.from('comprovantes').createSignedUrls(paths, CSV_ANEXO_VALIDADE_DIAS*24*3600);
+      if (error) throw error;
+      (data||[]).forEach(r => { if (r.signedUrl) linkDireto[r.path] = r.signedUrl; });
+    } catch(e){ console.warn('links assinados:', e); alert('Não consegui gerar os links diretos dos anexos (' + (e.message||e) + '). O CSV sai só com o link da plataforma.'); }
+  }
+  const rows = [['ID Job','Cliente','Projeto','Final cartao','Valor','Data compra','Data lancamento','O que e','OBS','Anexo',`Link anexo (Supabase, valido ${CSV_ANEXO_VALIDADE_DIAS} dias)`,'Link anexo (plataforma)','Situacao','Validado em','Validado por','Moeda']];
   lista.forEach(p => {
     const orc = orcById[String(p.orcamento_id)] || {};
     rows.push([
       p.orcamento_id, orc.cliente||'', orc.projeto||'', p.final_cartao||'', dec(p.valor),
       p.data_compra ? fmtData(p.data_compra) : '', p.data_pagamento ? fmtData(p.data_pagamento) : '',
       p.descricao||'', p.obs||'', p.anexo_url ? 'sim' : 'nao',
+      p.anexo_url ? (linkDireto[p.anexo_url] || '') : '',
       p.anexo_url ? linkAnexoPlataforma(p.id) : '',
       p.validado ? 'Validado' : 'Nao validado',
       p.validado_em ? new Date(p.validado_em).toLocaleString('pt-BR') : '', p.validado_por_email||'',
       STATE.pais === 'PT' ? 'EUR' : 'BRL'
     ]);
   });
-  rows.push(['TOTAL','','','', dec(lista.reduce((s,p)=>s+Number(p.valor||0),0)), '', '', '', '', '', '', '', '', '', '']);
+  rows.push(['TOTAL','','','', dec(lista.reduce((s,p)=>s+Number(p.valor||0),0)), '', '', '', '', '', '', '', '', '', '', '']);
   const csv = rows.map(r=>r.map(v=>{
     const x = String(v==null?'':v);
     return x.includes(';')||x.includes(',')||x.includes('\n')||x.includes('"') ? '"'+x.replace(/"/g,'""')+'"' : x;
