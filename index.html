@@ -185,6 +185,10 @@ tailwind.config = {
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="10" x2="21" y2="10"/><line x1="9" y1="4" x2="9" y2="20"/><line x1="15" y1="4" x2="15" y2="20"/></svg>
           Backlog
         </div>
+        <div class="nav-item" data-route="pipeline" title="Pipeline comercial: oportunidades do ano, dashboard e virada de ano">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          Pipeline
+        </div>
         <div class="nav-item" data-route="custos">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
           Custos
@@ -773,7 +777,7 @@ const VIEW_TITLES = {
   'nota-rapida':'Nota Rápida',
   'relatorio-mensal':'Relatório de Custos',
   'backlog':'Backlog de Faturamento',
-  'usuarios':'Usuários & Acessos', realizado:'Realizado × Orçado', validador:'Validar NF Rápida', anexo:'Anexo'
+  'usuarios':'Usuários & Acessos', realizado:'Realizado × Orçado', validador:'Validar NF Rápida', anexo:'Anexo', pipeline:'Pipeline Comercial'
 };
 
 function navigate(r, ctx) {
@@ -837,6 +841,7 @@ function render() {
   else if (r==='tipos') el.innerHTML = renderTipos();
   else if (r==='usuarios') { el.innerHTML = renderUsuarios(); carregarUsuariosAcesso(); }
   else if (r==='anexo') el.innerHTML = renderAnexoView();
+  else if (r==='pipeline') { el.innerHTML = renderPipeline(); if (!STATE.pipe.carregado) carregarPipeline(); }
   // Aplica formatação BRL em todos inputs marcados depois do render
   aplicarBRLEmTodos();
 }
@@ -4676,6 +4681,7 @@ const ABAS_DEF = [
   {id:'comparador', nome:'Comparador'},
   {id:'clientes', nome:'Clientes'},
   {id:'backlog', nome:'Backlog'},
+  {id:'pipeline', nome:'Pipeline'},
   {id:'custos', nome:'Custos'},
   {id:'nota-rapida', nome:'Nota rápida'},
   {id:'validador', nome:'Validar NF Rápida'},
@@ -4710,6 +4716,7 @@ function podePais(pais){
 function podeAba(r){
   if (r === 'usuarios') return isAdminAcesso();
   const a = STATE.acesso;
+  if (r === 'pipeline') return isAdminAcesso() || !!(a && a.ativo !== false && (a.abas||[]).includes('pipeline'));
   if (!a) return true;
   if (a.ativo === false) return false;
   if (a.admin) return true;
@@ -4719,7 +4726,7 @@ function podeAba(r){
   return abas.includes(base);
 }
 function primeiraAbaPermitida(){
-  const ordem = ['dashboard','orcamentos','novo','clientes','backlog','custos','nota-rapida','validador','relatorio-mensal','realizado','comparador','premissas','cargos','tipos'];
+  const ordem = ['dashboard','orcamentos','novo','clientes','backlog','pipeline','custos','nota-rapida','validador','relatorio-mensal','realizado','comparador','premissas','cargos','tipos'];
   return ordem.find(r => podeAba(r)) || 'nota-rapida';
 }
 function aplicarAcessoNaUI(){
@@ -4874,7 +4881,7 @@ function renderUsuariosTabela(){
             return `<span class="text-xs text-green-400" title="Último acesso: ${ult}">ativo</span> ${podeSenha?`<button class="btn-ghost text-xs ml-1" onclick="abrirModalSenha('${u.email}', false)">Senha</button>`:''}`;
           })()}</td>
           <td class="px-3 py-2 text-center bg-ink-900/30">${cb(todas, `toggleAcessoTodas(${i},this.checked)`)}</td>
-          ${ABAS_DEF.map(a=>`<td class="px-3 py-2 text-center">${cb(todas || (u.abas||[]).includes(a.id), `toggleAcessoAba(${i},'${a.id}',this.checked)`, todas)}</td>`).join('')}
+          ${ABAS_DEF.map(a=>`<td class="px-3 py-2 text-center">${a.id==='pipeline' ? cb(!!u.admin || (u.abas||[]).includes('pipeline'), `toggleAcessoAba(${i},'pipeline',this.checked)`, !!u.admin) : cb(todas || (u.abas||[]).includes(a.id), `toggleAcessoAba(${i},'${a.id}',this.checked)`, todas)}</td>`).join('')}
           <td class="px-3 py-2 text-right whitespace-nowrap">
             <button class="btn-ghost text-xs" onclick="salvarUsuarioAcesso(${i})" id="btn-salvar-user-${i}">Salvar</button>
             ${ehEu?'':`<button class="btn-ghost text-xs text-red-400" onclick="removerUsuarioAcesso(${i})" title="Remove só o controle de acesso (o login continua existindo)">Remover</button>`}
@@ -4884,7 +4891,7 @@ function renderUsuariosTabela(){
       ${lista.length?'':'<tr><td colspan="30" class="p-6 text-center text-ink-400">Nenhum usuário cadastrado.</td></tr>'}
     </tbody>
   </table>
-  <div class="p-3 text-xs text-ink-500 border-t border-ink-800">Dica: "Todas as abas" libera tudo, inclusive abas novas que forem criadas no futuro. Desmarque pra escolher aba por aba. A aba <b>Validar NF Rápida</b> além disso exige um dos e-mails validadores (financeiro@, daniel@, administracao@).</div>`;
+  <div class="p-3 text-xs text-ink-500 border-t border-ink-800">Dica: "Todas as abas" libera tudo, inclusive abas novas que forem criadas no futuro — exceto <b>Pipeline</b>, que é liberado à parte (admins sempre têm). Desmarque pra escolher aba por aba. A aba <b>Validar NF Rápida</b> além disso exige um dos e-mails validadores (financeiro@, daniel@, administracao@).</div>`;
 }
 function marcarPendente(i){ const b=document.getElementById('btn-salvar-user-'+i); if(b){ b.classList.add('btn-primary'); b.classList.remove('btn-ghost'); b.textContent='Salvar *'; } }
 function setAcessoCampo(i,campo,val){ STATE.usuariosAcesso[i][campo]=val; marcarPendente(i); }
@@ -4899,7 +4906,11 @@ function toggleAcessoTodas(i,on){
   marcarPendente(i);
 }
 function toggleAcessoAba(i,aba,on){
-  const u=STATE.usuariosAcesso[i]; let a=(u.abas||[]).filter(x=>x!==aba && x!=='*'); if(on) a.push(aba); u.abas=a; marcarPendente(i);
+  const u=STATE.usuariosAcesso[i];
+  if (aba==='pipeline'){ // pipeline é liberado à parte; mantém o "*" se existir
+    let a=(u.abas||[]).filter(x=>x!=='pipeline'); if(on) a.push('pipeline'); u.abas=a; marcarPendente(i); return;
+  }
+  let a=(u.abas||[]).filter(x=>x!==aba && x!=='*'); if(on) a.push(aba); u.abas=a; marcarPendente(i);
 }
 async function salvarUsuarioAcesso(i){
   const u=STATE.usuariosAcesso[i];
@@ -5827,12 +5838,17 @@ function backlogLinhasFiltradas(){
   });
 }
 
+function ajustesDoJob(orcId, ano){
+  const aj = STATE.backlogAjustes || {};
+  return MESES_PT.map((m,i)=> aj[`${orcId}|${ano}|${i+1}`] || 0);
+}
 function renderBacklogTabela(){
   const ano = STATE.backlogAno;
   const linhas = backlogLinhasFiltradas();
   const totMes = new Array(12).fill(0);
-  linhas.forEach(l=>l.meses.forEach((v,i)=>totMes[i]+=v));
+  linhas.forEach(l=>{ const aj = ajustesDoJob(l.o.id, ano); l.meses.forEach((v,i)=>totMes[i]+=v+aj[i]); });
   const totAno = totMes.reduce((a,b)=>a+b,0);
+  const abertos = STATE.backlogAjusteAberto || {};
   const st = STATE.backlogStatus || {};
   const key = (id,m)=>`${id}|${ano}|${m+1}`;
   const f = backlogFiltroAtual();
@@ -5866,13 +5882,24 @@ function renderBacklogTabela(){
                 const tip = cf.nome + (obs ? ' — 💬 ' + obs : '') + ' — clique pra alterar';
                 return `<td class="text-right px-1 py-1"><button class="w-full text-right px-1.5 py-1 rounded tabular-nums font-semibold transition hover:brightness-125 relative" style="background:${cf.cor};color:${cf.txt};border:1px solid ${cf.border};${apagado?'opacity:.35':''}" onclick="abrirStatusBacklog('${o.id}',${i},event)" title="${escapeHtml(tip)}">${obs?'<span class="absolute top-0 right-0 w-0 h-0" style="border-top:7px solid #ef4444;border-left:7px solid transparent;border-top-right-radius:3px"></span>':''}${fmtNum2(v)}</button></td>`;
               }).join('')}
-              <td class="text-right px-3 font-bold tabular-nums whitespace-nowrap">${fmtMoeda(total,2)}</td>
-            </tr>`).join('')}
+              <td class="text-right px-3 font-bold tabular-nums whitespace-nowrap">${fmtMoeda(total,2)} <button class="ml-1 text-ink-500 hover:text-white" title="Ajuste gerencial: linha +/- pra redistribuir a receita entre meses" onclick="toggleAjusteBacklog('${o.id}')">±</button></td>
+            </tr>${(()=>{
+              const aj = ajustesDoJob(o.id, ano); const temAj = aj.some(v=>v!==0);
+              if (!temAj && !abertos[o.id]) return '';
+              const somaAj = aj.reduce((a,b)=>a+b,0);
+              return `<tr class="border-t border-dashed border-yellow-500/30 bg-yellow-500/5" title="Ajuste gerencial do ${o.id}">
+                <td class="py-1 px-3 font-mono text-yellow-300 sticky left-0 bg-ink-950 z-10">${o.id}</td>
+                <td class="font-semibold whitespace-nowrap text-yellow-200/80">${escapeHtml(o.cliente)}</td>
+                <td class="text-yellow-200/60 max-w-[140px] truncate">${escapeHtml(o.projeto||'—')} <span class="text-[9px] uppercase tracking-wider text-yellow-400 ml-1">ajuste gerencial</span></td>
+                <td><span class="pill pill-ink" style="font-size:9px">${grupoDoTipo(o.tipo)}</span></td>
+                ${aj.map((v,i)=>`<td class="text-right px-1 py-0.5"><input type="text" inputmode="decimal" class="w-full text-right px-1 py-0.5 rounded bg-black/30 border border-yellow-500/30 text-[11px] tabular-nums ${v<0?'text-red-300':v>0?'text-green-300':'text-ink-400'}" value="${v?fmtNumBR(v,2):''}" placeholder="±" onchange="salvarAjusteBacklog('${o.id}',${i+1},this.value)" onkeydown="if(event.key==='Enter'){this.blur();}"></td>`).join('')}
+                <td class="text-right px-3 tabular-nums whitespace-nowrap ${Math.abs(somaAj)>0.005?'text-yellow-400':'text-ink-500'}" title="${Math.abs(somaAj)>0.005?'Soma do ajuste diferente de zero: o total do JOB muda':'Ajuste equilibrado (soma zero)'}">${somaAj?fmtMoeda(somaAj,2):'± 0'} ${Math.abs(somaAj)>0.005?'⚠':''}<div class="text-[10px] text-ink-400">ajustado: ${fmtMoeda(total+somaAj,2)}</div></td>
+              </tr>`; })()}`).join('')}
         </tbody>
         <tfoot>
           <tr class="border-t-2 border-white/20 bg-white/5 font-bold">
-            <td class="py-3 px-3 sticky left-0 bg-ink-900 z-10" colspan="4">Total mês${temFiltro?' <span class="text-ink-500 font-normal">(filtrado)</span>':''}</td>
-            ${totMes.map(v=>`<td class="text-right px-1.5 tabular-nums whitespace-nowrap">${v>0?fmtNum2(v):'—'}</td>`).join('')}
+            <td class="py-3 px-3 sticky left-0 bg-ink-900 z-10" colspan="4">Total mês${temFiltro?' <span class="text-ink-500 font-normal">(filtrado)</span>':''}${Object.keys(STATE.backlogAjustes||{}).length?' <span class="text-yellow-400 font-normal text-[10px]">c/ ajustes</span>':''}</td>
+            ${totMes.map(v=>`<td class="text-right px-1.5 tabular-nums whitespace-nowrap">${v?fmtNum2(v):'—'}</td>`).join('')}
             <td class="text-right px-3 tabular-nums text-orange whitespace-nowrap">${fmtMoeda(totAno,2)}</td>
           </tr>
         </tfoot>
@@ -5975,10 +6002,16 @@ function exportarCSVBacklog(){
       MESES_PT.map((m,i)=>{ const ob=(STATE.backlogObs||{})[`${o.id}|${ano}|${i+1}`]; return ob ? `${m}: ${ob}` : ''; }).filter(Boolean).join(' | '),
       moeda
     ]);
+    const aj = ajustesDoJob(o.id, ano);
+    if (aj.some(v=>v!==0)) rows.push([
+      o.id, o.cliente, (o.projeto||'') + ' [AJUSTE GERENCIAL]', grupoDoTipo(o.tipo), '', '',
+      ...aj.map(v=> v ? dec(v) : ''), dec(aj.reduce((a,b)=>a+b,0)),
+      ...new Array(12).fill(''), '', moeda
+    ]);
   });
   const totMes = new Array(12).fill(0);
-  linhas.forEach(l=>l.meses.forEach((v,i)=>totMes[i]+=v));
-  rows.push(['TOTAL','','','','','', ...totMes.map(v=> v>0 ? dec(v) : ''), dec(totMes.reduce((a,b)=>a+b,0)), ...new Array(12).fill(''), '', moeda]);
+  linhas.forEach(l=>{ const aj = ajustesDoJob(l.o.id, ano); l.meses.forEach((v,i)=>totMes[i]+=v+aj[i]); });
+  rows.push(['TOTAL (com ajustes)','','','','','', ...totMes.map(v=> v ? dec(v) : ''), dec(totMes.reduce((a,b)=>a+b,0)), ...new Array(12).fill(''), '', moeda]);
   const csv = rows.map(r=>r.map(v=>{
     const x = String(v==null?'':v);
     return x.includes(';')||x.includes(',')||x.includes('\n')||x.includes('"') ? '"'+x.replace(/"/g,'""')+'"' : x;
@@ -6003,6 +6036,10 @@ async function carregarBacklogStatus(){
     STATE.backlogStatus[k] = r.status;
     if (r.obs) STATE.backlogObs[k] = r.obs;
   });
+  // Ajustes gerenciais (linha +/- abaixo do JOB)
+  const { data: aj } = await sb.from('backlog_ajustes').select('*').eq('pais', STATE.pais).eq('ano', ano);
+  STATE.backlogAjustes = {};
+  (aj||[]).forEach(r=>{ if (Number(r.valor)) STATE.backlogAjustes[`${r.orcamento_id}|${r.ano}|${r.mes}`] = Number(r.valor); });
   // Repinta só a tabela (preserva filtros e foco)
   const wrap = document.getElementById('backlog-tabela-wrap');
   if (wrap && STATE.route==='backlog') wrap.innerHTML = renderBacklogTabela();
@@ -6021,6 +6058,35 @@ function abrirStatusBacklog(orcId, mesIdx, ev){
   pop.classList.remove('hidden');
   const fechar = (e)=>{ if(!pop.contains(e.target)){ pop.classList.add('hidden'); document.removeEventListener('click', fechar); } };
   setTimeout(()=>document.addEventListener('click', fechar), 0);
+}
+
+function toggleAjusteBacklog(orcId){
+  if (!STATE.backlogAjusteAberto) STATE.backlogAjusteAberto = {};
+  STATE.backlogAjusteAberto[orcId] = !STATE.backlogAjusteAberto[orcId];
+  const wrap = document.getElementById('backlog-tabela-wrap'); if (wrap) wrap.innerHTML = renderBacklogTabela();
+  if (STATE.backlogAjusteAberto[orcId]) setTimeout(()=>{ const tr = [...document.querySelectorAll('#tabela-backlog tr')].find(t => (t.title||'').includes('Ajuste gerencial do '+orcId)); tr?.querySelector('input')?.focus(); }, 50);
+}
+async function salvarAjusteBacklog(orcId, mes, valStr){
+  const ano = STATE.backlogAno;
+  let sv = String(valStr||'').trim().replace(/\s/g,''); const neg = sv.startsWith('-'); sv = sv.replace(/[^0-9.,]/g,'');
+  if (sv.includes(',')) sv = sv.replace(/\./g,'').replace(',','.'); else sv = sv.replace(/\./g,'');
+  let valor = parseFloat(sv); if (isNaN(valor)) valor = 0; if (neg) valor = -valor;
+  const k = `${orcId}|${ano}|${mes}`;
+  try {
+    const { data: { user } } = await sb.auth.getUser();
+    if (valor === 0){
+      const { error } = await sb.from('backlog_ajustes').delete().eq('orcamento_id', orcId).eq('ano', ano).eq('mes', mes).eq('pais', STATE.pais);
+      if (error) throw error;
+      delete STATE.backlogAjustes[k];
+    } else {
+      const row = { orcamento_id: orcId, ano, mes, valor, pais: STATE.pais, updated_by: (user?.email||'').toLowerCase(), updated_at: new Date().toISOString() };
+      const { error } = await sb.from('backlog_ajustes').upsert(row, { onConflict: 'orcamento_id,ano,mes,pais' });
+      if (error) throw error;
+      if (!STATE.backlogAjustes) STATE.backlogAjustes = {};
+      STATE.backlogAjustes[k] = valor;
+    }
+    const wrap = document.getElementById('backlog-tabela-wrap'); if (wrap) wrap.innerHTML = renderBacklogTabela();
+  } catch(e){ alert('Erro ao salvar ajuste: ' + e.message); }
 }
 
 async function salvarObsBacklog(){
@@ -6791,6 +6857,433 @@ function renderTipos() {
    BOOT
 ============================================================= */
 window.addEventListener('keydown',e=>{if(e.key==='Escape')fecharModal();});
+
+
+/* =============================================================
+   MÓDULO PIPELINE COMERCIAL
+   Substitui a planilha "Pipeline Comercial": oportunidades do ano,
+   dashboard com 12 blocos, virada de ano automática e histórico.
+============================================================= */
+const PIPE_ESTAGIOS = {
+  '07 PROPOSTA ENVIADA': { nome:'Em negociação', curto:'Negociação', cor:'#2E6BFF', bg:'rgba(46,107,255,.15)' },
+  '09 GANHO':            { nome:'Ganho',         curto:'Ganho',      cor:'#4ADE80', bg:'rgba(74,222,128,.15)' },
+  '08 DECLINADOS/PERDIDOS': { nome:'Perdido',    curto:'Perdido',    cor:'#EF4444', bg:'rgba(239,68,68,.15)' }
+};
+const PIPE_UNIDADES = ['Brasil','Portugal','USA','Italia'];
+const PIPE_SERVICOS = ['Fee','Upsell','Projeto'];
+const PIPE_TEMPS = { '1.HOT':{nome:'Hot', chance:.75, cor:'#EF4444'}, '2.WARM':{nome:'Warm', chance:.5, cor:'#F59E0B'}, '3.COLD':{nome:'Cold', chance:.25, cor:'#38BDF8'} };
+const PIPE_MOTIVOS = ['Preço','Criação','Timing','Escopo/Fit','Perdeu p/ concorrente','Sem resposta','Decisão interna cliente'];
+const PIPE_MOEDA = { Brasil:'R$', Portugal:'€', Italia:'€', USA:'US$' };
+
+STATE.pipe = { ano:null, anoAtivo:null, unidade:'Todos', aba:'lista', deals:[], dealsAnt:[], metas:{}, filtro:{ busca:'', estagio:'', servico:'', temp:'', mes:'' }, carregado:false };
+
+function pipeGeradoPor(servico){ return servico === 'Upsell' ? 'Atendimento' : 'New Business'; }
+function pipeCalc(d){
+  const budget = Number(d.budget)||0, pct = Math.min(1, Math.max(0, Number(d.pct_ano_seguinte)||0));
+  const budgetAno = budget - budget*pct;
+  const budgetProx = budget - budgetAno;
+  let chance = 0;
+  if (d.estagio === '09 GANHO') chance = 1;
+  else if (d.estagio === '07 PROPOSTA ENVIADA') chance = (PIPE_TEMPS[d.temperatura]||{chance:0}).chance;
+  const previsao = d.estagio === '07 PROPOSTA ENVIADA' ? budgetAno*chance : 0;
+  return { budget, pct, budgetAno, budgetProx, chance, previsao };
+}
+function pipeFmt(v, unidade){
+  const sym = unidade && PIPE_MOEDA[unidade] ? PIPE_MOEDA[unidade] : (STATE.pipe.unidade !== 'Todos' ? PIPE_MOEDA[STATE.pipe.unidade] : '');
+  const n = Number(v)||0;
+  return (sym ? sym+' ' : '') + n.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
+function pipePct(x){ return (isFinite(x) ? (x*100).toFixed(x*100 >= 10 ? 0 : 1) : '0') + '%'; }
+
+// ---------- Carga + virada de ano ----------
+async function carregarPipeline(){
+  try {
+    const { data: cfg } = await sb.from('pipeline_config').select('*').eq('chave','ano_ativo').maybeSingle();
+    let anoAtivo = Number(cfg?.valor?.ano) || new Date().getFullYear();
+    const anoHoje = new Date().getFullYear();
+    if (anoHoje > anoAtivo){
+      // Virada automática: primeiro acesso do novo ano
+      const { data: r, error } = await sb.rpc('pipeline_virar_ano', { p_novo_ano: anoHoje });
+      if (!error && r && r.ok){
+        anoAtivo = anoHoje;
+        STATE.pipe._aviso = `Virada de ano feita automaticamente: ${r.de} → ${r.para}. ${r.copiados} negócio(s) em negociação copiado(s) com o budget do ano seguinte. O ano ${r.de} ficou arquivado.`;
+      } else if (!error && r && !r.ok) { anoAtivo = r.ano_ativo || anoAtivo; }
+      else if (error) console.warn('virada:', error.message);
+    }
+    STATE.pipe.anoAtivo = anoAtivo;
+    if (!STATE.pipe.ano) STATE.pipe.ano = anoAtivo;
+    await carregarDealsPipeline();
+    STATE.pipe.carregado = true;
+    const el = document.getElementById('view'); if (el && STATE.route === 'pipeline') el.innerHTML = renderPipeline();
+  } catch(e){ console.error(e); alert('Erro ao carregar o Pipeline: ' + (e.message||e)); }
+}
+async function carregarDealsPipeline(){
+  const ano = STATE.pipe.ano;
+  const [{ data: d1 }, { data: d0 }, { data: m }, { data: anos }] = await Promise.all([
+    sb.from('pipeline_deals').select('*').eq('ano', ano).order('id', { ascending:false }),
+    sb.from('pipeline_deals').select('*').eq('ano', ano-1),
+    sb.from('pipeline_metas').select('*').eq('ano', ano),
+    sb.from('pipeline_deals').select('ano')
+  ]);
+  STATE.pipe.deals = d1 || [];
+  STATE.pipe.dealsAnt = d0 || [];
+  STATE.pipe.metas = {};
+  (m||[]).forEach(x => { STATE.pipe.metas[`${x.unidade}|${x.mes}`] = Number(x.meta_leads_nb)||0; });
+  const set = new Set((anos||[]).map(x=>x.ano)); set.add(STATE.pipe.anoAtivo); set.add(ano);
+  STATE.pipe.anos = [...set].sort((a,b)=>b-a);
+  if (STATE.pipe.carregado){ const el = document.getElementById('view'); if (el && STATE.route === 'pipeline') el.innerHTML = renderPipeline(); }
+}
+async function trocarAnoPipeline(ano){ STATE.pipe.ano = Number(ano); await carregarDealsPipeline(); }
+
+// ---------- Filtro ----------
+function pipeFiltrados(lista){
+  const f = STATE.pipe.filtro, u = STATE.pipe.unidade;
+  const norm = x => String(x||'').toLowerCase();
+  return (lista||STATE.pipe.deals).filter(d => {
+    if (u !== 'Todos' && d.unidade !== u) return false;
+    if (f.busca && !(norm(d.empresa).includes(norm(f.busca)) || norm(d.projeto).includes(norm(f.busca)))) return false;
+    if (f.estagio && d.estagio !== f.estagio) return false;
+    if (f.servico && d.servico !== f.servico) return false;
+    if (f.temp && d.temperatura !== f.temp) return false;
+    if (f.mes && String(d.mes_fechamento||'') !== String(f.mes)) return false;
+    return true;
+  });
+}
+function pipePorUnidade(lista){ const u = STATE.pipe.unidade; return (lista||[]).filter(d => u === 'Todos' || d.unidade === u); }
+function setPipeFiltro(campo, val){ STATE.pipe.filtro[campo] = val; const w = document.getElementById('pipe-lista-wrap'); if (w) w.innerHTML = renderPipelineLista(); }
+function setPipeUnidade(u){ STATE.pipe.unidade = u; const el = document.getElementById('view'); if (el) el.innerHTML = renderPipeline(); }
+function setPipeAba(a){ STATE.pipe.aba = a; const el = document.getElementById('view'); if (el) el.innerHTML = renderPipeline(); }
+
+// ---------- Render principal ----------
+function renderPipeline(){
+  if (!STATE.pipe.carregado) return `<div class="p-10 text-center text-ink-400">Carregando pipeline…</div>`;
+  const p = STATE.pipe; const anoAtivo = p.anoAtivo; const arquivado = p.ano < anoAtivo;
+  const aviso = p._aviso ? `<div class="rounded-xl p-3 border border-green-500/40 bg-green-500/10 text-sm text-green-200 flex items-start gap-2"><span>🎉</span><div>${escapeHtml(p._aviso)}</div><button class="ml-auto text-ink-400" onclick="STATE.pipe._aviso=null; this.parentElement.remove()">×</button></div>` : '';
+  const tab = (id, txt) => `<button class="px-4 py-2 rounded-lg text-sm font-semibold transition ${p.aba===id?'bg-white/10 text-white':'text-ink-400 hover:text-white'}" onclick="setPipeAba('${id}')">${txt}</button>`;
+  return `
+  <div class="space-y-4 fade-in">
+    ${aviso}
+    <div class="flex items-center justify-between gap-4 flex-wrap">
+      <div>
+        <h1 class="font-display font-bold text-2xl">Pipeline Comercial <span class="text-ink-500 font-normal text-lg">${p.ano}</span> ${arquivado?'<span class="pill pill-ink ml-2">arquivado</span>':''}</h1>
+        <div class="text-sm text-ink-400">Oportunidades do ano: negociação, ganhos e perdidos. ${arquivado ? 'Ano anterior, somente consulta.' : 'Cálculos automáticos de budget do ano, próximo ano e previsão ponderada.'}</div>
+      </div>
+      <div class="flex items-center gap-2 flex-wrap">
+        <div class="flex items-center gap-1 bg-ink-900 rounded-lg p-1">
+          ${['Todos',...PIPE_UNIDADES].map(u=>`<button class="px-3 py-1.5 rounded-md text-xs font-semibold transition ${p.unidade===u?'bg-white/10 text-white':'text-ink-400 hover:text-white'}" onclick="setPipeUnidade('${u}')">${u}</button>`).join('')}
+        </div>
+        <select class="input py-2 text-sm" onchange="trocarAnoPipeline(this.value)">${(p.anos||[p.ano]).map(a=>`<option value="${a}" ${a===p.ano?'selected':''}>${a}${a===anoAtivo?' (ativo)':''}</option>`).join('')}</select>
+        ${arquivado ? '' : `<button class="btn btn-primary text-sm" onclick="abrirDealModal(null)">+ Oportunidade</button>`}
+        <button class="btn btn-ghost text-sm" onclick="exportarCSVPipeline()" title="Exporta a lista filtrada">⬇ CSV</button>
+        ${isAdminAcesso() ? `<button class="btn btn-ghost text-sm" onclick="abrirMetasPipeline()" title="Meta mensal de leads New Business">🎯 Metas</button>` : ''}
+        ${isAdminAcesso() && p.ano === anoAtivo ? `<button class="btn btn-ghost text-sm text-yellow-400" onclick="virarAnoManual()" title="Normalmente acontece sozinho em 1º de janeiro">⏭ Virar ano</button>` : ''}
+      </div>
+    </div>
+    <div class="flex items-center gap-1 bg-ink-900 rounded-lg p-1 w-fit">${tab('lista','📋 Pipeline')}${tab('dash','📊 Dashboard')}</div>
+    ${p.aba === 'dash' ? renderPipelineDash() : `<div id="pipe-lista-wrap">${renderPipelineLista()}</div>`}
+  </div>`;
+}
+
+// ---------- Lista ----------
+function renderPipelineLista(){
+  const p = STATE.pipe, f = p.filtro; const arquivado = p.ano < p.anoAtivo;
+  const lista = pipeFiltrados();
+  const tot = { budget:0, ano:0, prox:0, prev:0 };
+  lista.forEach(d => { const c = pipeCalc(d); tot.budget += c.budget; tot.ano += c.budgetAno; tot.prox += c.budgetProx; tot.prev += c.previsao; });
+  const th = (t, extra='') => `<th class="px-2 py-2 text-[10px] uppercase tracking-wider text-ink-400 font-semibold text-left whitespace-nowrap ${extra}">${t}</th>`;
+  const unidadeMista = p.unidade === 'Todos';
+  return `
+  <div class="card p-3 flex items-end gap-3 flex-wrap">
+    <div><label class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">Buscar</label><input class="input py-1.5 text-sm mt-1" style="width:200px" placeholder="Empresa ou projeto" value="${escapeHtml(f.busca)}" oninput="setPipeFiltro('busca', this.value)"></div>
+    <div><label class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">Estágio</label><select class="input py-1.5 text-sm mt-1" onchange="setPipeFiltro('estagio', this.value)"><option value="">Todos</option>${Object.entries(PIPE_ESTAGIOS).map(([k,v])=>`<option value="${k}" ${f.estagio===k?'selected':''}>${v.nome}</option>`).join('')}</select></div>
+    <div><label class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">Serviço</label><select class="input py-1.5 text-sm mt-1" onchange="setPipeFiltro('servico', this.value)"><option value="">Todos</option>${PIPE_SERVICOS.map(s=>`<option ${f.servico===s?'selected':''}>${s}</option>`).join('')}</select></div>
+    <div><label class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">Temperatura</label><select class="input py-1.5 text-sm mt-1" onchange="setPipeFiltro('temp', this.value)"><option value="">Todas</option>${Object.entries(PIPE_TEMPS).map(([k,v])=>`<option value="${k}" ${f.temp===k?'selected':''}>${v.nome}</option>`).join('')}</select></div>
+    <div><label class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">Mês fech.</label><select class="input py-1.5 text-sm mt-1" onchange="setPipeFiltro('mes', this.value)"><option value="">Todos</option>${MESES_PT.map((m,i)=>`<option value="${i+1}" ${String(f.mes)===String(i+1)?'selected':''}>${m}</option>`).join('')}</select></div>
+    <button class="btn btn-ghost text-sm" onclick="STATE.pipe.filtro={busca:'',estagio:'',servico:'',temp:'',mes:''}; setPipeAba('lista')">Limpar</button>
+    <div class="ml-auto text-xs text-ink-400">${lista.length} oportunidade${lista.length===1?'':'s'}${unidadeMista?' · <span title="Com Todos os países os valores são somados como estão (moedas diferentes)">moedas mistas</span>':''}</div>
+  </div>
+  <div class="card overflow-auto" style="max-height:calc(100vh - 330px)">
+    <table class="w-full text-xs">
+      <thead class="bg-ink-900 sticky top-0 z-20">
+        <tr>${th('Estágio')}${th('Empresa / Projeto')}${th('Unid.')}${th('Serviço')}${th('Gerado por')}${th('Conc.','text-center')}${th('Mês')}${th('Temp.')}${th('Budget','text-right')}${th('% próx.','text-right')}${th('Budget ano','text-right')}${th('Próx. ano','text-right')}${th('Previsão','text-right')}${th('Motivo perda')}${th('')}</tr>
+      </thead>
+      <tbody>
+        ${lista.length===0 ? `<tr><td colspan="15" class="p-8 text-center text-ink-400">${p.deals.length ? 'Nenhuma oportunidade bate com os filtros.' : 'Nenhuma oportunidade cadastrada em ' + p.ano + '. Clique em "+ Oportunidade".'}</td></tr>` :
+        lista.map(d => { const c = pipeCalc(d); const e = PIPE_ESTAGIOS[d.estagio]||{}; const t = PIPE_TEMPS[d.temperatura];
+          return `<tr class="border-t border-ink-800 hover:bg-ink-850 ${d.estagio==='08 DECLINADOS/PERDIDOS'?'opacity-70':''}">
+            <td class="px-2 py-2"><span class="pill" style="background:${e.bg};color:${e.cor};border:1px solid ${e.cor}55">${e.curto||d.estagio}</span></td>
+            <td class="px-2 py-2"><div class="font-semibold">${escapeHtml(d.empresa)}</div><div class="text-ink-400 truncate max-w-[220px]" title="${escapeHtml(d.projeto||'')}">${escapeHtml(d.projeto||'—')}</div>${d.origem_deal_id?'<div class="text-[10px] text-ink-500">↪ vindo do ano anterior</div>':''}</td>
+            <td class="px-2 py-2 whitespace-nowrap">${d.unidade}</td>
+            <td class="px-2 py-2">${d.servico}</td>
+            <td class="px-2 py-2 text-ink-300 whitespace-nowrap">${d.gerado_por||pipeGeradoPor(d.servico)}</td>
+            <td class="px-2 py-2 text-center">${d.concorrencia?'<span class="text-yellow-400">⚔</span>':'<span class="text-ink-600">—</span>'}</td>
+            <td class="px-2 py-2">${d.mes_fechamento?MESES_PT[d.mes_fechamento-1]:'—'}</td>
+            <td class="px-2 py-2">${t?`<span style="color:${t.cor}" class="font-semibold">${t.nome}</span>`:'<span class="text-ink-600">—</span>'}</td>
+            <td class="px-2 py-2 text-right tabular-nums">${pipeFmt(c.budget, d.unidade)}</td>
+            <td class="px-2 py-2 text-right tabular-nums text-ink-400">${c.pct?pipePct(c.pct):'—'}</td>
+            <td class="px-2 py-2 text-right tabular-nums font-semibold">${pipeFmt(c.budgetAno, d.unidade)}</td>
+            <td class="px-2 py-2 text-right tabular-nums text-ink-400">${c.budgetProx?pipeFmt(c.budgetProx, d.unidade):'—'}</td>
+            <td class="px-2 py-2 text-right tabular-nums ${d.estagio==='07 PROPOSTA ENVIADA'?'text-azul-400 font-semibold':'text-ink-500'}">${d.estagio==='07 PROPOSTA ENVIADA'?pipeFmt(c.previsao, d.unidade):(d.estagio==='09 GANHO'?'100%':'0%')}</td>
+            <td class="px-2 py-2 text-ink-300 whitespace-nowrap">${d.motivo_perda?escapeHtml(d.motivo_perda):'—'}</td>
+            <td class="px-2 py-2 whitespace-nowrap text-right">${arquivado?'':`<button class="btn-ghost text-xs" onclick="abrirDealModal(${d.id})" title="Editar">✎</button><button class="btn-ghost text-xs text-red-400" onclick="excluirDeal(${d.id})" title="Excluir">🗑</button>`}</td>
+          </tr>`; }).join('')}
+      </tbody>
+      <tfoot><tr class="border-t-2 border-white/20 bg-white/5 font-bold">
+        <td class="px-2 py-3" colspan="8">Total (${lista.length})</td>
+        <td class="px-2 py-3 text-right tabular-nums">${pipeFmt(tot.budget)}</td><td></td>
+        <td class="px-2 py-3 text-right tabular-nums">${pipeFmt(tot.ano)}</td>
+        <td class="px-2 py-3 text-right tabular-nums text-ink-400">${pipeFmt(tot.prox)}</td>
+        <td class="px-2 py-3 text-right tabular-nums text-azul-400">${pipeFmt(tot.prev)}</td><td colspan="2"></td>
+      </tr></tfoot>
+    </table>
+  </div>`;
+}
+
+// ---------- Modal novo / editar ----------
+function abrirDealModal(id){
+  const d = id ? STATE.pipe.deals.find(x => x.id === id) : null;
+  const old = document.getElementById('modal-deal'); if (old) old.remove();
+  const div = document.createElement('div'); div.id = 'modal-deal';
+  div.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4';
+  const v = (k, def='') => d && d[k] != null ? d[k] : def;
+  const unidadeDef = v('unidade', STATE.pipe.unidade !== 'Todos' ? STATE.pipe.unidade : (STATE.pais === 'PT' ? 'Portugal' : 'Brasil'));
+  const mesAtual = new Date().getMonth()+1;
+  div.innerHTML = `
+    <div class="card p-6 w-full max-w-2xl max-h-[92vh] overflow-y-auto" onclick="event.stopPropagation()">
+      <h3 class="font-bold text-lg">${d ? 'Editar oportunidade' : 'Nova oportunidade'} <span class="text-ink-500 font-normal text-sm">· ${STATE.pipe.ano}</span></h3>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
+        <div><label class="text-xs text-ink-400">Empresa / marca *</label><input id="dl-empresa" class="input mt-1" value="${escapeHtml(v('empresa'))}" list="pipe-empresas"><datalist id="pipe-empresas">${[...new Set(STATE.pipe.deals.concat(STATE.pipe.dealsAnt).map(x=>x.empresa).filter(Boolean))].sort().map(e=>`<option value="${escapeHtml(e)}">`).join('')}</datalist></div>
+        <div><label class="text-xs text-ink-400">Nome do projeto</label><input id="dl-projeto" class="input mt-1" value="${escapeHtml(v('projeto'))}"></div>
+        <div><label class="text-xs text-ink-400">Estágio *</label><select id="dl-estagio" class="input mt-1" onchange="dealModalAtualizaCampos()">${Object.entries(PIPE_ESTAGIOS).map(([k,x])=>`<option value="${k}" ${v('estagio','07 PROPOSTA ENVIADA')===k?'selected':''}>${k} — ${x.nome}</option>`).join('')}</select></div>
+        <div><label class="text-xs text-ink-400">Unidade (país) *</label><select id="dl-unidade" class="input mt-1" onchange="dealModalAtualizaCampos()">${PIPE_UNIDADES.map(u=>`<option ${unidadeDef===u?'selected':''}>${u}</option>`).join('')}</select></div>
+        <div><label class="text-xs text-ink-400">Serviço *</label><select id="dl-servico" class="input mt-1" onchange="dealModalAtualizaCampos()">${PIPE_SERVICOS.map(s=>`<option ${v('servico','Fee')===s?'selected':''}>${s}</option>`).join('')}</select><div class="text-[11px] text-ink-500 mt-1">Gerado por: <b id="dl-gerado">${pipeGeradoPor(v('servico','Fee'))}</b> (automático)</div></div>
+        <div><label class="text-xs text-ink-400">Concorrência</label><select id="dl-conc" class="input mt-1"><option value="0" ${!v('concorrencia',false)?'selected':''}>Não</option><option value="1" ${v('concorrencia',false)?'selected':''}>Sim</option></select></div>
+        <div><label class="text-xs text-ink-400">Mês de entrada do lead</label><select id="dl-meslead" class="input mt-1">${MESES_PT.map((m,i)=>`<option value="${i+1}" ${Number(v('mes_lead', mesAtual))===i+1?'selected':''}>${m}</option>`).join('')}</select></div>
+        <div><label class="text-xs text-ink-400">Mês de fechamento previsto</label><select id="dl-mes" class="input mt-1"><option value="">—</option>${MESES_PT.map((m,i)=>`<option value="${i+1}" ${Number(v('mes_fechamento'))===i+1?'selected':''}>${m}</option>`).join('')}</select></div>
+        <div id="dl-temp-wrap"><label class="text-xs text-ink-400">Temperatura *</label><select id="dl-temp" class="input mt-1" onchange="dealModalAtualizaCampos()"><option value="">—</option>${Object.entries(PIPE_TEMPS).map(([k,x])=>`<option value="${k}" ${v('temperatura')===k?'selected':''}>${k} (${Math.round(x.chance*100)}%)</option>`).join('')}</select></div>
+        <div><label class="text-xs text-ink-400">Budget total *</label><input id="dl-budget" type="text" inputmode="decimal" class="input mt-1" value="${fmtNumBR(v('budget',0),2)}" oninput="dealModalAtualizaCampos()"></div>
+        <div><label class="text-xs text-ink-400">% do budget que cai no ano seguinte</label><input id="dl-pct" type="number" min="0" max="100" step="1" class="input mt-1" value="${Math.round((Number(v('pct_ano_seguinte',0))||0)*100)}" oninput="dealModalAtualizaCampos()"></div>
+        <div id="dl-motivo-wrap"><label class="text-xs text-ink-400">Motivo da perda *</label><select id="dl-motivo" class="input mt-1"><option value="">—</option>${PIPE_MOTIVOS.map(m=>`<option ${v('motivo_perda')===m?'selected':''}>${m}</option>`).join('')}</select></div>
+        <div class="md:col-span-2"><label class="text-xs text-ink-400">Observações</label><textarea id="dl-obs" rows="2" class="input mt-1">${escapeHtml(v('obs'))}</textarea></div>
+      </div>
+      <div id="dl-calc" class="grid grid-cols-3 gap-2 mt-4 text-center"></div>
+      <div id="dl-erro" class="text-xs text-red-400 mt-2 hidden"></div>
+      <div class="flex justify-end gap-2 mt-5">
+        <button class="btn-ghost" onclick="document.getElementById('modal-deal').remove()">Cancelar</button>
+        <button class="btn-primary" id="dl-ok" onclick="salvarDeal(${d?d.id:'null'})">${d?'Salvar':'Cadastrar'}</button>
+      </div>
+    </div>`;
+  div.addEventListener('click', ()=>div.remove());
+  document.body.appendChild(div);
+  dealModalAtualizaCampos();
+  setTimeout(()=>document.getElementById('dl-empresa')?.focus(), 50);
+}
+function parseBRnum(str){ let s = String(str||'').replace(/[^0-9.,-]/g,''); if (s.includes(',')) s = s.replace(/\./g,'').replace(',','.'); else s = s.replace(/\./g,''); const n = parseFloat(s); return isNaN(n)?0:n; }
+function dealModalAtualizaCampos(){
+  const est = document.getElementById('dl-estagio')?.value;
+  const serv = document.getElementById('dl-servico')?.value;
+  const g = document.getElementById('dl-gerado'); if (g) g.textContent = pipeGeradoPor(serv);
+  const mw = document.getElementById('dl-motivo-wrap'); if (mw) mw.style.display = est === '08 DECLINADOS/PERDIDOS' ? '' : 'none';
+  const tw = document.getElementById('dl-temp-wrap'); if (tw) tw.style.opacity = est === '07 PROPOSTA ENVIADA' ? '1' : '.5';
+  const d = { estagio: est, temperatura: document.getElementById('dl-temp')?.value, budget: parseBRnum(document.getElementById('dl-budget')?.value), pct_ano_seguinte: (Number(document.getElementById('dl-pct')?.value)||0)/100 };
+  const c = pipeCalc(d); const u = document.getElementById('dl-unidade')?.value;
+  const box = (t, v2, cor) => `<div class="rounded-lg p-2 bg-white/5"><div class="text-[10px] uppercase tracking-widest text-ink-500">${t}</div><div class="font-bold tabular-nums ${cor||''}">${v2}</div></div>`;
+  const el = document.getElementById('dl-calc');
+  if (el) el.innerHTML = box('Budget do ano', pipeFmt(c.budgetAno, u)) + box('Próximo ano', pipeFmt(c.budgetProx, u)) + box(est==='07 PROPOSTA ENVIADA'?`Previsão (${Math.round(c.chance*100)}%)`:'Previsão', est==='07 PROPOSTA ENVIADA'?pipeFmt(c.previsao,u):(est==='09 GANHO'?'100% · '+pipeFmt(c.budgetAno,u):'0%'), 'text-azul-400');
+}
+async function salvarDeal(id){
+  const erro = document.getElementById('dl-erro'); const mostrar = m => { erro.textContent = m; erro.classList.remove('hidden'); };
+  const g = x => document.getElementById(x)?.value;
+  const payload = {
+    ano: STATE.pipe.ano, estagio: g('dl-estagio'), empresa: (g('dl-empresa')||'').trim(), projeto: (g('dl-projeto')||'').trim() || null,
+    unidade: g('dl-unidade'), servico: g('dl-servico'), concorrencia: g('dl-conc') === '1',
+    mes_lead: Number(g('dl-meslead'))||null, mes_fechamento: Number(g('dl-mes'))||null, temperatura: g('dl-temp') || null,
+    budget: parseBRnum(g('dl-budget')), pct_ano_seguinte: Math.min(1, Math.max(0, (Number(g('dl-pct'))||0)/100)),
+    motivo_perda: g('dl-estagio') === '08 DECLINADOS/PERDIDOS' ? (g('dl-motivo') || null) : null,
+    obs: (g('dl-obs')||'').trim() || null, updated_at: new Date().toISOString()
+  };
+  if (!payload.empresa) return mostrar('Informe a empresa/marca.');
+  if (!(payload.budget > 0)) return mostrar('Informe o budget total.');
+  if (payload.estagio === '07 PROPOSTA ENVIADA' && !payload.temperatura) return mostrar('Negócio em negociação precisa de temperatura (Hot/Warm/Cold).');
+  if (payload.estagio === '08 DECLINADOS/PERDIDOS' && !payload.motivo_perda) return mostrar('Negócio perdido precisa do motivo da perda.');
+  const btn = document.getElementById('dl-ok'); btn.disabled = true; btn.textContent = 'Salvando…';
+  try {
+    const { data: { user } } = await sb.auth.getUser();
+    let q;
+    if (id) q = sb.from('pipeline_deals').update(payload).eq('id', id);
+    else q = sb.from('pipeline_deals').insert({ ...payload, created_by: (user?.email||'').toLowerCase() });
+    const { error } = await q; if (error) throw error;
+    document.getElementById('modal-deal')?.remove();
+    await carregarDealsPipeline();
+  } catch(e){ btn.disabled = false; btn.textContent = id?'Salvar':'Cadastrar'; mostrar('Erro: ' + (e.message||e)); }
+}
+async function excluirDeal(id){
+  const d = STATE.pipe.deals.find(x => x.id === id); if (!d) return;
+  if (!confirm(`Excluir "${d.empresa}${d.projeto?' · '+d.projeto:''}"? Não dá pra desfazer.`)) return;
+  const { error } = await sb.from('pipeline_deals').delete().eq('id', id);
+  if (error) { alert('Erro: ' + error.message); return; }
+  await carregarDealsPipeline();
+}
+
+// ---------- Metas de leads New Business ----------
+function abrirMetasPipeline(){
+  const old = document.getElementById('modal-metas'); if (old) old.remove();
+  const div = document.createElement('div'); div.id = 'modal-metas';
+  div.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4';
+  const u = STATE.pipe.unidade === 'Todos' ? 'Todos' : STATE.pipe.unidade;
+  div.innerHTML = `<div class="card p-6 w-full max-w-md" onclick="event.stopPropagation()">
+    <h3 class="font-bold text-lg">Meta de leads New Business · ${STATE.pipe.ano}</h3>
+    <div class="text-xs text-ink-400 mt-1 mb-3">Quantidade de leads New Business por mês. Unidade: <b>${u}</b> ${u==='Todos'?'(meta geral — pra meta por país, selecione o país antes de abrir)':''}</div>
+    <div class="grid grid-cols-3 gap-2">${MESES_PT.map((m,i)=>`<div><label class="text-[10px] uppercase tracking-widest text-ink-500">${m}</label><input type="number" min="0" class="input mt-1 py-1.5" id="meta-${i+1}" value="${STATE.pipe.metas[`${u}|${i+1}`] ?? ''}"></div>`).join('')}</div>
+    <div class="flex items-center justify-between mt-4">
+      <button class="btn-ghost text-xs" onclick="const v=prompt('Meta igual pra todos os meses:'); if(v!=null){ for(let i=1;i<=12;i++) document.getElementById('meta-'+i).value=v; }">Mesma pra todos</button>
+      <div class="flex gap-2"><button class="btn-ghost" onclick="document.getElementById('modal-metas').remove()">Cancelar</button><button class="btn-primary" onclick="salvarMetasPipeline('${u}')">Salvar</button></div>
+    </div></div>`;
+  div.addEventListener('click', ()=>div.remove()); document.body.appendChild(div);
+}
+async function salvarMetasPipeline(u){
+  const rows = []; for (let i=1;i<=12;i++){ const v = document.getElementById('meta-'+i)?.value; rows.push({ ano: STATE.pipe.ano, mes: i, unidade: u, meta_leads_nb: Number(v)||0 }); }
+  const { error } = await sb.from('pipeline_metas').upsert(rows, { onConflict: 'ano,mes,unidade' });
+  if (error) { alert('Erro: ' + error.message); return; }
+  document.getElementById('modal-metas')?.remove();
+  await carregarDealsPipeline();
+}
+function pipeMetaMes(mes){
+  const u = STATE.pipe.unidade; const m = STATE.pipe.metas;
+  if (u !== 'Todos') return m[`${u}|${mes}`] ?? m[`Todos|${mes}`] ?? 0;
+  const porPais = PIPE_UNIDADES.map(p => m[`${p}|${mes}`]).filter(x => x != null);
+  return porPais.length ? porPais.reduce((a,b)=>a+b,0) : (m[`Todos|${mes}`] ?? 0);
+}
+
+// ---------- Virada manual ----------
+async function virarAnoManual(){
+  const novo = STATE.pipe.anoAtivo + 1;
+  if (!confirm(`Virar o pipeline de ${STATE.pipe.anoAtivo} para ${novo} agora?\n\n• Negócios em negociação com "% ano seguinte" > 0 são copiados pra ${novo} com o budget que cabe ao ano seguinte.\n• Ganhos e perdidos ficam encerrados em ${STATE.pipe.anoAtivo}.\n• O ano ${STATE.pipe.anoAtivo} fica arquivado (só consulta).\n\nIsso normalmente acontece sozinho em 1º de janeiro.`)) return;
+  const { data: r, error } = await sb.rpc('pipeline_virar_ano', { p_novo_ano: novo });
+  if (error || !r?.ok) { alert('Não virou: ' + (error?.message || r?.motivo || 'erro')); return; }
+  STATE.pipe.anoAtivo = novo; STATE.pipe.ano = novo;
+  STATE.pipe._aviso = `Virada feita: ${r.de} → ${r.para}. ${r.copiados} negócio(s) copiado(s).`;
+  await carregarDealsPipeline();
+}
+
+// ---------- CSV ----------
+function exportarCSVPipeline(){
+  const lista = pipeFiltrados(); if (!lista.length){ alert('Nada pra exportar.'); return; }
+  const dec = v => (Number(v)||0).toFixed(2).replace('.', ',');
+  const rows = [['Ano','Estagio','Empresa','Projeto','Unidade','Servico','Gerado por','Concorrencia','Mes lead','Mes fechamento','Temperatura','Budget total','% ano seguinte','Budget ano','Budget proximo ano','Previsao ponderada','Motivo perda','Obs','Moeda']];
+  lista.forEach(d => { const c = pipeCalc(d); rows.push([d.ano, PIPE_ESTAGIOS[d.estagio]?.nome||d.estagio, d.empresa, d.projeto||'', d.unidade, d.servico, d.gerado_por||pipeGeradoPor(d.servico), d.concorrencia?'Sim':'Nao', d.mes_lead?MESES_PT[d.mes_lead-1]:'', d.mes_fechamento?MESES_PT[d.mes_fechamento-1]:'', PIPE_TEMPS[d.temperatura]?.nome||'', dec(c.budget), Math.round(c.pct*100)+'%', dec(c.budgetAno), dec(c.budgetProx), dec(c.previsao), d.motivo_perda||'', d.obs||'', PIPE_MOEDA[d.unidade]||'']); });
+  const csv = rows.map(r=>r.map(v=>{ const x=String(v==null?'':v); return x.includes(';')||x.includes(',')||x.includes('\n')||x.includes('"') ? '"'+x.replace(/"/g,'""')+'"' : x; }).join(';')).join('\n');
+  const blob = new Blob(['﻿'+csv], { type:'text/csv;charset=utf-8' }); const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = `pipeline_${STATE.pipe.ano}_${STATE.pipe.unidade}.csv`; a.click(); URL.revokeObjectURL(url);
+}
+
+// ---------- Dashboard (12 blocos) ----------
+function pipeAgregados(lista){
+  const g = { n:{neg:0,ganho:0,perd:0}, v:{neg:0,ganho:0,perd:0}, prev:0 };
+  lista.forEach(d => { const c = pipeCalc(d);
+    if (d.estagio==='09 GANHO'){ g.n.ganho++; g.v.ganho+=c.budgetAno; }
+    else if (d.estagio==='08 DECLINADOS/PERDIDOS'){ g.n.perd++; g.v.perd+=c.budgetAno; }
+    else { g.n.neg++; g.v.neg+=c.budgetAno; g.prev+=c.previsao; } });
+  return g;
+}
+function barra(valor, max, cor, label, sub){
+  const w = max>0 ? Math.max(2, Math.round(valor/max*100)) : 0;
+  return `<div class="mb-1.5"><div class="flex justify-between text-[11px]"><span class="text-ink-300">${label}</span><span class="tabular-nums font-semibold">${sub}</span></div><div class="h-2 rounded bg-white/5 overflow-hidden"><div class="h-2 rounded" style="width:${w}%;background:${cor}"></div></div></div>`;
+}
+function cardDash(num, titulo, corpo, extra=''){
+  return `<div class="card p-4 flex flex-col ${extra}"><div class="flex items-center gap-2 mb-3"><span class="w-6 h-6 rounded-md grad-snack text-white text-[11px] font-bold flex items-center justify-center">${num}</span><div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">${titulo}</div></div><div class="flex-1 text-sm">${corpo}</div></div>`;
+}
+function renderPipelineDash(){
+  const p = STATE.pipe;
+  const atual = pipePorUnidade(p.deals), ant = pipePorUnidade(p.dealsAnt);
+  const A = pipeAgregados(atual), B = pipeAgregados(ant);
+  const kpi = (t, v, cor='') => `<div class="rounded-lg p-2 bg-white/5 text-center"><div class="text-[10px] uppercase tracking-widest text-ink-500">${t}</div><div class="font-bold tabular-nums ${cor}">${v}</div></div>`;
+  const unidadeMista = p.unidade === 'Todos';
+  if (!atual.length) return `<div class="card p-10 text-center text-ink-400">Sem oportunidades em ${p.ano}${unidadeMista?'':' · '+p.unidade}. Cadastre na aba Pipeline.</div>`;
+  const CORES_SERV = {Fee:'#FF5722',Upsell:'#A855F7',Projeto:'#2E6BFF'};
+
+  // 1 Funil
+  const maxV = Math.max(A.v.ganho, A.v.neg, A.v.perd, 1);
+  const b1 = `<div class="grid grid-cols-3 gap-2 mb-3">${kpi('Ganho', A.n.ganho, 'text-green-400')}${kpi('Negociação', A.n.neg, 'text-azul-400')}${kpi('Perdido', A.n.perd, 'text-red-400')}</div>` +
+    barra(A.v.ganho, maxV, '#4ADE80', 'Ganho (valor)', pipeFmt(A.v.ganho)) + barra(A.v.neg, maxV, '#2E6BFF', 'Em negociação (valor)', pipeFmt(A.v.neg)) + barra(A.v.perd, maxV, '#EF4444', 'Perdido (valor)', pipeFmt(A.v.perd)) +
+    `<div class="mt-2 text-xs text-ink-300">Previsão ponderada da negociação: <b class="text-azul-400">${pipeFmt(A.prev)}</b> · Ganho + previsão: <b>${pipeFmt(A.v.ganho + A.prev)}</b></div>`;
+  // 2 Win rate
+  const wrN = (A.n.ganho+A.n.perd) ? A.n.ganho/(A.n.ganho+A.n.perd) : 0, wrV = (A.v.ganho+A.v.perd) ? A.v.ganho/(A.v.ganho+A.v.perd) : 0;
+  const wrNant = (B.n.ganho+B.n.perd) ? B.n.ganho/(B.n.ganho+B.n.perd) : null;
+  const b2 = `<div class="grid grid-cols-2 gap-2">${kpi('Em nº de negócios', pipePct(wrN), 'text-2xl')}${kpi('Em valor', pipePct(wrV), 'text-2xl')}</div><div class="text-xs text-ink-400 mt-2 mb-2">${A.n.ganho} ganhos de ${A.n.ganho+A.n.perd} decididos${wrNant!=null?` · ano anterior: ${pipePct(wrNant)}`:''}</div>` + barra(wrN, 1, '#4ADE80', 'Win rate (nº)', pipePct(wrN)) + barra(wrV, 1, '#F59E0B', 'Win rate (valor)', pipePct(wrV));
+  // 3 Receita por tipo (ganhos)
+  const ganhos = atual.filter(d=>d.estagio==='09 GANHO');
+  const porTipo = {}; PIPE_SERVICOS.forEach(s=>porTipo[s]={n:0,v:0}); ganhos.forEach(d=>{ porTipo[d.servico].n++; porTipo[d.servico].v+=pipeCalc(d).budgetAno; });
+  const recTot = A.v.ganho || 1; const recorr = porTipo.Fee.v + porTipo.Upsell.v, avulso = porTipo.Projeto.v;
+  const b3 = PIPE_SERVICOS.map(s => barra(porTipo[s].v, recTot, CORES_SERV[s], `${s} · ${porTipo[s].n} · ticket ${porTipo[s].n?pipeFmt(porTipo[s].v/porTipo[s].n):'—'}`, `${pipeFmt(porTipo[s].v)} (${pipePct(porTipo[s].v/recTot)})`)).join('') +
+    `<div class="grid grid-cols-2 gap-2 mt-3">${kpi('Recorrente (Fee+Upsell)', pipePct(recorr/recTot) + ' · ' + pipeFmt(recorr), 'text-orange-300')}${kpi('Avulso (Projeto)', pipePct(avulso/recTot) + ' · ' + pipeFmt(avulso), 'text-azul-400')}</div>`;
+  // 4 Win rate por tipo
+  const b4 = PIPE_SERVICOS.map(s => { const base = atual.filter(d=>d.servico===s && d.estagio!=='07 PROPOSTA ENVIADA').length; const conq = porTipo[s].n; const wr = base?conq/base:0;
+    return barra(wr, 1, CORES_SERV[s], `${s} · base ${base} → ${conq} conquistas`, pipePct(wr)); }).join('') + `<div class="text-[10px] text-ink-500 mt-2">Base = negócios decididos (ganhos + perdidos) do tipo.</div>`;
+  // 5 Origem do lead + volume por mês
+  const nb = atual.filter(d=>pipeGeradoPor(d.servico)==='New Business'), at = atual.filter(d=>pipeGeradoPor(d.servico)==='Atendimento');
+  const vNB = nb.reduce((s,d)=>s+pipeCalc(d).budgetAno,0), vAT = at.reduce((s,d)=>s+pipeCalc(d).budgetAno,0);
+  const porMesNB = new Array(12).fill(0), porMesAT = new Array(12).fill(0);
+  atual.forEach(d => { const m = (d.mes_lead||d.mes_fechamento); if (m) (pipeGeradoPor(d.servico)==='New Business'?porMesNB:porMesAT)[m-1]++; });
+  const maxMes = Math.max(...porMesNB.map((v,i)=>v+porMesAT[i]), 1);
+  const b5 = `<div class="grid grid-cols-2 gap-2 mb-3">${kpi('New Business', `${nb.length} · ${pipeFmt(vNB)}`, 'text-orange-300')}${kpi('Atendimento', `${at.length} · ${pipeFmt(vAT)}`, 'text-purple-300')}</div>
+    <div class="flex items-end gap-1 h-24">${MESES_PT.map((m,i)=>`<div class="flex-1 flex flex-col items-center justify-end h-full" title="${m}: ${porMesNB[i]} NB · ${porMesAT[i]} Atend."><div class="w-full rounded-t" style="height:${Math.round(porMesAT[i]/maxMes*80)}%;background:#A855F7"></div><div class="w-full rounded-t" style="height:${Math.round(porMesNB[i]/maxMes*80)}%;background:#FF5722"></div><div class="text-[9px] text-ink-500 mt-1">${m[0]}</div></div>`).join('')}</div>
+    <div class="text-[10px] text-ink-500 mt-1">Volume de leads por mês de entrada · <span style="color:#FF5722">■</span> New Business <span style="color:#A855F7">■</span> Atendimento</div>`;
+  // 6 Arena da concorrência
+  const conc = atual.filter(d=>d.concorrencia); const C = pipeAgregados(conc); const wrC = (C.n.ganho+C.n.perd)?C.n.ganho/(C.n.ganho+C.n.perd):0;
+  const b6 = `<div class="grid grid-cols-3 gap-2 mb-3">${kpi('Ganhas', C.n.ganho, 'text-green-400')}${kpi('Perdidas', C.n.perd, 'text-red-400')}${kpi('Abertas', C.n.neg, 'text-azul-400')}</div>` + barra(wrC, 1, '#F59E0B', 'Win rate com concorrência', pipePct(wrC)) + `<div class="text-xs text-ink-400 mt-2">${conc.length} de ${atual.length} negócios tiveram disputa (${pipePct(conc.length/(atual.length||1))}) · valor ganho em disputa: <b>${pipeFmt(C.v.ganho)}</b></div>`;
+  // 7 Concentração por marca
+  const porMarca = {}; ganhos.forEach(d => { porMarca[d.empresa] = (porMarca[d.empresa]||0) + pipeCalc(d).budgetAno; });
+  const topM = Object.entries(porMarca).sort((a,b)=>b[1]-a[1]).slice(0,6); const maior = topM[0] ? topM[0][1]/recTot : 0;
+  const alerta = maior >= 0.40 ? `<div class="text-xs text-red-400 font-semibold mb-2">⚠ ${escapeHtml(topM[0][0])} concentra ${pipePct(maior)} da receita ganha (acima de 40%)</div>` : maior >= 0.35 ? `<div class="text-xs text-yellow-400 font-semibold mb-2">⚠ ${escapeHtml(topM[0][0])} concentra ${pipePct(maior)} da receita ganha (atenção: 35–40%)</div>` : '';
+  const b7 = alerta + (topM.length ? topM.map(([m,v],i)=>barra(v, recTot, i===0&&maior>=0.35?'#EF4444':'#4ADE80', escapeHtml(m), `${pipeFmt(v)} (${pipePct(v/recTot)})`)).join('') : '<div class="text-ink-500 text-xs">Sem ganhos ainda.</div>');
+  // 8 Motivos de perda
+  const perd = atual.filter(d=>d.estagio==='08 DECLINADOS/PERDIDOS'); const porMot = {}; perd.forEach(d => { const k = d.motivo_perda||'(sem motivo)'; porMot[k] = porMot[k]||{n:0,v:0}; porMot[k].n++; porMot[k].v+=pipeCalc(d).budgetAno; });
+  const motList = Object.entries(porMot).sort((a,b)=>b[1].v-a[1].v); const maxMot = Math.max(...motList.map(x=>x[1].v), 1);
+  const b8 = motList.length ? motList.map(([k,x])=>barra(x.v, maxMot, '#EF4444', `${escapeHtml(k)} · ${x.n}`, pipeFmt(x.v))).join('') + `<div class="text-xs text-ink-400 mt-2">Total perdido: <b>${pipeFmt(A.v.perd)}</b> em ${perd.length} negócios</div>` : '<div class="text-ink-500 text-xs">Nenhuma perda registrada.</div>';
+  // 9 Meta de leads NB
+  const realNB = new Array(12).fill(0); nb.forEach(d => { const m = d.mes_lead||d.mes_fechamento; if (m) realNB[m-1]++; });
+  const metas = MESES_PT.map((m,i)=>pipeMetaMes(i+1)); const metaTot = metas.reduce((a,b)=>a+b,0), realTot = realNB.reduce((a,b)=>a+b,0);
+  const mesAtualIdx = p.ano === new Date().getFullYear() ? new Date().getMonth() : 11;
+  const metaAteAgora = metas.slice(0, mesAtualIdx+1).reduce((a,b)=>a+b,0);
+  const maxMeta = Math.max(...metas, ...realNB, 1);
+  const b9 = `<div class="grid grid-cols-3 gap-2 mb-3">${kpi('Meta (ano)', metaTot)}${kpi('Realizado', realTot, 'text-orange-300')}${kpi('Atingimento', metaAteAgora?pipePct(realTot/metaAteAgora):'—', realTot>=metaAteAgora&&metaAteAgora?'text-green-400':'text-yellow-400')}</div>
+    <div class="flex items-end gap-1 h-20">${MESES_PT.map((m,i)=>`<div class="flex-1 flex items-end justify-center gap-px h-full" title="${m}: meta ${metas[i]} · realizado ${realNB[i]}"><div class="w-1/2 rounded-t bg-white/15" style="height:${Math.round(metas[i]/maxMeta*100)}%"></div><div class="w-1/2 rounded-t" style="height:${Math.round(realNB[i]/maxMeta*100)}%;background:${realNB[i]>=metas[i]&&metas[i]?'#4ADE80':'#FF5722'}"></div></div>`).join('')}</div>
+    <div class="flex gap-1 mt-1">${MESES_PT.map(m=>`<div class="flex-1 text-center text-[9px] text-ink-500">${m[0]}</div>`).join('')}</div>
+    <div class="text-[10px] text-ink-500 mt-1">Atingimento considera a meta acumulada até o mês atual. ${metaTot?'':'Defina as metas no botão 🎯 Metas.'}</div>`;
+  // 10 Previsão por temperatura
+  const neg = atual.filter(d=>d.estagio==='07 PROPOSTA ENVIADA'); const porTemp = {}; Object.keys(PIPE_TEMPS).forEach(k=>porTemp[k]={n:0,v:0,prev:0});
+  neg.forEach(d => { const k = d.temperatura; if (porTemp[k]){ const c = pipeCalc(d); porTemp[k].n++; porTemp[k].v+=c.budgetAno; porTemp[k].prev+=c.previsao; } });
+  const b10 = Object.entries(PIPE_TEMPS).map(([k,t]) => barra(porTemp[k].prev, Math.max(A.v.neg,1), t.cor, `${t.nome} (${Math.round(t.chance*100)}%) · ${porTemp[k].n} negócios · ${pipeFmt(porTemp[k].v)}`, pipeFmt(porTemp[k].prev))).join('') + `<div class="grid grid-cols-2 gap-2 mt-3">${kpi('Em negociação', pipeFmt(A.v.neg))}${kpi('Previsão ponderada', pipeFmt(A.prev), 'text-azul-400')}</div>`;
+  // 11 Leads e conversão por categoria
+  const cats = [['Fee', d=>d.servico==='Fee'], ['Projeto', d=>d.servico==='Projeto'], ['Upsell', d=>d.servico==='Upsell'], ['New Business', d=>pipeGeradoPor(d.servico)==='New Business']];
+  const b11 = `<table class="w-full text-xs"><thead><tr class="text-[10px] uppercase tracking-widest text-ink-500"><th class="text-left py-1">Categoria</th><th class="text-right">Leads</th><th class="text-right">Conversões</th><th class="text-right">Taxa</th><th class="text-right">Receita</th></tr></thead><tbody>${cats.map(([nome,fn]) => { const l = atual.filter(fn); const g2 = l.filter(d=>d.estagio==='09 GANHO'); const dec2 = l.filter(d=>d.estagio!=='07 PROPOSTA ENVIADA').length; const v = g2.reduce((s,d)=>s+pipeCalc(d).budgetAno,0);
+    return `<tr class="border-t border-white/5"><td class="py-1.5 font-semibold">${nome}</td><td class="text-right tabular-nums">${l.length}</td><td class="text-right tabular-nums text-green-400">${g2.length}</td><td class="text-right tabular-nums">${dec2?pipePct(g2.length/dec2):'—'}</td><td class="text-right tabular-nums">${pipeFmt(v)}</td></tr>`; }).join('')}</tbody></table><div class="text-[10px] text-ink-500 mt-2">Taxa = conversões ÷ negócios decididos (ganhos + perdidos).</div>`;
+  // 12 Mix por tipo: atual × anterior
+  const mix = (lista) => { const t = {leads:0,conv:0,rec:0}; const r = {}; PIPE_SERVICOS.forEach(s=>r[s]={leads:0,conv:0,rec:0});
+    lista.forEach(d => { const c = pipeCalc(d); r[d.servico].leads++; t.leads++; if (d.estagio==='09 GANHO'){ r[d.servico].conv++; t.conv++; r[d.servico].rec+=c.budgetAno; t.rec+=c.budgetAno; } });
+    return { r, t }; };
+  const M1 = mix(atual), M0 = mix(ant);
+  const cel = (a, b) => `<td class="text-right tabular-nums">${pipePct(a)}</td><td class="text-right tabular-nums text-ink-500">${ant.length?pipePct(b):'—'}</td>`;
+  const b12 = `<table class="w-full text-xs"><thead><tr class="text-[10px] uppercase tracking-widest text-ink-500"><th class="text-left py-1">Tipo</th><th class="text-right" colspan="2">Leads</th><th class="text-right" colspan="2">Conversões</th><th class="text-right" colspan="2">Receita</th></tr><tr class="text-[9px] text-ink-600"><th></th><th class="text-right">${p.ano}</th><th class="text-right">${p.ano-1}</th><th class="text-right">${p.ano}</th><th class="text-right">${p.ano-1}</th><th class="text-right">${p.ano}</th><th class="text-right">${p.ano-1}</th></tr></thead><tbody>${PIPE_SERVICOS.map(s => `<tr class="border-t border-white/5"><td class="py-1.5 font-semibold">${s}</td>${cel(M1.r[s].leads/(M1.t.leads||1), M0.r[s].leads/(M0.t.leads||1))}${cel(M1.r[s].conv/(M1.t.conv||1), M0.r[s].conv/(M0.t.conv||1))}${cel(M1.r[s].rec/(M1.t.rec||1), M0.r[s].rec/(M0.t.rec||1))}</tr>`).join('')}</tbody></table><div class="text-[10px] text-ink-500 mt-2">${ant.length ? `Ano anterior: ${ant.length} negócios, ${B.n.ganho} ganhos, ${pipeFmt(B.v.ganho)} de receita.` : `Sem dados de ${p.ano-1} pra comparar.`}</div>`;
+
+  return `
+  ${unidadeMista ? '<div class="text-xs text-ink-500">Visão "Todos": valores de países diferentes somados como estão (R$, € e US$). Selecione um país pra ver em uma moeda só.</div>' : ''}
+  <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+    ${cardDash(1,'Funil de vendas',b1)}
+    ${cardDash(2,'Taxa de conversão (win rate)',b2)}
+    ${cardDash(3,'Receita por tipo (ganhos)',b3)}
+    ${cardDash(4,'Win rate por tipo',b4)}
+    ${cardDash(5,'Origem do lead',b5)}
+    ${cardDash(6,'Arena da concorrência',b6)}
+    ${cardDash(7,'Concentração por marca',b7)}
+    ${cardDash(8,'Motivos de perda',b8)}
+    ${cardDash(9,'Meta de leads New Business',b9)}
+    ${cardDash(10,'Previsão ponderada por temperatura',b10)}
+    ${cardDash(11,'Leads e conversão por categoria',b11)}
+    ${cardDash(12,`Mix por tipo · ${p.ano} × ${p.ano-1}`,b12)}
+  </div>`;
+}
 
 </script>
 </body>
