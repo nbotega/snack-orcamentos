@@ -6912,9 +6912,12 @@ async function carregarPipeline(){
     }
     STATE.pipe.anoAtivo = anoAtivo;
     if (!STATE.pipe.ano) STATE.pipe.ano = anoAtivo;
+    await carregarSheetCfg();
     await carregarDealsPipeline();
     STATE.pipe.carregado = true;
     const el = document.getElementById('view'); if (el && STATE.route === 'pipeline') el.innerHTML = renderPipeline();
+    // Planilha é a fonte: puxa os dados mais recentes ao abrir (respeitando o intervalo configurado)
+    if (pipeSyncPendente()) sincronizarPipelineSheet({ silencioso: true });
   } catch(e){ console.error(e); alert('Erro ao carregar o Pipeline: ' + (e.message||e)); }
 }
 async function carregarDealsPipeline(){
@@ -6966,7 +6969,7 @@ function renderPipeline(){
     <div class="flex items-center justify-between gap-4 flex-wrap">
       <div>
         <h1 class="font-display font-bold text-2xl">Pipeline Comercial <span class="text-ink-500 font-normal text-lg">${p.ano}</span> ${arquivado?'<span class="pill pill-ink ml-2">arquivado</span>':''}</h1>
-        <div class="text-sm text-ink-400">Oportunidades do ano: negociação, ganhos e perdidos. ${arquivado ? 'Ano anterior, somente consulta.' : 'Cálculos automáticos de budget do ano, próximo ano e previsão ponderada.'}</div>
+        <div class="text-sm text-ink-400">Oportunidades do ano: negociação, ganhos e perdidos. ${arquivado ? 'Ano anterior, somente consulta.' : 'Cálculos automáticos de budget do ano, próximo ano e previsão ponderada.'}${pipeSheetCfg()&&pipeSheetCfg().id ? ' <span class="text-ink-500">Fonte: Google Sheets (linhas 📄 são editadas lá; o app puxa sozinho).</span>' : ''}</div>
       </div>
       <div class="flex items-center gap-2 flex-wrap">
         <div class="flex items-center gap-1 bg-ink-900 rounded-lg p-1">
@@ -6975,6 +6978,8 @@ function renderPipeline(){
         <select class="input py-2 text-sm" onchange="trocarAnoPipeline(this.value)">${(p.anos||[p.ano]).map(a=>`<option value="${a}" ${a===p.ano?'selected':''}>${a}${a===anoAtivo?' (ativo)':''}</option>`).join('')}</select>
         ${arquivado ? '' : `<button class="btn btn-primary text-sm" onclick="abrirDealModal(null)">+ Oportunidade</button>`}
         <button class="btn btn-ghost text-sm" onclick="exportarCSVPipeline()" title="Exporta a lista filtrada">⬇ CSV</button>
+        ${pipeSheetCfg()&&pipeSheetCfg().id ? `<button id="pipe-sync-btn" class="btn btn-ghost text-sm" onclick="sincronizarPipelineSheet({})" title="Puxa agora os dados mais recentes da planilha">🔄 Planilha · ${pipeSyncLabel()}</button><a class="btn btn-ghost text-sm" href="${escapeHtml(pipeSheetCfg().url||'#')}" target="_blank" rel="noopener" title="Abrir a planilha no Google Sheets">📄 Abrir</a>` : ''}
+        ${isAdminAcesso() ? `<button class="btn btn-ghost text-sm" onclick="abrirFontePipeline()" title="Configurar a planilha-fonte">⚙ Fonte</button>` : ''}
         ${isAdminAcesso() ? `<button class="btn btn-ghost text-sm" onclick="abrirMetasPipeline()" title="Meta mensal de leads New Business">🎯 Metas</button>` : ''}
         ${isAdminAcesso() && p.ano === anoAtivo ? `<button class="btn btn-ghost text-sm text-yellow-400" onclick="virarAnoManual()" title="Normalmente acontece sozinho em 1º de janeiro">⏭ Virar ano</button>` : ''}
       </div>
@@ -7012,7 +7017,7 @@ function renderPipelineLista(){
         lista.map(d => { const c = pipeCalc(d); const e = PIPE_ESTAGIOS[d.estagio]||{}; const t = PIPE_TEMPS[d.temperatura];
           return `<tr class="border-t border-ink-800 hover:bg-ink-850 ${d.estagio==='08 DECLINADOS/PERDIDOS'?'opacity-70':''}">
             <td class="px-2 py-2"><span class="pill" style="background:${e.bg};color:${e.cor};border:1px solid ${e.cor}55">${e.curto||d.estagio}</span></td>
-            <td class="px-2 py-2"><div class="font-semibold">${escapeHtml(d.empresa)}</div><div class="text-ink-400 truncate max-w-[220px]" title="${escapeHtml(d.projeto||'')}">${escapeHtml(d.projeto||'—')}</div>${d.origem_deal_id?'<div class="text-[10px] text-ink-500">↪ vindo do ano anterior</div>':''}</td>
+            <td class="px-2 py-2"><div class="font-semibold">${d.origem==='sheet'?'<span title="Vem da planilha (edite lá)" class="text-ink-500 mr-1">📄</span>':''}${escapeHtml(d.empresa)}</div><div class="text-ink-400 truncate max-w-[220px]" title="${escapeHtml(d.projeto||'')}">${escapeHtml(d.projeto||'—')}</div>${d.origem_deal_id?'<div class="text-[10px] text-ink-500">↪ vindo do ano anterior</div>':''}</td>
             <td class="px-2 py-2 whitespace-nowrap">${d.unidade}</td>
             <td class="px-2 py-2">${d.servico}</td>
             <td class="px-2 py-2 text-ink-300 whitespace-nowrap">${d.gerado_por||pipeGeradoPor(d.servico)}</td>
@@ -7025,7 +7030,7 @@ function renderPipelineLista(){
             <td class="px-2 py-2 text-right tabular-nums text-ink-400">${c.budgetProx?pipeFmt(c.budgetProx, d.unidade):'—'}</td>
             <td class="px-2 py-2 text-right tabular-nums ${d.estagio==='07 PROPOSTA ENVIADA'?'text-azul-400 font-semibold':'text-ink-500'}">${d.estagio==='07 PROPOSTA ENVIADA'?pipeFmt(c.previsao, d.unidade):(d.estagio==='09 GANHO'?'100%':'0%')}</td>
             <td class="px-2 py-2 text-ink-300 whitespace-nowrap">${d.motivo_perda?escapeHtml(d.motivo_perda):'—'}</td>
-            <td class="px-2 py-2 whitespace-nowrap text-right">${arquivado?'':`<button class="btn-ghost text-xs" onclick="abrirDealModal(${d.id})" title="Editar">✎</button><button class="btn-ghost text-xs text-red-400" onclick="excluirDeal(${d.id})" title="Excluir">🗑</button>`}</td>
+            <td class="px-2 py-2 whitespace-nowrap text-right">${arquivado||d.origem==='sheet'?(d.origem==='sheet'?`<span class="text-[10px] text-ink-500" title="Linha ${d.sheet_row||''} da planilha">planilha</span>`:''):`<button class="btn-ghost text-xs" onclick="abrirDealModal(${d.id})" title="Editar">✎</button><button class="btn-ghost text-xs text-red-400" onclick="excluirDeal(${d.id})" title="Excluir">🗑</button>`}</td>
           </tr>`; }).join('')}
       </tbody>
       <tfoot><tr class="border-t-2 border-white/20 bg-white/5 font-bold">
@@ -7170,8 +7175,8 @@ async function virarAnoManual(){
 function exportarCSVPipeline(){
   const lista = pipeFiltrados(); if (!lista.length){ alert('Nada pra exportar.'); return; }
   const dec = v => (Number(v)||0).toFixed(2).replace('.', ',');
-  const rows = [['Ano','Estagio','Empresa','Projeto','Unidade','Servico','Gerado por','Concorrencia','Mes lead','Mes fechamento','Temperatura','Budget total','% ano seguinte','Budget ano','Budget proximo ano','Previsao ponderada','Motivo perda','Obs','Moeda']];
-  lista.forEach(d => { const c = pipeCalc(d); rows.push([d.ano, PIPE_ESTAGIOS[d.estagio]?.nome||d.estagio, d.empresa, d.projeto||'', d.unidade, d.servico, d.gerado_por||pipeGeradoPor(d.servico), d.concorrencia?'Sim':'Nao', d.mes_lead?MESES_PT[d.mes_lead-1]:'', d.mes_fechamento?MESES_PT[d.mes_fechamento-1]:'', PIPE_TEMPS[d.temperatura]?.nome||'', dec(c.budget), Math.round(c.pct*100)+'%', dec(c.budgetAno), dec(c.budgetProx), dec(c.previsao), d.motivo_perda||'', d.obs||'', PIPE_MOEDA[d.unidade]||'']); });
+  const rows = [['Ano','Estagio','Empresa','Projeto','Unidade','Servico','Gerado por','Concorrencia','Mes lead','Mes fechamento','Temperatura','Budget total','% ano seguinte','Budget ano','Budget proximo ano','Previsao ponderada','Motivo perda','Obs','Origem','Moeda']];
+  lista.forEach(d => { const c = pipeCalc(d); rows.push([d.ano, PIPE_ESTAGIOS[d.estagio]?.nome||d.estagio, d.empresa, d.projeto||'', d.unidade, d.servico, d.gerado_por||pipeGeradoPor(d.servico), d.concorrencia?'Sim':'Nao', d.mes_lead?MESES_PT[d.mes_lead-1]:'', d.mes_fechamento?MESES_PT[d.mes_fechamento-1]:'', PIPE_TEMPS[d.temperatura]?.nome||'', dec(c.budget), Math.round(c.pct*100)+'%', dec(c.budgetAno), dec(c.budgetProx), dec(c.previsao), d.motivo_perda||'', d.obs||'', d.origem==='sheet'?'planilha':'app', PIPE_MOEDA[d.unidade]||'']); });
   const csv = rows.map(r=>r.map(v=>{ const x=String(v==null?'':v); return x.includes(';')||x.includes(',')||x.includes('\n')||x.includes('"') ? '"'+x.replace(/"/g,'""')+'"' : x; }).join(';')).join('\n');
   const blob = new Blob(['﻿'+csv], { type:'text/csv;charset=utf-8' }); const url = URL.createObjectURL(blob);
   const a = document.createElement('a'); a.href = url; a.download = `pipeline_${STATE.pipe.ano}_${STATE.pipe.unidade}.csv`; a.click(); URL.revokeObjectURL(url);
@@ -7181,9 +7186,9 @@ function exportarCSVPipeline(){
 function pipeAgregados(lista){
   const g = { n:{neg:0,ganho:0,perd:0}, v:{neg:0,ganho:0,perd:0}, prev:0 };
   lista.forEach(d => { const c = pipeCalc(d);
-    if (d.estagio==='09 GANHO'){ g.n.ganho++; g.v.ganho+=c.budgetAno; }
-    else if (d.estagio==='08 DECLINADOS/PERDIDOS'){ g.n.perd++; g.v.perd+=c.budgetAno; }
-    else { g.n.neg++; g.v.neg+=c.budgetAno; g.prev+=c.previsao; } });
+    if (d.estagio==='09 GANHO'){ g.n.ganho++; g.v.ganho+=c.budget; }
+    else if (d.estagio==='08 DECLINADOS/PERDIDOS'){ g.n.perd++; g.v.perd+=c.budget; }
+    else { g.n.neg++; g.v.neg+=c.budget; g.prev+=c.previsao; } });
   return g;
 }
 function barra(valor, max, cor, label, sub){
@@ -7206,14 +7211,14 @@ function renderPipelineDash(){
   const maxV = Math.max(A.v.ganho, A.v.neg, A.v.perd, 1);
   const b1 = `<div class="grid grid-cols-3 gap-2 mb-3">${kpi('Ganho', A.n.ganho, 'text-green-400')}${kpi('Negociação', A.n.neg, 'text-azul-400')}${kpi('Perdido', A.n.perd, 'text-red-400')}</div>` +
     barra(A.v.ganho, maxV, '#4ADE80', 'Ganho (valor)', pipeFmt(A.v.ganho)) + barra(A.v.neg, maxV, '#2E6BFF', 'Em negociação (valor)', pipeFmt(A.v.neg)) + barra(A.v.perd, maxV, '#EF4444', 'Perdido (valor)', pipeFmt(A.v.perd)) +
-    `<div class="mt-2 text-xs text-ink-300">Previsão ponderada da negociação: <b class="text-azul-400">${pipeFmt(A.prev)}</b> · Ganho + previsão: <b>${pipeFmt(A.v.ganho + A.prev)}</b></div>`;
+    `<div class="mt-2 text-xs text-ink-300">Previsão ponderada (budget do ano × calor): <b class="text-azul-400">${pipeFmt(A.prev)}</b> · Ganho + previsão: <b>${pipeFmt(A.v.ganho + A.prev)}</b></div>`;
   // 2 Win rate
   const wrN = (A.n.ganho+A.n.perd) ? A.n.ganho/(A.n.ganho+A.n.perd) : 0, wrV = (A.v.ganho+A.v.perd) ? A.v.ganho/(A.v.ganho+A.v.perd) : 0;
   const wrNant = (B.n.ganho+B.n.perd) ? B.n.ganho/(B.n.ganho+B.n.perd) : null;
   const b2 = `<div class="grid grid-cols-2 gap-2">${kpi('Em nº de negócios', pipePct(wrN), 'text-2xl')}${kpi('Em valor', pipePct(wrV), 'text-2xl')}</div><div class="text-xs text-ink-400 mt-2 mb-2">${A.n.ganho} ganhos de ${A.n.ganho+A.n.perd} decididos${wrNant!=null?` · ano anterior: ${pipePct(wrNant)}`:''}</div>` + barra(wrN, 1, '#4ADE80', 'Win rate (nº)', pipePct(wrN)) + barra(wrV, 1, '#F59E0B', 'Win rate (valor)', pipePct(wrV));
   // 3 Receita por tipo (ganhos)
   const ganhos = atual.filter(d=>d.estagio==='09 GANHO');
-  const porTipo = {}; PIPE_SERVICOS.forEach(s=>porTipo[s]={n:0,v:0}); ganhos.forEach(d=>{ porTipo[d.servico].n++; porTipo[d.servico].v+=pipeCalc(d).budgetAno; });
+  const porTipo = {}; PIPE_SERVICOS.forEach(s=>porTipo[s]={n:0,v:0}); ganhos.forEach(d=>{ porTipo[d.servico].n++; porTipo[d.servico].v+=pipeCalc(d).budget; });
   const recTot = A.v.ganho || 1; const recorr = porTipo.Fee.v + porTipo.Upsell.v, avulso = porTipo.Projeto.v;
   const b3 = PIPE_SERVICOS.map(s => barra(porTipo[s].v, recTot, CORES_SERV[s], `${s} · ${porTipo[s].n} · ticket ${porTipo[s].n?pipeFmt(porTipo[s].v/porTipo[s].n):'—'}`, `${pipeFmt(porTipo[s].v)} (${pipePct(porTipo[s].v/recTot)})`)).join('') +
     `<div class="grid grid-cols-2 gap-2 mt-3">${kpi('Recorrente (Fee+Upsell)', pipePct(recorr/recTot) + ' · ' + pipeFmt(recorr), 'text-orange-300')}${kpi('Avulso (Projeto)', pipePct(avulso/recTot) + ' · ' + pipeFmt(avulso), 'text-azul-400')}</div>`;
@@ -7222,7 +7227,7 @@ function renderPipelineDash(){
     return barra(wr, 1, CORES_SERV[s], `${s} · base ${base} → ${conq} conquistas`, pipePct(wr)); }).join('') + `<div class="text-[10px] text-ink-500 mt-2">Base = negócios decididos (ganhos + perdidos) do tipo.</div>`;
   // 5 Origem do lead + volume por mês
   const nb = atual.filter(d=>pipeGeradoPor(d.servico)==='New Business'), at = atual.filter(d=>pipeGeradoPor(d.servico)==='Atendimento');
-  const vNB = nb.reduce((s,d)=>s+pipeCalc(d).budgetAno,0), vAT = at.reduce((s,d)=>s+pipeCalc(d).budgetAno,0);
+  const vNB = nb.reduce((s,d)=>s+pipeCalc(d).budget,0), vAT = at.reduce((s,d)=>s+pipeCalc(d).budget,0);
   const porMesNB = new Array(12).fill(0), porMesAT = new Array(12).fill(0);
   atual.forEach(d => { const m = (d.mes_lead||d.mes_fechamento); if (m) (pipeGeradoPor(d.servico)==='New Business'?porMesNB:porMesAT)[m-1]++; });
   const maxMes = Math.max(...porMesNB.map((v,i)=>v+porMesAT[i]), 1);
@@ -7233,12 +7238,12 @@ function renderPipelineDash(){
   const conc = atual.filter(d=>d.concorrencia); const C = pipeAgregados(conc); const wrC = (C.n.ganho+C.n.perd)?C.n.ganho/(C.n.ganho+C.n.perd):0;
   const b6 = `<div class="grid grid-cols-3 gap-2 mb-3">${kpi('Ganhas', C.n.ganho, 'text-green-400')}${kpi('Perdidas', C.n.perd, 'text-red-400')}${kpi('Abertas', C.n.neg, 'text-azul-400')}</div>` + barra(wrC, 1, '#F59E0B', 'Win rate com concorrência', pipePct(wrC)) + `<div class="text-xs text-ink-400 mt-2">${conc.length} de ${atual.length} negócios tiveram disputa (${pipePct(conc.length/(atual.length||1))}) · valor ganho em disputa: <b>${pipeFmt(C.v.ganho)}</b></div>`;
   // 7 Concentração por marca
-  const porMarca = {}; ganhos.forEach(d => { porMarca[d.empresa] = (porMarca[d.empresa]||0) + pipeCalc(d).budgetAno; });
+  const porMarca = {}; ganhos.forEach(d => { porMarca[d.empresa] = (porMarca[d.empresa]||0) + pipeCalc(d).budget; });
   const topM = Object.entries(porMarca).sort((a,b)=>b[1]-a[1]).slice(0,6); const maior = topM[0] ? topM[0][1]/recTot : 0;
   const alerta = maior >= 0.40 ? `<div class="text-xs text-red-400 font-semibold mb-2">⚠ ${escapeHtml(topM[0][0])} concentra ${pipePct(maior)} da receita ganha (acima de 40%)</div>` : maior >= 0.35 ? `<div class="text-xs text-yellow-400 font-semibold mb-2">⚠ ${escapeHtml(topM[0][0])} concentra ${pipePct(maior)} da receita ganha (atenção: 35–40%)</div>` : '';
   const b7 = alerta + (topM.length ? topM.map(([m,v],i)=>barra(v, recTot, i===0&&maior>=0.35?'#EF4444':'#4ADE80', escapeHtml(m), `${pipeFmt(v)} (${pipePct(v/recTot)})`)).join('') : '<div class="text-ink-500 text-xs">Sem ganhos ainda.</div>');
   // 8 Motivos de perda
-  const perd = atual.filter(d=>d.estagio==='08 DECLINADOS/PERDIDOS'); const porMot = {}; perd.forEach(d => { const k = d.motivo_perda||'(sem motivo)'; porMot[k] = porMot[k]||{n:0,v:0}; porMot[k].n++; porMot[k].v+=pipeCalc(d).budgetAno; });
+  const perd = atual.filter(d=>d.estagio==='08 DECLINADOS/PERDIDOS'); const porMot = {}; perd.forEach(d => { const k = d.motivo_perda||'(sem motivo)'; porMot[k] = porMot[k]||{n:0,v:0}; porMot[k].n++; porMot[k].v+=pipeCalc(d).budget; });
   const motList = Object.entries(porMot).sort((a,b)=>b[1].v-a[1].v); const maxMot = Math.max(...motList.map(x=>x[1].v), 1);
   const b8 = motList.length ? motList.map(([k,x])=>barra(x.v, maxMot, '#EF4444', `${escapeHtml(k)} · ${x.n}`, pipeFmt(x.v))).join('') + `<div class="text-xs text-ink-400 mt-2">Total perdido: <b>${pipeFmt(A.v.perd)}</b> em ${perd.length} negócios</div>` : '<div class="text-ink-500 text-xs">Nenhuma perda registrada.</div>';
   // 9 Meta de leads NB
@@ -7253,15 +7258,15 @@ function renderPipelineDash(){
     <div class="text-[10px] text-ink-500 mt-1">Atingimento considera a meta acumulada até o mês atual. ${metaTot?'':'Defina as metas no botão 🎯 Metas.'}</div>`;
   // 10 Previsão por temperatura
   const neg = atual.filter(d=>d.estagio==='07 PROPOSTA ENVIADA'); const porTemp = {}; Object.keys(PIPE_TEMPS).forEach(k=>porTemp[k]={n:0,v:0,prev:0});
-  neg.forEach(d => { const k = d.temperatura; if (porTemp[k]){ const c = pipeCalc(d); porTemp[k].n++; porTemp[k].v+=c.budgetAno; porTemp[k].prev+=c.previsao; } });
+  neg.forEach(d => { const k = d.temperatura; if (porTemp[k]){ const c = pipeCalc(d); porTemp[k].n++; porTemp[k].v+=c.budget; porTemp[k].prev+=c.previsao; } });
   const b10 = Object.entries(PIPE_TEMPS).map(([k,t]) => barra(porTemp[k].prev, Math.max(A.v.neg,1), t.cor, `${t.nome} (${Math.round(t.chance*100)}%) · ${porTemp[k].n} negócios · ${pipeFmt(porTemp[k].v)}`, pipeFmt(porTemp[k].prev))).join('') + `<div class="grid grid-cols-2 gap-2 mt-3">${kpi('Em negociação', pipeFmt(A.v.neg))}${kpi('Previsão ponderada', pipeFmt(A.prev), 'text-azul-400')}</div>`;
   // 11 Leads e conversão por categoria
   const cats = [['Fee', d=>d.servico==='Fee'], ['Projeto', d=>d.servico==='Projeto'], ['Upsell', d=>d.servico==='Upsell'], ['New Business', d=>pipeGeradoPor(d.servico)==='New Business']];
-  const b11 = `<table class="w-full text-xs"><thead><tr class="text-[10px] uppercase tracking-widest text-ink-500"><th class="text-left py-1">Categoria</th><th class="text-right">Leads</th><th class="text-right">Conversões</th><th class="text-right">Taxa</th><th class="text-right">Receita</th></tr></thead><tbody>${cats.map(([nome,fn]) => { const l = atual.filter(fn); const g2 = l.filter(d=>d.estagio==='09 GANHO'); const dec2 = l.filter(d=>d.estagio!=='07 PROPOSTA ENVIADA').length; const v = g2.reduce((s,d)=>s+pipeCalc(d).budgetAno,0);
+  const b11 = `<table class="w-full text-xs"><thead><tr class="text-[10px] uppercase tracking-widest text-ink-500"><th class="text-left py-1">Categoria</th><th class="text-right">Leads</th><th class="text-right">Conversões</th><th class="text-right">Taxa</th><th class="text-right">Receita</th></tr></thead><tbody>${cats.map(([nome,fn]) => { const l = atual.filter(fn); const g2 = l.filter(d=>d.estagio==='09 GANHO'); const dec2 = l.filter(d=>d.estagio!=='07 PROPOSTA ENVIADA').length; const v = g2.reduce((s,d)=>s+pipeCalc(d).budget,0);
     return `<tr class="border-t border-white/5"><td class="py-1.5 font-semibold">${nome}</td><td class="text-right tabular-nums">${l.length}</td><td class="text-right tabular-nums text-green-400">${g2.length}</td><td class="text-right tabular-nums">${dec2?pipePct(g2.length/dec2):'—'}</td><td class="text-right tabular-nums">${pipeFmt(v)}</td></tr>`; }).join('')}</tbody></table><div class="text-[10px] text-ink-500 mt-2">Taxa = conversões ÷ negócios decididos (ganhos + perdidos).</div>`;
   // 12 Mix por tipo: atual × anterior
   const mix = (lista) => { const t = {leads:0,conv:0,rec:0}; const r = {}; PIPE_SERVICOS.forEach(s=>r[s]={leads:0,conv:0,rec:0});
-    lista.forEach(d => { const c = pipeCalc(d); r[d.servico].leads++; t.leads++; if (d.estagio==='09 GANHO'){ r[d.servico].conv++; t.conv++; r[d.servico].rec+=c.budgetAno; t.rec+=c.budgetAno; } });
+    lista.forEach(d => { const c = pipeCalc(d); r[d.servico].leads++; t.leads++; if (d.estagio==='09 GANHO'){ r[d.servico].conv++; t.conv++; r[d.servico].rec+=c.budget; t.rec+=c.budget; } });
     return { r, t }; };
   const M1 = mix(atual), M0 = mix(ant);
   const cel = (a, b) => `<td class="text-right tabular-nums">${pipePct(a)}</td><td class="text-right tabular-nums text-ink-500">${ant.length?pipePct(b):'—'}</td>`;
@@ -7283,6 +7288,165 @@ function renderPipelineDash(){
     ${cardDash(11,'Leads e conversão por categoria',b11)}
     ${cardDash(12,`Mix por tipo · ${p.ano} × ${p.ano-1}`,b12)}
   </div>`;
+}
+
+
+// ---------- Sincronização com o Google Sheets (fonte da verdade do pipeline) ----------
+// A planilha precisa estar compartilhada como "qualquer pessoa com o link" (leitor basta).
+// Linhas vindas da planilha têm origem = 'sheet' e não são editáveis no app; o que é
+// cadastrado no app (origem = 'app') continua editável e sobrevive às sincronizações.
+const PIPE_MESES_NOME = { janeiro:1, fevereiro:2, 'março':3, marco:3, abril:4, maio:5, junho:6, julho:7, agosto:8, setembro:9, outubro:10, novembro:11, dezembro:12 };
+
+function pipeParseCSV(txt){
+  const rows=[]; let row=[], f='', q=false;
+  for (let i=0;i<txt.length;i++){ const c=txt[i];
+    if (q){ if (c==='"'){ if (txt[i+1]==='"'){ f+='"'; i++; } else q=false; } else f+=c; }
+    else { if (c==='"') q=true; else if (c===','){ row.push(f); f=''; } else if (c==='\n'){ row.push(f); rows.push(row); row=[]; f=''; } else if (c==='\r'){} else f+=c; }
+  }
+  if (f!=='' || row.length){ row.push(f); rows.push(row); }
+  return rows;
+}
+function pipeSheetNum(s){ let x = String(s||'').replace(/[^0-9.,-]/g,''); if (!x) return 0; if (x.includes(',')) x = x.replace(/\./g,'').replace(',','.'); else x = x.replace(/\./g,''); const n = parseFloat(x); return isNaN(n) ? 0 : n; }
+function pipeSheetPct(s){ const n = pipeSheetNum(s); return Math.min(1, Math.max(0, n > 1 ? n/100 : n)); }
+function pipeSheetCfg(){ return STATE.pipe.sheetCfg || null; }
+function pipeSheetIdDeUrl(u){ const m = String(u||'').match(/\/spreadsheets\/d\/([a-zA-Z0-9_-]+)/); return m ? m[1] : (String(u||'').trim() || null); }
+
+async function carregarSheetCfg(){
+  const { data } = await sb.from('pipeline_config').select('*').eq('chave','sheet').maybeSingle();
+  STATE.pipe.sheetCfg = data?.valor || null;
+}
+async function pipeFetchAba(id, aba, range){
+  const u = `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(aba)}${range?'&range='+encodeURIComponent(range):''}&headers=1&_=${Date.now()}`;
+  const r = await fetch(u, { cache:'no-store' });
+  if (!r.ok) throw new Error(`planilha respondeu ${r.status} (aba "${aba}")`);
+  const t = await r.text();
+  if (t.trim().startsWith('<')) throw new Error('a planilha não está acessível — compartilhe como "qualquer pessoa com o link" (leitor)');
+  return pipeParseCSV(t);
+}
+// Mapeia a aba Pipeline (colunas por nome do cabeçalho)
+function pipeMapearLinhas(rows, ano){
+  const hdr = (rows[0]||[]).map(h => String(h||'').trim().toUpperCase());
+  const col = (...names) => { for (const n of names){ const i = hdr.indexOf(n); if (i>=0) return i; } return -1; };
+  const iE = col('ETAPA','ESTÁGIO','ESTAGIO'), iEmp = col('EMPRESA/MARCA','EMPRESA','MARCA'), iPr = col('NOME DO PROJETO','PROJETO'), iU = col('UNIT','UNIDADE'),
+        iS = col('SERVIÇO','SERVICO'), iC = col('CONCORRÊNCIA','CONCORRENCIA'), iM = col('MÊS FECHADO','MES FECHADO','MÊS','MES'), iT = col('TEMPERATURA'),
+        iB = col('BUDGET'), iP = col('% ANO SEGUINTE','% PRÓXIMO ANO'), iMot = col('MOTIVO PERDA','MOTIVO DA PERDA','MOTIVO');
+  if (iE < 0 || iEmp < 0 || iB < 0) throw new Error('não achei as colunas ETAPA / EMPRESA/MARCA / BUDGET no cabeçalho da aba');
+  const out = []; let ignoradas = 0;
+  rows.slice(1).forEach((r, idx) => {
+    const estagio = String(r[iE]||'').trim(); const empresa = String(r[iEmp]||'').trim();
+    if (!estagio && !empresa) return; // linha vazia
+    if (!PIPE_ESTAGIOS[estagio] || !empresa){ ignoradas++; return; }
+    let servico = String(r[iS]||'').trim(); if (!PIPE_SERVICOS.includes(servico)) servico = 'Projeto';
+    let unidade = String(r[iU]||'').trim(); unidade = PIPE_UNIDADES.find(u => u.toLowerCase() === unidade.toLowerCase().replace('itália','italia')) || 'Brasil';
+    const mesNome = String(r[iM]||'').trim().toLowerCase(); const mes = PIPE_MESES_NOME[mesNome] || (Number(mesNome)>=1&&Number(mesNome)<=12 ? Number(mesNome) : null);
+    let temp = String(r[iT]||'').trim().toUpperCase(); temp = Object.keys(PIPE_TEMPS).find(k => k === temp || k.slice(2) === temp) || null;
+    if (estagio === '07 PROPOSTA ENVIADA' && !temp) temp = '3.COLD';
+    let motivo = String(r[iMot]||'').trim(); if (!PIPE_MOTIVOS.includes(motivo)) motivo = null;
+    out.push({ ano, estagio, empresa, projeto: String(r[iPr]||'').trim() || null, unidade, servico, concorrencia: /^s/i.test(String(r[iC]||'').trim()),
+      mes_lead: null, mes_fechamento: mes, temperatura: temp, budget: pipeSheetNum(r[iB]), pct_ano_seguinte: iP>=0 ? pipeSheetPct(r[iP]) : 0,
+      motivo_perda: estagio === '08 DECLINADOS/PERDIDOS' ? motivo : null, obs: null, origem: 'sheet', sheet_row: idx+2 });
+  });
+  return { out, ignoradas };
+}
+// Aba de histórico (ETAPA, SERVICO, BUDGET) — vira linhas simplificadas do ano anterior
+function pipeMapearHistorico(rows, ano){
+  const hdr = (rows[0]||[]).map(h => String(h||'').trim().toUpperCase());
+  const iE = hdr.indexOf('ETAPA'), iS = Math.max(hdr.indexOf('SERVICO'), hdr.indexOf('SERVIÇO')), iB = hdr.indexOf('BUDGET'), iU = hdr.indexOf('UNIT');
+  if (iE < 0 || iB < 0) return { out: [], ignoradas: 0 };
+  const out = []; let ignoradas = 0;
+  rows.slice(1).forEach((r, idx) => {
+    const estagio = String(r[iE]||'').trim(); if (!estagio) return;
+    if (!PIPE_ESTAGIOS[estagio]){ ignoradas++; return; }
+    let servico = String(r[iS]||'').trim(); if (!PIPE_SERVICOS.includes(servico)) servico = 'Projeto';
+    let unidade = iU >= 0 ? String(r[iU]||'').trim() : 'Brasil'; unidade = PIPE_UNIDADES.find(u => u.toLowerCase() === unidade.toLowerCase()) || 'Brasil';
+    out.push({ ano, estagio, empresa: `Histórico ${ano}`, projeto: null, unidade, servico, concorrencia: false, mes_lead: null, mes_fechamento: null,
+      temperatura: estagio === '07 PROPOSTA ENVIADA' ? '3.COLD' : null, budget: pipeSheetNum(r[iB]), pct_ano_seguinte: 0, motivo_perda: null, obs: null, origem: 'sheet', sheet_row: idx+2 });
+  });
+  return { out, ignoradas };
+}
+async function pipeGravarLote(linhas, ano, syncId){
+  for (let i = 0; i < linhas.length; i += 200){
+    const lote = linhas.slice(i, i+200).map(l => ({ ...l, sync_id: syncId }));
+    const { error } = await sb.from('pipeline_deals').insert(lote);
+    if (error) throw error;
+  }
+  // remove o que veio de sincronizações anteriores (só origem = sheet, só desse ano)
+  const { error: eDel } = await sb.from('pipeline_deals').delete().eq('ano', ano).eq('origem', 'sheet').neq('sync_id', syncId);
+  if (eDel) throw eDel;
+}
+async function sincronizarPipelineSheet(opts){
+  opts = opts || {};
+  const cfg = pipeSheetCfg(); if (!cfg || !cfg.id) { if (!opts.silencioso) alert('Nenhuma planilha configurada. Use ⚙ Fonte.'); return; }
+  if (STATE.pipe._sync) return; STATE.pipe._sync = true;
+  const btn = document.getElementById('pipe-sync-btn'); if (btn){ btn.disabled = true; btn.textContent = '⏳ Sincronizando…'; }
+  try {
+    const syncId = 'S' + Date.now().toString(36) + Math.random().toString(36).slice(2,6);
+    const anoP = Number(cfg.ano) || STATE.pipe.anoAtivo;
+    const rows = await pipeFetchAba(cfg.id, cfg.aba || 'Pipeline', 'A2:Z5000');
+    const { out, ignoradas } = pipeMapearLinhas(rows, anoP);
+    if (!out.length) throw new Error('a aba "' + (cfg.aba||'Pipeline') + '" veio vazia — nada foi alterado');
+    await pipeGravarLote(out, anoP, syncId);
+    let nHist = 0;
+    if (cfg.aba_hist){
+      try {
+        const rowsH = await pipeFetchAba(cfg.id, cfg.aba_hist);
+        const h = pipeMapearHistorico(rowsH, Number(cfg.ano_hist) || (anoP-1));
+        if (h.out.length){ await pipeGravarLote(h.out, Number(cfg.ano_hist) || (anoP-1), syncId); nHist = h.out.length; }
+      } catch(e){ console.warn('histórico:', e.message); }
+    }
+    const novo = { ...cfg, ultima_sync: new Date().toISOString(), linhas: out.length, ignoradas, hist: nHist };
+    await sb.from('pipeline_config').upsert({ chave:'sheet', valor: novo, updated_at: new Date().toISOString() }, { onConflict:'chave' });
+    STATE.pipe.sheetCfg = novo;
+    if (!opts.silencioso) STATE.pipe._aviso = `Planilha sincronizada: ${out.length} oportunidade(s) de ${anoP}${nHist?` + ${nHist} linha(s) de histórico ${cfg.ano_hist||anoP-1}`:''}${ignoradas?` · ${ignoradas} linha(s) ignorada(s) por etapa/empresa inválida`:''}.`;
+    await carregarDealsPipeline();
+  } catch(e){
+    console.error(e);
+    if (!opts.silencioso) alert('Não consegui sincronizar com a planilha: ' + (e.message||e));
+    else STATE.pipe._aviso = '⚠ Não consegui atualizar da planilha agora (' + (e.message||e) + '). Mostrando a última versão sincronizada.';
+    const el = document.getElementById('view'); if (el && STATE.route === 'pipeline') el.innerHTML = renderPipeline();
+  } finally { STATE.pipe._sync = false; }
+}
+function pipeSyncPendente(){
+  const cfg = pipeSheetCfg(); if (!cfg || !cfg.id) return false;
+  const min = Number(cfg.auto_minutos) || 10;
+  if (!cfg.ultima_sync) return true;
+  return (Date.now() - new Date(cfg.ultima_sync).getTime()) > min*60*1000;
+}
+function pipeSyncLabel(){
+  const cfg = pipeSheetCfg(); if (!cfg || !cfg.id) return '';
+  if (!cfg.ultima_sync) return 'nunca sincronizada';
+  const d = new Date(cfg.ultima_sync); const min = Math.round((Date.now()-d.getTime())/60000);
+  return min < 1 ? 'agora' : min < 60 ? `há ${min} min` : d.toLocaleString('pt-BR', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+}
+function abrirFontePipeline(){
+  const cfg = pipeSheetCfg() || {};
+  const old = document.getElementById('modal-fonte'); if (old) old.remove();
+  const div = document.createElement('div'); div.id = 'modal-fonte';
+  div.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4';
+  div.innerHTML = `<div class="card p-6 w-full max-w-lg" onclick="event.stopPropagation()">
+    <h3 class="font-bold text-lg">Fonte do pipeline (Google Sheets)</h3>
+    <div class="text-xs text-ink-400 mt-1 mb-3">A planilha é a fonte da verdade: a cada abertura do módulo (e no botão 🔄) as oportunidades são puxadas de lá. Linhas da planilha não são editáveis aqui. Precisa estar compartilhada como "qualquer pessoa com o link".</div>
+    <label class="text-xs text-ink-400">Link da planilha</label><input id="ft-url" class="input mt-1 mb-2" value="${escapeHtml(cfg.url||'')}" placeholder="https://docs.google.com/spreadsheets/d/…">
+    <div class="grid grid-cols-2 gap-2">
+      <div><label class="text-xs text-ink-400">Aba do pipeline</label><input id="ft-aba" class="input mt-1" value="${escapeHtml(cfg.aba||'Pipeline')}"></div>
+      <div><label class="text-xs text-ink-400">Ano dessa aba</label><input id="ft-ano" type="number" class="input mt-1" value="${cfg.ano||STATE.pipe.anoAtivo}"></div>
+      <div><label class="text-xs text-ink-400">Aba de histórico (opcional)</label><input id="ft-hist" class="input mt-1" value="${escapeHtml(cfg.aba_hist||'')}" placeholder="Dados2025"></div>
+      <div><label class="text-xs text-ink-400">Ano do histórico</label><input id="ft-anohist" type="number" class="input mt-1" value="${cfg.ano_hist||(STATE.pipe.anoAtivo-1)}"></div>
+      <div><label class="text-xs text-ink-400">Auto-sincronizar a cada (min)</label><input id="ft-min" type="number" min="1" class="input mt-1" value="${cfg.auto_minutos||10}"></div>
+    </div>
+    <div class="flex justify-end gap-2 mt-5"><button class="btn-ghost" onclick="document.getElementById('modal-fonte').remove()">Cancelar</button><button class="btn-primary" onclick="salvarFontePipeline()">Salvar e sincronizar</button></div>
+  </div>`;
+  div.addEventListener('click', ()=>div.remove()); document.body.appendChild(div);
+}
+async function salvarFontePipeline(){
+  const url = document.getElementById('ft-url').value.trim(); const id = pipeSheetIdDeUrl(url);
+  if (!id){ alert('Link inválido.'); return; }
+  const cfg = { ...(pipeSheetCfg()||{}), id, url, aba: document.getElementById('ft-aba').value.trim() || 'Pipeline', ano: Number(document.getElementById('ft-ano').value)||STATE.pipe.anoAtivo,
+    aba_hist: document.getElementById('ft-hist').value.trim() || null, ano_hist: Number(document.getElementById('ft-anohist').value)||null, auto_minutos: Number(document.getElementById('ft-min').value)||10 };
+  const { error } = await sb.from('pipeline_config').upsert({ chave:'sheet', valor: cfg, updated_at: new Date().toISOString() }, { onConflict:'chave' });
+  if (error){ alert('Erro: ' + error.message); return; }
+  STATE.pipe.sheetCfg = cfg; document.getElementById('modal-fonte')?.remove();
+  await sincronizarPipelineSheet({});
 }
 
 </script>
