@@ -5987,7 +5987,7 @@ function renderBacklog(){
       </div>
       <div class="flex items-center gap-2">
         <span class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">Ano base</span>
-        <select class="input py-2 text-sm" onchange="STATE.backlogAno=+this.value; render(); carregarBacklogStatus();">
+        <select class="input py-2 text-sm" style="width:auto;min-width:110px" onchange="STATE.backlogAno=+this.value; render(); carregarBacklogStatus();">
           ${anos.map(a=>`<option value="${a}" ${a===ano?'selected':''}>${a}</option>`).join('')}
         </select>
         <button class="btn btn-primary text-sm" onclick="exportarCSVBacklog()" title="Exporta as linhas visíveis (com filtros) em CSV pra Excel">
@@ -7039,7 +7039,7 @@ function renderPipeline(){
         <div class="flex items-center gap-1 bg-ink-900 rounded-lg p-1">
           ${['Todos',...PIPE_UNIDADES].map(u=>`<button class="px-3 py-1.5 rounded-md text-xs font-semibold transition ${p.unidade===u?'bg-white/10 text-white':'text-ink-400 hover:text-white'}" onclick="setPipeUnidade('${u}')">${u}</button>`).join('')}
         </div>
-        <select class="input py-2 text-sm" onchange="trocarAnoPipeline(this.value)">${(p.anos||[p.ano]).map(a=>`<option value="${a}" ${a===p.ano?'selected':''}>${a}${a===anoAtivo?' (ativo)':''}</option>`).join('')}</select>
+        <select class="input py-2 text-sm" style="width:auto;min-width:130px" onchange="trocarAnoPipeline(this.value)">${(p.anos||[p.ano]).map(a=>`<option value="${a}" ${a===p.ano?'selected':''}>${a}${a===anoAtivo?' (ativo)':''}</option>`).join('')}</select>
         ${arquivado ? '' : `<button class="btn btn-primary text-sm" onclick="abrirDealModal(null)">+ Oportunidade</button>`}
         <button class="btn btn-ghost text-sm" onclick="exportarCSVPipeline()" title="Exporta a lista filtrada">⬇ CSV</button>
         ${pipeSheetCfg()&&pipeSheetCfg().id ? `<button id="pipe-sync-btn" class="btn btn-ghost text-sm" onclick="sincronizarPipelineSheet({})" title="Puxa agora os dados mais recentes da planilha">🔄 Planilha · ${pipeSyncLabel()}</button><a class="btn btn-ghost text-sm" href="${escapeHtml(pipeSheetCfg().url||'#')}" target="_blank" rel="noopener" title="Abrir a planilha no Google Sheets">📄 Abrir</a>` : ''}
