@@ -4227,8 +4227,15 @@ async function carregarPagamentos(){
 }
 
 // Devolve o previsto por categoria de um orçamento (multiplicando pelos meses se custos_mensais)
+// Repasse (cachê/mídia/produção marcados como repasse no orçamento) é dinheiro do cliente que só
+// transita pela Snack: não é custo e não entra em nenhum relatório de custo.
+function isRepasse(orc, categoria){
+  const rep = (orc && orc.repasse) || {};
+  return !!rep[categoria];
+}
 function previstoPorCategoria(orc, categoria){
   if (!orc) return 0;
+  if (isRepasse(orc, categoria)) return 0;
   const mult = orc.custos_mensais ? (orc.meses||1) : 1;
   if (categoria === 'cache'){
     if ((orc.caches_itens||[]).length > 0){
@@ -4440,7 +4447,7 @@ function renderPainelCustosDetalhe(orc){
     const nrNaoValidado = naoValidadoNotaRapidaPorCategoria(orc.id, cat);
     const manualPago = pagoManualPorCategoria(orc.id, cat);
     return {
-      cat, nome: NOMES_CAT[cat], cor: CORES_CAT[cat],
+      cat, nome: NOMES_CAT[cat] + (isRepasse(orc, cat) ? ' (repasse — não é custo)' : ''), cor: CORES_CAT[cat], repasse: isRepasse(orc, cat),
       previsto, realizado, base, pago, pagoManual, aPagar,
       nrValidado, nrNaoValidado, manualPago,
       saldo: base - pago - aPagar,
@@ -5638,12 +5645,9 @@ async function carregarRealizados(){
 function calcularOrcadoDoOrc(orc){
   const mult = orc.custos_mensais ? (orc.meses||1) : 1;
   const totalFrilas = (orc.frilas||[]).reduce((s,f)=>s + (Number(f.valor)||0) * mult, 0);
-  return {
-    cache: (Number(orc.caches)||0) * mult,
-    freela: totalFrilas,
-    producao: (Number(orc.producao)||0) * mult,
-    total: ((Number(orc.caches)||0) + (Number(orc.producao)||0)) * mult + totalFrilas
-  };
+  const cache = isRepasse(orc,'cache') ? 0 : (Number(orc.caches)||0) * mult;
+  const producao = isRepasse(orc,'producao') ? 0 : (Number(orc.producao)||0) * mult;
+  return { cache, freela: totalFrilas, producao, total: cache + producao + totalFrilas };
 }
 
 function renderTabelaRealizado(){
@@ -7379,17 +7383,27 @@ async function carregarSheetCfg(){
   const { data } = await sb.from('pipeline_config').select('*').eq('chave','sheet').maybeSingle();
   STATE.pipe.sheetCfg = data?.valor || null;
 }
-async function pipeFetchAba(id, aba, range){
-  const u = `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(aba)}${range?'&range='+encodeURIComponent(range):''}&headers=1&_=${Date.now()}`;
+async function pipeFetchAba(id, aba, range, gid){
+  // Com gid usa o export CSV, que traz a aba inteira e IGNORA filtros/linhas ocultas da planilha.
+  // Sem gid cai no gviz por nome de aba (esse respeita o filtro ativo na planilha).
+  const u = gid
+    ? `https://docs.google.com/spreadsheets/d/${id}/export?format=csv&gid=${encodeURIComponent(gid)}&_=${Date.now()}`
+    : `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(aba)}${range?'&range='+encodeURIComponent(range):''}&headers=1&_=${Date.now()}`;
   const r = await fetch(u, { cache:'no-store' });
-  if (!r.ok) throw new Error(`planilha respondeu ${r.status} (aba "${aba}")`);
+  if (!r.ok) throw new Error(`planilha respondeu ${r.status} (aba "${aba||gid}")`);
   const t = await r.text();
   if (t.trim().startsWith('<')) throw new Error('a planilha não está acessível — compartilhe como "qualquer pessoa com o link" (leitor)');
   return pipeParseCSV(t);
 }
+// Acha a linha de cabeçalho (a que tem ETAPA e BUDGET) e descarta o que vem antes (título etc.)
+function pipeDesdeCabecalho(rows){
+  const idx = rows.findIndex(r => { const h = r.map(x => String(x||'').trim().toUpperCase()); return h.includes('ETAPA') && h.includes('BUDGET'); });
+  return idx >= 0 ? rows.slice(idx) : rows;
+}
 // Mapeia a aba Pipeline (colunas por nome do cabeçalho)
 function pipeMapearLinhas(rows, ano){
   const hdr = (rows[0]||[]).map(h => String(h||'').trim().toUpperCase());
+  if (!hdr.includes('ETAPA')) throw new Error('não achei o cabeçalho (ETAPA / EMPRESA/MARCA / BUDGET) na aba — confira o gid/nome da aba em ⚙ Fonte');
   const col = (...names) => { for (const n of names){ const i = hdr.indexOf(n); if (i>=0) return i; } return -1; };
   const iE = col('ETAPA','ESTÁGIO','ESTAGIO'), iEmp = col('EMPRESA/MARCA','EMPRESA','MARCA'), iPr = col('NOME DO PROJETO','PROJETO'), iU = col('UNIT','UNIDADE'),
         iS = col('SERVIÇO','SERVICO'), iC = col('CONCORRÊNCIA','CONCORRENCIA'), iM = col('MÊS FECHADO','MES FECHADO','MÊS','MES'), iT = col('TEMPERATURA'),
@@ -7446,14 +7460,14 @@ async function sincronizarPipelineSheet(opts){
   try {
     const syncId = 'S' + Date.now().toString(36) + Math.random().toString(36).slice(2,6);
     const anoP = Number(cfg.ano) || STATE.pipe.anoAtivo;
-    const rows = await pipeFetchAba(cfg.id, cfg.aba || 'Pipeline', 'A2:Z5000');
+    const rows = pipeDesdeCabecalho(await pipeFetchAba(cfg.id, cfg.aba || 'Pipeline', 'A2:Z5000', cfg.gid));
     const { out, ignoradas } = pipeMapearLinhas(rows, anoP);
     if (!out.length) throw new Error('a aba "' + (cfg.aba||'Pipeline') + '" veio vazia — nada foi alterado');
     await pipeGravarLote(out, anoP, syncId);
     let nHist = 0;
     if (cfg.aba_hist){
       try {
-        const rowsH = await pipeFetchAba(cfg.id, cfg.aba_hist);
+        const rowsH = pipeDesdeCabecalho(await pipeFetchAba(cfg.id, cfg.aba_hist, null, cfg.gid_hist));
         const h = pipeMapearHistorico(rowsH, Number(cfg.ano_hist) || (anoP-1));
         if (h.out.length){ await pipeGravarLote(h.out, Number(cfg.ano_hist) || (anoP-1), syncId); nHist = h.out.length; }
       } catch(e){ console.warn('histórico:', e.message); }
@@ -7489,12 +7503,14 @@ function abrirFontePipeline(){
   div.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4';
   div.innerHTML = `<div class="card p-6 w-full max-w-lg" onclick="event.stopPropagation()">
     <h3 class="font-bold text-lg">Fonte do pipeline (Google Sheets)</h3>
-    <div class="text-xs text-ink-400 mt-1 mb-3">A planilha é a fonte da verdade: a cada abertura do módulo (e no botão 🔄) as oportunidades são puxadas de lá. Linhas da planilha não são editáveis aqui. Precisa estar compartilhada como "qualquer pessoa com o link".</div>
+    <div class="text-xs text-ink-400 mt-1 mb-3">A planilha é a fonte da verdade: a cada abertura do módulo (e no botão 🔄) as oportunidades são puxadas de lá. Linhas da planilha não são editáveis aqui. Precisa estar compartilhada como "qualquer pessoa com o link". Com o <b>gid</b> preenchido a sincronização lê a aba inteira, ignorando filtros e linhas ocultas.</div>
     <label class="text-xs text-ink-400">Link da planilha</label><input id="ft-url" class="input mt-1 mb-2" value="${escapeHtml(cfg.url||'')}" placeholder="https://docs.google.com/spreadsheets/d/…">
     <div class="grid grid-cols-2 gap-2">
-      <div><label class="text-xs text-ink-400">Aba do pipeline</label><input id="ft-aba" class="input mt-1" value="${escapeHtml(cfg.aba||'Pipeline')}"></div>
+      <div><label class="text-xs text-ink-400">Aba do pipeline (nome)</label><input id="ft-aba" class="input mt-1" value="${escapeHtml(cfg.aba||'Pipeline')}"></div>
+      <div><label class="text-xs text-ink-400">gid da aba do pipeline <span class="text-ink-500">(número após "gid=" na URL com a aba aberta)</span></label><input id="ft-gid" class="input mt-1" value="${escapeHtml(cfg.gid||'')}" placeholder="ex.: 996106014"></div>
       <div><label class="text-xs text-ink-400">Ano dessa aba</label><input id="ft-ano" type="number" class="input mt-1" value="${cfg.ano||STATE.pipe.anoAtivo}"></div>
-      <div><label class="text-xs text-ink-400">Aba de histórico (opcional)</label><input id="ft-hist" class="input mt-1" value="${escapeHtml(cfg.aba_hist||'')}" placeholder="Dados2025"></div>
+      <div><label class="text-xs text-ink-400">Aba de histórico (opcional)</label><input id="ft-hist" class="input mt-1" value="${escapeHtml(cfg.aba_hist||'')}" placeholder="0Dados2025"></div>
+      <div><label class="text-xs text-ink-400">gid da aba de histórico (opcional)</label><input id="ft-gidhist" class="input mt-1" value="${escapeHtml(cfg.gid_hist||'')}"></div>
       <div><label class="text-xs text-ink-400">Ano do histórico</label><input id="ft-anohist" type="number" class="input mt-1" value="${cfg.ano_hist||(STATE.pipe.anoAtivo-1)}"></div>
       <div><label class="text-xs text-ink-400">Auto-sincronizar a cada (min)</label><input id="ft-min" type="number" min="1" class="input mt-1" value="${cfg.auto_minutos||10}"></div>
     </div>
@@ -7505,8 +7521,8 @@ function abrirFontePipeline(){
 async function salvarFontePipeline(){
   const url = document.getElementById('ft-url').value.trim(); const id = pipeSheetIdDeUrl(url);
   if (!id){ alert('Link inválido.'); return; }
-  const cfg = { ...(pipeSheetCfg()||{}), id, url, aba: document.getElementById('ft-aba').value.trim() || 'Pipeline', ano: Number(document.getElementById('ft-ano').value)||STATE.pipe.anoAtivo,
-    aba_hist: document.getElementById('ft-hist').value.trim() || null, ano_hist: Number(document.getElementById('ft-anohist').value)||null, auto_minutos: Number(document.getElementById('ft-min').value)||10 };
+  const cfg = { ...(pipeSheetCfg()||{}), id, url, aba: document.getElementById('ft-aba').value.trim() || 'Pipeline', gid: (document.getElementById('ft-gid').value||'').replace(/\D/g,'') || null, ano: Number(document.getElementById('ft-ano').value)||STATE.pipe.anoAtivo,
+    aba_hist: document.getElementById('ft-hist').value.trim() || null, gid_hist: (document.getElementById('ft-gidhist').value||'').replace(/\D/g,'') || null, ano_hist: Number(document.getElementById('ft-anohist').value)||null, auto_minutos: Number(document.getElementById('ft-min').value)||10 };
   const { error } = await sb.from('pipeline_config').upsert({ chave:'sheet', valor: cfg, updated_at: new Date().toISOString() }, { onConflict:'chave' });
   if (error){ alert('Erro: ' + error.message); return; }
   STATE.pipe.sheetCfg = cfg; document.getElementById('modal-fonte')?.remove();
