@@ -5526,7 +5526,7 @@ function renderRelatorioMensal(){
                 </td>
                 <td><span class="pill" style="background:${CORES_CAT_REL[cat]}25; color:${CORES_CAT_REL[cat]}; border:1px solid ${CORES_CAT_REL[cat]}55; font-size:10px;">${NOMES_CAT_REL[cat]}</span></td>
                 <td class="text-right tabular-nums font-bold" style="color:${CORES_CAT_REL[cat]};">${fmtBRL(valorMes)}</td>
-                ${per.unico ? '' : porMes.map(v=>`<td class="text-right tabular-nums text-xs text-ink-400">${v>0?fmtBRL(v):'—'}</td>`).join('')}
+                ${per.unico ? '' : porMes.map(v=>`<td class="text-right tabular-nums text-xs text-ink-400 whitespace-nowrap px-1">${v>0?fmtBRL(v):'—'}</td>`).join('')}
                 <td class="text-right tabular-nums text-ink-300">${fmtBRL(valorTotal)}</td>
                 <td class="text-center tabular-nums">${orc.meses}</td>
                 <td class="pr-6 text-xs text-ink-300 whitespace-nowrap">${fmtData(orc.data_inicio)}</td>
@@ -5535,7 +5535,7 @@ function renderRelatorioMensal(){
             <tr class="border-t-2 border-orange/30 bg-orange/5">
               <td colspan="3" class="py-3 px-6 font-bold uppercase text-xs tracking-widest text-orange">Total do ${rotuloPeriodo}</td>
               <td class="text-right tabular-nums font-black text-lg text-orange">${fmtBRL(totalMes)}</td>
-              ${per.unico ? '' : per.meses.map((pm,i)=>`<td class="text-right tabular-nums text-xs font-bold text-orange">${fmtBRL(linhas.reduce((s,l)=>s+l.porMes[i],0))}</td>`).join('')}
+              ${per.unico ? '' : per.meses.map((pm,i)=>`<td class="text-right tabular-nums text-xs font-bold text-orange whitespace-nowrap px-1">${fmtBRL(linhas.reduce((s,l)=>s+l.porMes[i],0))}</td>`).join('')}
               <td colspan="3"></td>
             </tr>
           </tbody>
