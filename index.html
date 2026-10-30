@@ -5369,36 +5369,69 @@ function custoMensalProjeto(orc, categoria, ano, mes){
   return totalPeriodo / meses;
 }
 
-function renderRelatorioMensal(){
+// Período do relatório: de (relatorioAno/relatorioMes) até (relatorioAteAno/relatorioAteMes). Um mês só = de == até.
+function relatorioPeriodo(){
   const hoje_d = new Date();
-  const anoAtual = STATE.relatorioAno || hoje_d.getFullYear();
-  const mesAtual = STATE.relatorioMes || (hoje_d.getMonth() + 1);
-  STATE.relatorioAno = anoAtual;
-  STATE.relatorioMes = mesAtual;
-
-  const aprovados = STATE.orcamentos.filter(o=>o.status==='Aprovada');
+  const a1 = STATE.relatorioAno || hoje_d.getFullYear(), m1 = STATE.relatorioMes || (hoje_d.getMonth() + 1);
+  let a2 = STATE.relatorioAteAno || a1, m2 = STATE.relatorioAteMes || m1;
+  if (a2*12+m2 < a1*12+m1){ a2 = a1; m2 = m1; }
+  STATE.relatorioAno = a1; STATE.relatorioMes = m1; STATE.relatorioAteAno = a2; STATE.relatorioAteMes = m2;
+  const meses = []; let a = a1, m = m1;
+  while (a*12+m <= a2*12+m2 && meses.length < 120){ meses.push({ ano:a, mes:m }); m++; if (m > 12){ m = 1; a++; } }
+  return { a1, m1, a2, m2, meses, unico: meses.length === 1 };
+}
+function relatorioLinhas(periodo){
   const cats = ['cache','midia','producao','frila'];
-
-  // Coleta linhas: cada linha = {projeto, categoria, valorMes, valorTotal}
+  const aprovados = STATE.orcamentos.filter(o=>o.status==='Aprovada');
   const linhas = [];
   aprovados.forEach(orc=>{
     cats.forEach(cat=>{
-      const valorMes = custoMensalProjeto(orc, cat, anoAtual, mesAtual);
-      if (valorMes > 0){
-        linhas.push({ orc, cat, valorMes, valorTotal: previstoPorCategoria(orc, cat) });
-      }
+      const porMes = periodo.meses.map(pm => custoMensalProjeto(orc, cat, pm.ano, pm.mes));
+      const valorMes = porMes.reduce((s,v)=>s+v, 0);
+      if (valorMes > 0) linhas.push({ orc, cat, valorMes, porMes, valorTotal: previstoPorCategoria(orc, cat) });
     });
   });
+  linhas.sort((a,b)=> a.orc.cliente.localeCompare(b.orc.cliente) || a.cat.localeCompare(b.cat));
+  return linhas;
+}
+function relatorioTitulo(per){
+  const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  if (per.unico) return `${MESES[per.m1-1]} · ${per.a1}`;
+  if (per.a1 === per.a2) return `${MESES[per.m1-1]} a ${MESES[per.m2-1]} · ${per.a1}`;
+  return `${MESES_PT[per.m1-1]}/${per.a1} a ${MESES_PT[per.m2-1]}/${per.a2}`;
+}
+function setRelatorioPeriodo(campo, val){
+  STATE[campo] = +val;
+  if (campo === 'relatorioAno' || campo === 'relatorioMes'){
+    // "De" andou pra depois do "Até"? Puxa o "Até" junto
+    const a1 = STATE.relatorioAno, m1 = STATE.relatorioMes, a2 = STATE.relatorioAteAno || a1, m2 = STATE.relatorioAteMes || m1;
+    if (a2*12+m2 < a1*12+m1){ STATE.relatorioAteAno = a1; STATE.relatorioAteMes = m1; }
+  }
+  render();
+}
+function moverRelatorio(delta){
+  // Move o período inteiro (mantém a quantidade de meses)
+  const per = relatorioPeriodo(); const nMeses = per.meses.length;
+  let i1 = per.a1*12 + (per.m1-1) + delta * (per.unico ? 1 : nMeses);
+  STATE.relatorioAno = Math.floor(i1/12); STATE.relatorioMes = (i1 % 12) + 1;
+  const i2 = i1 + nMeses - 1; STATE.relatorioAteAno = Math.floor(i2/12); STATE.relatorioAteMes = (i2 % 12) + 1;
+  render();
+}
+
+function renderRelatorioMensal(){
+  const per = relatorioPeriodo();
+  const anoAtual = per.a1, mesAtual = per.m1;
+  const cats = ['cache','midia','producao','frila'];
+  const linhas = relatorioLinhas(per);
 
   // Totais por categoria
   const totCat = { cache:0, midia:0, producao:0, frila:0 };
   linhas.forEach(l => { totCat[l.cat] += l.valorMes; });
   const totalMes = Object.values(totCat).reduce((s,v)=>s+v, 0);
 
-  // Ordena por cliente + categoria
-  linhas.sort((a,b)=> a.orc.cliente.localeCompare(b.orc.cliente) || a.cat.localeCompare(b.cat));
-
   const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const rotuloPeriodo = per.unico ? 'mês' : 'período';
+  const anosSel = [...new Set([per.a1-1, per.a1, per.a1+1, per.a2, per.a2+1])].sort();
 
   return `
   <div class="space-y-5 fade-in">
@@ -5409,18 +5442,27 @@ function renderRelatorioMensal(){
       <div class="relative flex items-start justify-between gap-4 flex-wrap">
         <div>
           <div class="text-[11px] uppercase tracking-widest text-orange font-semibold">Relatório de custos previstos</div>
-          <div class="font-display font-bold text-3xl mt-1">${MESES[mesAtual-1]} · ${anoAtual}</div>
-          <div class="text-xs text-ink-300 mt-1">Custos diretos distribuídos proporcionalmente pelos meses de cada contrato. Só aprovados.</div>
+          <div class="font-display font-bold text-3xl mt-1">${relatorioTitulo(per)}</div>
+          <div class="text-xs text-ink-300 mt-1">Custos diretos distribuídos proporcionalmente pelos meses de cada contrato. Só aprovados.${per.unico?'':` Período de ${per.meses.length} meses.`}</div>
         </div>
-        <div class="flex flex-wrap items-center gap-2">
-          <button class="btn btn-ghost text-xs" onclick="STATE.relatorioMes=${mesAtual-1<1?12:mesAtual-1}; STATE.relatorioAno=${mesAtual-1<1?anoAtual-1:anoAtual}; render();">← Mês anterior</button>
-          <select class="input text-sm w-36" onchange="STATE.relatorioMes=+this.value; render();">
-            ${MESES.map((m,i)=>`<option value="${i+1}" ${i+1===mesAtual?'selected':''}>${m}</option>`).join('')}
-          </select>
-          <select class="input text-sm w-24" onchange="STATE.relatorioAno=+this.value; render();">
-            ${[anoAtual-1, anoAtual, anoAtual+1].map(a=>`<option value="${a}" ${a===anoAtual?'selected':''}>${a}</option>`).join('')}
-          </select>
-          <button class="btn btn-ghost text-xs" onclick="STATE.relatorioMes=${mesAtual+1>12?1:mesAtual+1}; STATE.relatorioAno=${mesAtual+1>12?anoAtual+1:anoAtual}; render();">Mês seguinte →</button>
+        <div class="flex flex-wrap items-end gap-2">
+          <button class="btn btn-ghost text-xs" onclick="moverRelatorio(-1)" title="${per.unico?'Mês anterior':'Período anterior (mesma duração)'}">←</button>
+          <div>
+            <div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold mb-1">De</div>
+            <div class="flex gap-1">
+              <select class="input text-sm" style="width:auto" onchange="setRelatorioPeriodo('relatorioMes', this.value)">${MESES.map((m,i)=>`<option value="${i+1}" ${i+1===per.m1?'selected':''}>${m}</option>`).join('')}</select>
+              <select class="input text-sm" style="width:auto" onchange="setRelatorioPeriodo('relatorioAno', this.value)">${anosSel.map(a=>`<option value="${a}" ${a===per.a1?'selected':''}>${a}</option>`).join('')}</select>
+            </div>
+          </div>
+          <div>
+            <div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold mb-1">Até</div>
+            <div class="flex gap-1">
+              <select class="input text-sm" style="width:auto" onchange="setRelatorioPeriodo('relatorioAteMes', this.value)">${MESES.map((m,i)=>`<option value="${i+1}" ${i+1===per.m2?'selected':''}>${m}</option>`).join('')}</select>
+              <select class="input text-sm" style="width:auto" onchange="setRelatorioPeriodo('relatorioAteAno', this.value)">${anosSel.map(a=>`<option value="${a}" ${a===per.a2?'selected':''}>${a}</option>`).join('')}</select>
+            </div>
+          </div>
+          <button class="btn btn-ghost text-xs" onclick="moverRelatorio(1)" title="${per.unico?'Mês seguinte':'Período seguinte (mesma duração)'}">→</button>
+          ${per.unico ? '' : `<button class="btn btn-ghost text-xs" onclick="STATE.relatorioAteAno=STATE.relatorioAno; STATE.relatorioAteMes=STATE.relatorioMes; render();" title="Volta a mostrar um mês só">Só 1 mês</button>`}
           <button class="btn btn-primary" onclick="exportarCSVRelatorio()">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             CSV
@@ -5431,7 +5473,7 @@ function renderRelatorioMensal(){
       <!-- Total do mês -->
       <div class="mt-6 flex items-baseline gap-4 flex-wrap">
         <div>
-          <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">Total do mês</div>
+          <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">Total do ${rotuloPeriodo}</div>
           <div class="font-display font-black text-5xl text-orange">${fmtBRL(totalMes)}</div>
         </div>
         <div class="text-xs text-ink-300 ml-2">${linhas.length} lançamento${linhas.length===1?'':'s'} · ${new Set(linhas.map(l=>l.orc.id)).size} projeto${new Set(linhas.map(l=>l.orc.id)).size===1?'':'s'}</div>
@@ -5448,7 +5490,7 @@ function renderRelatorioMensal(){
             <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">${NOMES_CAT_REL[cat]}</div>
           </div>
           <div class="text-2xl font-display font-bold tabular-nums" style="color:${CORES_CAT_REL[cat]};">${fmtBRL(v)}</div>
-          <div class="text-[11px] text-ink-400 mt-1">${pct.toFixed(1)}% do mês</div>
+          <div class="text-[11px] text-ink-400 mt-1">${pct.toFixed(1)}% do ${rotuloPeriodo}</div>
         </div>`;
       }).join('')}
     </div>
@@ -5459,7 +5501,7 @@ function renderRelatorioMensal(){
         <div class="font-display font-bold">Detalhamento</div>
         <div class="text-xs text-ink-400">${linhas.length} linha${linhas.length===1?'':'s'}</div>
       </div>
-      ${linhas.length === 0 ? '<div class="p-8 text-center text-sm text-ink-400 italic">Nenhum custo cai neste mês.</div>' : `
+      ${linhas.length === 0 ? `<div class="p-8 text-center text-sm text-ink-400 italic">Nenhum custo cai neste ${rotuloPeriodo}.</div>` : `
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
           <thead class="bg-ink-900">
@@ -5467,14 +5509,15 @@ function renderRelatorioMensal(){
               <th class="text-left font-semibold py-3 px-6">ID</th>
               <th class="text-left font-semibold">Cliente / Projeto</th>
               <th class="text-left font-semibold">Categoria</th>
-              <th class="text-right font-semibold">Valor mês</th>
+              <th class="text-right font-semibold">Valor ${per.unico?'mês':'no período'}</th>
+              ${per.unico ? '' : per.meses.map(pm=>`<th class="text-right font-semibold text-ink-500">${MESES_PT[pm.mes-1]}${per.a1!==per.a2?'/'+String(pm.ano).slice(2):''}</th>`).join('')}
               <th class="text-right font-semibold">Valor total contrato</th>
               <th class="text-center font-semibold">Meses</th>
               <th class="text-left font-semibold pr-6">Início execução</th>
             </tr>
           </thead>
           <tbody>
-            ${linhas.map(({orc, cat, valorMes, valorTotal})=>`
+            ${linhas.map(({orc, cat, valorMes, porMes, valorTotal})=>`
               <tr class="border-t border-ink-800 hover:bg-ink-850">
                 <td class="py-3 px-6 font-mono text-ink-300 whitespace-nowrap">${orc.id}</td>
                 <td>
@@ -5483,14 +5526,16 @@ function renderRelatorioMensal(){
                 </td>
                 <td><span class="pill" style="background:${CORES_CAT_REL[cat]}25; color:${CORES_CAT_REL[cat]}; border:1px solid ${CORES_CAT_REL[cat]}55; font-size:10px;">${NOMES_CAT_REL[cat]}</span></td>
                 <td class="text-right tabular-nums font-bold" style="color:${CORES_CAT_REL[cat]};">${fmtBRL(valorMes)}</td>
+                ${per.unico ? '' : porMes.map(v=>`<td class="text-right tabular-nums text-xs text-ink-400">${v>0?fmtBRL(v):'—'}</td>`).join('')}
                 <td class="text-right tabular-nums text-ink-300">${fmtBRL(valorTotal)}</td>
                 <td class="text-center tabular-nums">${orc.meses}</td>
                 <td class="pr-6 text-xs text-ink-300 whitespace-nowrap">${fmtData(orc.data_inicio)}</td>
               </tr>
             `).join('')}
             <tr class="border-t-2 border-orange/30 bg-orange/5">
-              <td colspan="3" class="py-3 px-6 font-bold uppercase text-xs tracking-widest text-orange">Total do mês</td>
+              <td colspan="3" class="py-3 px-6 font-bold uppercase text-xs tracking-widest text-orange">Total do ${rotuloPeriodo}</td>
               <td class="text-right tabular-nums font-black text-lg text-orange">${fmtBRL(totalMes)}</td>
+              ${per.unico ? '' : per.meses.map((pm,i)=>`<td class="text-right tabular-nums text-xs font-bold text-orange">${fmtBRL(linhas.reduce((s,l)=>s+l.porMes[i],0))}</td>`).join('')}
               <td colspan="3"></td>
             </tr>
           </tbody>
@@ -5503,34 +5548,27 @@ function renderRelatorioMensal(){
 }
 
 function exportarCSVRelatorio(){
-  const anoAtual = STATE.relatorioAno;
-  const mesAtual = STATE.relatorioMes;
+  const per = relatorioPeriodo();
+  const anoAtual = per.a1, mesAtual = per.m1;
   const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-  const cats = ['cache','midia','producao','frila'];
-  const aprovados = STATE.orcamentos.filter(o=>o.status==='Aprovada');
-  const linhas = [];
-  aprovados.forEach(orc=>{
-    cats.forEach(cat=>{
-      const valorMes = custoMensalProjeto(orc, cat, anoAtual, mesAtual);
-      if (valorMes > 0) linhas.push({ orc, cat, valorMes, valorTotal: previstoPorCategoria(orc, cat) });
-    });
-  });
-  linhas.sort((a,b)=> a.orc.cliente.localeCompare(b.orc.cliente) || a.cat.localeCompare(b.cat));
+  const linhas = relatorioLinhas(per);
+  const colsMes = per.unico ? [] : per.meses.map(pm=>`${MESES_PT[pm.mes-1]}/${pm.ano}`);
   const rows = [
-    ['ID','Cliente','Projeto','Categoria','Valor no mes','Valor total contrato','Meses do contrato','Inicio execucao']
+    ['ID','Cliente','Projeto','Categoria', per.unico ? 'Valor no mes' : 'Valor no periodo', ...colsMes, 'Valor total contrato','Meses do contrato','Inicio execucao']
   ];
   linhas.forEach(l=>{
     rows.push([
       l.orc.id, l.orc.cliente, l.orc.projeto||'',
       NOMES_CAT_REL[l.cat],
       l.valorMes.toFixed(2).replace('.', ','),
+      ...(per.unico ? [] : l.porMes.map(v => v > 0 ? v.toFixed(2).replace('.', ',') : '')),
       l.valorTotal.toFixed(2).replace('.', ','),
       l.orc.meses,
       fmtData(l.orc.data_inicio)
     ]);
   });
   const total = linhas.reduce((s,l)=>s+l.valorMes, 0);
-  rows.push(['TOTAL','','','', total.toFixed(2).replace('.', ','), '', '', '']);
+  rows.push(['TOTAL','','','', total.toFixed(2).replace('.', ','), ...(per.unico ? [] : per.meses.map((pm,i)=>linhas.reduce((s,l)=>s+l.porMes[i],0).toFixed(2).replace('.', ','))), '', '', '']);
   const csv = rows.map(r=>r.map(v=>{
     const s = String(v==null?'':v);
     return s.includes(';')||s.includes(',')||s.includes('\n')||s.includes('"') ? '"'+s.replace(/"/g,'""')+'"' : s;
@@ -5539,7 +5577,7 @@ function exportarCSVRelatorio(){
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `custos_${MESES[mesAtual-1]}_${anoAtual}.csv`;
+  a.download = per.unico ? `custos_${MESES[mesAtual-1]}_${anoAtual}.csv` : `custos_${MESES_PT[per.m1-1]}${per.a1}_a_${MESES_PT[per.m2-1]}${per.a2}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }
