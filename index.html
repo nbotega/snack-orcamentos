@@ -250,9 +250,9 @@ tailwind.config = {
           Validar NF Rápida
           <span id="nav-valid-count" class="ml-auto badge-num" style="background:#EAB308;color:#000;">0</span>
         </div>
-        <div class="nav-item" data-route="relatorio-mensal" title="Relatório mensal de custos previstos">
+        <div class="nav-item" data-route="relatorio-mensal" title="Relatório de custos previstos (mês ou período)">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/><path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01M16 18h.01"/></svg>
-          Relatório mensal
+          Relatório de Custos
         </div>
         <div class="nav-item" data-route="realizado" title="Comparativo Orçado × Realizado">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M2 12h20"/><path d="M4 8l4-4M16 20l4-4M4 16l4 4M16 4l4 4"/></svg>
@@ -411,6 +411,7 @@ async function trocarPais(novoPais){
   await carregarDoSupabase();
   await carregarPagamentos();
   await carregarRealizadosSilent();
+  STATE._ultimaRecarga = Date.now();
   render();
 }
 
@@ -474,7 +475,23 @@ async function carregarDoSupabase(){
         meses: s.meses != null ? Number(s.meses) : null
       });
     });
-    STATE.orcamentos = (o.data||[]).map(x=>({
+    STATE.orcamentos = mapearOrcamentos(o.data||[], squadByOrc);
+    recalcularNextId();
+    setSyncStatus('idle');
+    console.log(`✓ Carregado do Supabase: ${CARGOS.length} cargos, ${STATE.orcamentos.length} orçamentos`);
+  } catch(e){
+    console.error('Erro ao carregar:', e);
+    setSyncStatus('error');
+    alert('Erro ao carregar do Supabase. Veja o console (F12). Continuando com dados em memória.');
+  }
+}
+function recalcularNextId(){
+  let max = 0;
+  STATE.orcamentos.forEach(o=>{ const n=parseInt(String(o.id).replace(/[^0-9]/g,''),10); if(!isNaN(n)&&n>max) max=n; });
+  STATE.nextId = max + 1;
+}
+function mapearOrcamentos(rows, squadByOrc){
+  return rows.map(x=>({
       id:x.id, data:x.data, data_inicio:x.data_inicio||x.data,
       cliente:x.cliente, projeto:x.projeto||'',
       tipo:x.tipo, status:x.status, meses:x.meses,
@@ -493,18 +510,61 @@ async function carregarDoSupabase(){
       repasse: x.repasse || {},
       comissao_item: x.comissao_item || {}
     }));
-    // Calcular próximo ID
-    let max = 0;
-    STATE.orcamentos.forEach(o=>{ const n=parseInt(o.id.replace(/[^0-9]/g,''),10); if(!isNaN(n)&&n>max) max=n; });
-    STATE.nextId = max + 1;
+}
 
-    setSyncStatus('idle');
-    console.log(`✓ Carregado do Supabase: ${CARGOS.length} cargos, ${STATE.orcamentos.length} orçamentos`);
-  } catch(e){
-    console.error('Erro ao carregar:', e);
-    setSyncStatus('error');
-    alert('Erro ao carregar do Supabase. Veja o console (F12). Continuando com dados em memória.');
-  }
+// ===== Atualização automática entre usuários =====
+// Antes, a lista de orçamentos só era carregada no login: quem estava logado não via o que os
+// outros salvavam até relogar. Agora: (1) Realtime do Supabase avisa quando orcamentos/squad/pagamentos
+// mudam; (2) ao voltar pra aba do navegador e a cada 60 s recarrega em silêncio; (3) telas de edição
+// não são re-renderizadas (não atropela quem está digitando), só a lista em memória é atualizada.
+const ROTAS_LISTA = new Set(['dashboard','orcamentos','clientes','cliente','backlog','custos','relatorio-mensal','realizado','validador','comparador']);
+STATE._ultimaRecarga = 0;
+async function recarregarOrcamentosSilencioso(motivo){
+  if (STATE._recarregando) return; STATE._recarregando = true;
+  try {
+    const [o, sq] = await Promise.all([
+      sb.from('orcamentos').select('*').eq('pais', STATE.pais).order('id'),
+      sb.from('orcamento_squad').select('*').eq('pais', STATE.pais),
+    ]);
+    if (o.error || sq.error) throw (o.error || sq.error);
+    const squadByOrc = {};
+    (sq.data||[]).forEach(s=>{ (squadByOrc[s.orcamento_id] = squadByOrc[s.orcamento_id] || []).push({ cargo_id: s.cargo_id, alocacao: Number(s.alocacao), salario_override: s.salario_override != null ? Number(s.salario_override) : null, meses: s.meses != null ? Number(s.meses) : null }); });
+    const novos = mapearOrcamentos(o.data||[], squadByOrc);
+    const antes = JSON.stringify(STATE.orcamentos.map(x=>[x.id, x.status, x.fee_mensal, x.meses, x.cliente, x.squad.length]));
+    const depois = JSON.stringify(novos.map(x=>[x.id, x.status, x.fee_mensal, x.meses, x.cliente, x.squad.length]));
+    STATE.orcamentos = novos;
+    recalcularNextId();
+    STATE._ultimaRecarga = Date.now();
+    const cnt = document.getElementById('nav-orc-count'); if (cnt) cnt.textContent = STATE.orcamentos.length;
+    if (antes !== depois && ROTAS_LISTA.has(STATE.route)){
+      // Se o usuário está digitando num filtro/busca, não interrompe
+      const ae = document.activeElement; const digitando = ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT');
+      if (!digitando) render();
+    }
+    if (antes !== depois) console.log('↻ Orçamentos atualizados (' + (motivo||'auto') + ')');
+  } catch(e){ console.warn('recarga silenciosa:', e.message||e); }
+  finally { STATE._recarregando = false; }
+}
+async function recarregarPagamentosSilencioso(){
+  try { await carregarPagamentos(); if (ROTAS_LISTA.has(STATE.route) && ['custos','validador','dashboard'].includes(STATE.route)){ const ae = document.activeElement; if (!(ae && ['INPUT','TEXTAREA','SELECT'].includes(ae.tagName))) render(); } } catch(e){}
+}
+let _rtDebounce = null, _rtPagDebounce = null, _rtCanal = null;
+function iniciarAtualizacaoAutomatica(){
+  // Realtime (Supabase)
+  try {
+    if (_rtCanal) { sb.removeChannel(_rtCanal); _rtCanal = null; }
+    _rtCanal = sb.channel('snack-sync-' + Date.now())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orcamentos' }, () => { clearTimeout(_rtDebounce); _rtDebounce = setTimeout(()=>recarregarOrcamentosSilencioso('realtime'), 1200); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'orcamento_squad' }, () => { clearTimeout(_rtDebounce); _rtDebounce = setTimeout(()=>recarregarOrcamentosSilencioso('realtime'), 1200); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'pagamentos' }, () => { clearTimeout(_rtPagDebounce); _rtPagDebounce = setTimeout(recarregarPagamentosSilencioso, 1500); })
+      .subscribe((status) => { if (status === 'SUBSCRIBED') console.log('✓ Realtime ligado'); });
+  } catch(e){ console.warn('realtime indisponível, usando só o polling:', e.message||e); }
+  // Ao voltar pra aba
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && Date.now() - STATE._ultimaRecarga > 15000) recarregarOrcamentosSilencioso('foco');
+  });
+  // Polling de segurança a cada 60 s (só com a aba visível)
+  if (!STATE._pollTimer) STATE._pollTimer = setInterval(() => { if (document.visibilityState === 'visible') recarregarOrcamentosSilencioso('intervalo'); }, 60000);
 }
 
 async function salvarOrcamentoSupabase(orc){
@@ -849,6 +909,7 @@ function navigate(r, ctx) {
   }
   STATE.route = r;
   STATE.ctx = ctx;
+  if (ROTAS_LISTA.has(r) && STATE._ultimaRecarga && Date.now() - STATE._ultimaRecarga > 30000) setTimeout(()=>recarregarOrcamentosSilencioso('navegacao'), 0);
   // Reflete na URL pra permitir bookmark direto e link compartilhável
   try {
     const hashAlvo = '#/' + r;
@@ -929,6 +990,8 @@ async function entrar(){
   await carregarDoSupabase();
   await carregarPagamentos();
   await carregarRealizadosSilent();
+  STATE._ultimaRecarga = Date.now();
+  iniciarAtualizacaoAutomatica();
   navigate(podeAba('dashboard') ? 'dashboard' : primeiraAbaPermitida());
 }
 
@@ -2950,10 +3013,28 @@ async function salvarOrcamento(){
   const btn = document.querySelector('button[onclick="salvarOrcamento()"]');
   const original = btn ? btn.innerHTML : null;
   if (btn) { btn.disabled = true; btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="animate-spin"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg> Salvando...'; }
+  // Orçamento NOVO (ainda não existe nem localmente): confere no banco se outro usuário já usou esse ID.
+  // Sem isso, dois usuários abrindo "Novo Orçamento" ao mesmo tempo recebiam o mesmo ID e o segundo sobrescrevia o primeiro.
+  const ehNovo = !STATE.orcamentos.some(o=>o.id===CURRENT_ORC._originalId);
+  if (ehNovo){
+    try {
+      const { data: jaExiste } = await sb.from('orcamentos').select('id, cliente').eq('id', CURRENT_ORC.id).eq('pais', STATE.pais).maybeSingle();
+      if (jaExiste){
+        await recarregarOrcamentosSilencioso('colisao-id');
+        let novoId = 'C' + String(STATE.nextId).padStart(3,'0');
+        while (STATE.orcamentos.some(o=>o.id===novoId)) { STATE.nextId++; novoId = 'C' + String(STATE.nextId).padStart(3,'0'); }
+        const antigo = CURRENT_ORC.id;
+        CURRENT_ORC.id = novoId; CURRENT_ORC._originalId = novoId;
+        const inpId = document.getElementById('i-id') || document.querySelector('input[value="' + antigo + '"]'); if (inpId) inpId.value = novoId;
+        alert(`O ID ${antigo} acabou de ser usado por outro usuário (${jaExiste.cliente||'—'}). Este orçamento foi salvo como ${novoId}.`);
+      }
+    } catch(e){ console.warn('checagem de ID:', e.message||e); }
+  }
   const idx = STATE.orcamentos.findIndex(o=>o.id===CURRENT_ORC.id);
   if (idx>=0) STATE.orcamentos[idx] = JSON.parse(JSON.stringify(CURRENT_ORC));
   else { STATE.orcamentos.push(JSON.parse(JSON.stringify(CURRENT_ORC))); STATE.nextId++; }
   await salvarOrcamentoSupabase(CURRENT_ORC);
+  STATE._ultimaRecarga = Date.now();
   if (btn) {
     btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg> Salvo';
     setTimeout(()=>{ if (btn) { btn.disabled = false; btn.innerHTML = original; } }, 1600);
@@ -4753,7 +4834,7 @@ const ABAS_DEF = [
   {id:'custos', nome:'Custos'},
   {id:'nota-rapida', nome:'Nota rápida'},
   {id:'validador', nome:'Validar NF Rápida'},
-  {id:'relatorio-mensal', nome:'Relatório mensal'},
+  {id:'relatorio-mensal', nome:'Relatório de Custos'},
   {id:'realizado', nome:'Realizado × Orçado'},
   {id:'premissas', nome:'Premissas'},
   {id:'cargos', nome:'Cargos & Salários'},
