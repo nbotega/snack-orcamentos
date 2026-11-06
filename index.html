@@ -4978,7 +4978,7 @@ function renderUsuarios(){
         <div>
           <h2 class="text-lg font-bold">Usuários & Acessos</h2>
           <p class="text-sm text-ink-400 mt-1">Controle qual <b>unidade</b> (Brasil / Portugal) e quais <b>abas</b> cada usuário pode acessar. As mudanças valem no próximo login (ou ao recarregar a página).</p>
-          <p class="text-xs text-ink-500 mt-1">Na coluna <b>Login</b> dá pra criar o login de quem ainda não tem (define a senha inicial) ou trocar a senha de alguém. Senha de administrador só o próprio troca.</p>
+          <p class="text-xs text-ink-500 mt-1">Clique num nome pra abrir a configuração: unidade (BR/PT), abas, permissões e login/senha. Senha de administrador só o próprio troca.</p>
         </div>
         <div class="flex items-end gap-2">
           <div>
@@ -4995,6 +4995,62 @@ function renderUsuarios(){
   </div>`;
 }
 function renderUsuariosTabela(){
+  // Tela principal: só os nomes, em ordem alfabética. Clique abre a configuração do usuário.
+  const lista = (STATE.usuariosAcesso || []).map((u,i)=>({u,i})).sort((a,b)=> String(a.u.nome||a.u.email).localeCompare(String(b.u.nome||b.u.email), 'pt-BR', {sensitivity:'base'}));
+  if (!lista.length) return '<div class="p-6 text-center text-ink-400">Nenhum usuário cadastrado.</div>';
+  return `<div class="divide-y divide-ink-800">
+    ${lista.map(({u,i})=>{ const ehEu = (u.email||'').toLowerCase() === (STATE.currentUser?.email||'').toLowerCase(); const lg = (STATE.usuariosLogin||{})[u.email]; const semLogin = STATE.usuariosLogin != null && !lg;
+      return `<button class="w-full text-left px-5 py-3 hover:bg-ink-900/40 flex items-center gap-3 ${u.ativo===false?'opacity-50':''}" onclick="abrirUsuarioConfig(${i})">
+        <div class="w-8 h-8 rounded-full bg-ink-800 flex items-center justify-center text-xs font-bold">${escapeHtml((u.nome||u.email).trim().charAt(0).toUpperCase())}</div>
+        <div class="flex-1 min-w-0"><div class="font-semibold truncate">${escapeHtml(u.nome||u.email.split('@')[0])}${ehEu?' <span class="text-orange-400 text-xs">(você)</span>':''}</div><div class="text-xs text-ink-500 truncate">${escapeHtml(u.email)}</div></div>
+        <div class="flex items-center gap-1.5 text-[10px]">${u.admin?'<span class="pill pill-orange">Admin</span>':''}${u.ativo===false?'<span class="pill pill-red">Inativo</span>':''}${semLogin?'<span class="pill pill-yellow">sem login</span>':''}</div>
+        <span class="text-ink-500">›</span>
+      </button>`; }).join('')}
+  </div>
+  <div class="p-3 text-xs text-ink-500 border-t border-ink-800">Clique no nome pra configurar unidade, abas, permissões e login.</div>`;
+}
+function abrirUsuarioConfig(i){
+  const old = document.getElementById('modal-usuario'); if (old) old.remove();
+  const div = document.createElement('div'); div.id = 'modal-usuario'; div.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4';
+  div.innerHTML = `<div class="card w-full max-w-2xl max-h-[92vh] overflow-y-auto" onclick="event.stopPropagation()" id="modal-usuario-conteudo">${renderUsuarioConfig(i)}</div>`;
+  div.addEventListener('click', ()=>div.remove()); document.body.appendChild(div);
+}
+function renderUsuarioConfig(i){
+  const u = STATE.usuariosAcesso[i]; if (!u) return '';
+  const todas = (u.abas||[]).includes('*');
+  const ehEu = (u.email||'').toLowerCase() === (STATE.currentUser?.email||'').toLowerCase();
+  const cb = (checked, on, dis=false) => `<input type="checkbox" ${checked?'checked':''} ${dis?'disabled':''} onchange="${on}" class="accent-orange-500 w-4 h-4 cursor-pointer">`;
+  const lg = (STATE.usuariosLogin||{})[u.email];
+  const loginHtml = STATE.usuariosLogin == null ? '<span class="text-ink-500 text-xs">…</span>' : !lg ? `<span class="text-xs text-yellow-400">sem login</span> <button class="btn-ghost text-xs ml-1" onclick="abrirModalSenha('${u.email}', true)">Criar login</button>` : `<span class="text-xs text-green-400">ativo</span> <span class="text-xs text-ink-500">· último acesso ${lg.last_sign_in_at ? new Date(lg.last_sign_in_at).toLocaleDateString('pt-BR') : 'nunca'}</span> ${(!u.admin||ehEu)?`<button class="btn-ghost text-xs ml-1" onclick="abrirModalSenha('${u.email}', false)">Trocar senha</button>`:''}`;
+  const linha = (label, ctrl, hint) => `<label class="flex items-center justify-between gap-3 py-2 border-b border-ink-800/60"><span class="text-sm">${label}${hint?`<div class="text-[11px] text-ink-500">${hint}</div>`:''}</span>${ctrl}</label>`;
+  return `
+    <div class="p-6 border-b border-ink-800 flex items-start justify-between gap-3">
+      <div><div class="font-bold text-lg">${escapeHtml(u.nome||u.email.split('@')[0])}${ehEu?' <span class="text-orange-400 text-sm">(você)</span>':''}</div><div class="text-xs text-ink-500">${escapeHtml(u.email)}</div></div>
+      <button class="text-ink-400 hover:text-white text-xl leading-none" onclick="document.getElementById('modal-usuario').remove()">×</button>
+    </div>
+    <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div>
+        <div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold mb-2">Conta</div>
+        ${linha('Login', `<span>${loginHtml}</span>`)}
+        ${linha('Administrador', cb(!!u.admin, `setAcessoCampo(${i},'admin',this.checked)`, ehEu), 'Vê tudo e gerencia usuários')}
+        ${linha('Ativo', cb(u.ativo!==false, `setAcessoCampo(${i},'ativo',this.checked)`, ehEu))}
+        ${linha('Valida NF Rápida', cb(!!u.validador || EMAILS_VALIDADORES.includes(u.email), `setAcessoCampo(${i},'validador',this.checked)`, EMAILS_VALIDADORES.includes(u.email)), 'Pode validar notas da produção')}
+        <div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold mb-2 mt-5">Unidades</div>
+        ${linha('🇧🇷 Brasil', cb((u.paises||[]).includes('BR'), `toggleAcessoPais(${i},'BR',this.checked)`))}
+        ${linha('🇵🇹 Portugal', cb((u.paises||[]).includes('PT'), `toggleAcessoPais(${i},'PT',this.checked)`))}
+      </div>
+      <div>
+        <div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold mb-2">Abas</div>
+        ${linha('<b>Todas as abas</b>', cb(todas, `toggleAcessoTodas(${i},this.checked)`), 'Inclui abas novas no futuro (exceto Pipeline e SnackFlow)')}
+        ${ABAS_DEF.map(a => (a.id==='pipeline'||a.id==='snackflow') ? linha(a.nome + ' <span class="text-[10px] text-ink-500">(liberada à parte)</span>', cb(!!u.admin || (u.abas||[]).includes(a.id), `toggleAcessoAba(${i},'${a.id}',this.checked)`, !!u.admin)) : linha(a.nome, cb(todas || (u.abas||[]).includes(a.id), `toggleAcessoAba(${i},'${a.id}',this.checked)`, todas))).join('')}
+      </div>
+    </div>
+    <div class="p-6 border-t border-ink-800 flex items-center justify-between gap-2">
+      <div>${ehEu?'':`<button class="btn-ghost text-xs text-red-400" onclick="removerUsuarioAcesso(${i}); document.getElementById('modal-usuario')?.remove();" title="Remove só o controle de acesso (o login continua existindo)">Remover controle de acesso</button>`}</div>
+      <div class="flex gap-2"><button class="btn-ghost" onclick="document.getElementById('modal-usuario').remove()">Fechar</button><button class="btn-ghost" onclick="salvarUsuarioAcesso(${i})" id="btn-salvar-user-${i}">Salvar</button></div>
+    </div>`;
+}
+function renderUsuariosTabelaAntiga(){
   const lista = STATE.usuariosAcesso || [];
   const th = (t, extra='') => `<th class="px-3 py-2 text-[11px] uppercase tracking-wider text-ink-400 font-semibold text-left whitespace-nowrap ${extra}">${t}</th>`;
   return `
@@ -5056,9 +5112,9 @@ function toggleAcessoPais(i,pais,on){
 }
 function toggleAcessoTodas(i,on){
   const u=STATE.usuariosAcesso[i];
-  u.abas = on ? ['*'] : ABAS_DEF.map(a=>a.id);
-  marcarPendente(i);
-  const el=document.getElementById('usuarios-tabela'); if(el) el.innerHTML=renderUsuariosTabela();
+  const extras = (u.abas||[]).filter(x=>x==='pipeline'||x==='snackflow');
+  u.abas = on ? ['*', ...extras] : [...ABAS_DEF.filter(a=>a.id!=='pipeline'&&a.id!=='snackflow').map(a=>a.id), ...extras];
+  const mc=document.getElementById('modal-usuario-conteudo'); if(mc) mc.innerHTML=renderUsuarioConfig(i);
   marcarPendente(i);
 }
 function toggleAcessoAba(i,aba,on){
@@ -5076,6 +5132,7 @@ async function salvarUsuarioAcesso(i){
   if (error){ alert('Erro ao salvar: '+error.message); return; }
   const b=document.getElementById('btn-salvar-user-'+i); if(b){ b.classList.remove('btn-primary'); b.classList.add('btn-ghost'); b.textContent='Salvo ✓'; setTimeout(()=>{ if(b) b.textContent='Salvar'; },1500); }
   if (payload.email === (STATE.currentUser?.email||'').toLowerCase()){ STATE.acesso = payload; aplicarAcessoNaUI(); }
+  const lt=document.getElementById('usuarios-tabela'); if(lt) lt.innerHTML=renderUsuariosTabela();
 }
 async function adicionarUsuarioAcesso(){
   const inp=document.getElementById('novo-usuario-email'); const email=(inp?.value||'').trim().toLowerCase();
@@ -7666,7 +7723,9 @@ const SF_PAPEIS = { ADMIN:'Admin', FINANCEIRO:'Financeiro', OPERACOES:'Operaçõ
 const SF_TS_STATUS = { PENDENTE:{nome:'Pendente', cls:'pill-yellow'}, APROVADO:{nome:'Aprovado', cls:'pill-green'}, REPROVADO:{nome:'Reprovado', cls:'pill-red'} };
 const SF_PROJ_STATUS = { EM_ANDAMENTO:'Em andamento', CONCLUIDO:'Concluído', CANCELADO:'Cancelado' };
 const SF_TAREFA_STATUS = { NAO_INICIADA:'Não iniciada', EM_ANDAMENTO:'Em andamento', IMPEDIMENTO:'Impedimento', FINALIZADA:'Finalizada' };
-const SF_AUSENCIA = { FERIAS:'Férias', ATESTADO:'Atestado', FOLGA:'Folga' };
+const SF_AUSENCIA = { LIC_FALECIMENTO:'Licença de Falecimento', LIC_JUSTIFICADA:'Licença Justificada', DAY_OFF:'Day-Off', FERIAS:'Férias', LIC_CASAMENTO:'Licença de Casamento', LIC_MATERNIDADE:'Licença Maternidade', LIC_MEDICA:'Licença Médica', RECESSO:'Recesso', ATESTADO:'Atestado (antigo)', FOLGA:'Folga (antigo)' };
+const SF_AUSENCIA_NOVAS = ['LIC_FALECIMENTO','LIC_JUSTIFICADA','DAY_OFF','FERIAS','LIC_CASAMENTO','LIC_MATERNIDADE','LIC_MEDICA','RECESSO'];
+function sfFmtDataHora(iso, dt){ if (dt) { const d = new Date(dt); return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}); } return fmtData(iso); }
 const SF_DIAS = ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
 
 STATE.sf = { carregado:false, aba:'horas', eu:null, membros:[], projetos:[], tarefas:[], ts:[], despesas:[], ausencias:[], semana:null, filtroProj:'', filtroMembro:'', rel:{de:null, ate:null} };
@@ -7730,7 +7789,7 @@ function sfSetAba(a){ STATE.sf.aba = a; const el = document.getElementById('view
 function renderSnackFlow(){
   if (!STATE.sf.carregado) return `<div class="p-10 text-center text-ink-400">Carregando SnackFlow…</div>`;
   const s = STATE.sf; const eu = s.eu;
-  const pend = s.ts.filter(x=>x.status==='PENDENTE').length + s.despesas.filter(x=>x.status==='PENDENTE').length;
+  const pend = s.ts.filter(x=>x.status==='PENDENTE').length;
   const tab = (id, txt, badge) => `<button class="px-4 py-2 rounded-lg text-sm font-semibold transition ${s.aba===id?'bg-white/10 text-white':'text-ink-400 hover:text-white'}" onclick="sfSetAba('${id}')">${txt}${badge?` <span class="badge-num ml-1" style="background:#EAB308;color:#000">${badge}</span>`:''}</button>`;
   return `
   <div class="space-y-4 fade-in">
@@ -7743,7 +7802,7 @@ function renderSnackFlow(){
         ${tab('horas','⏱ Minhas horas')}
         ${sfPodeAprovar() ? tab('aprovacoes','✅ Aprovações', pend) : ''}
         ${tab('projetos','📁 Projetos')}
-        ${tab('despesas','🧾 Despesas')}
+        <button class="px-4 py-2 rounded-lg text-sm font-semibold transition text-ink-400 hover:text-white" onclick="navigate('nota-rapida')" title="Despesas são lançadas pela Nota Rápida">🧾 Despesas ↗</button>
         ${tab('ausencias','🏖 Ausências')}
         ${sfEhGestor() ? tab('equipe','👥 Equipe') : ''}
         ${sfEhGestor() ? tab('relatorio','📊 Relatório') : ''}
@@ -7856,13 +7915,12 @@ async function excluirSfLancamento(id){
 function renderSfAprovacoes(){
   const s = STATE.sf;
   const pend = s.ts.filter(x=>x.status==='PENDENTE').sort((a,b)=> a.data.localeCompare(b.data));
-  const pendD = s.despesas.filter(x=>x.status==='PENDENTE');
   const porMembro = {}; pend.forEach(t => { (porMembro[t.membro_id] = porMembro[t.membro_id] || []).push(t); });
   return `
   <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
     <div class="card p-4"><div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Horas pendentes</div><div class="font-display font-bold text-2xl mt-1 text-yellow-400">${sfFmtH(pend.reduce((a,x)=>a+x.minutos,0))}</div><div class="text-xs text-ink-300">${pend.length} lançamento${pend.length===1?'':'s'} · ${Object.keys(porMembro).length} pessoa${Object.keys(porMembro).length===1?'':'s'}</div></div>
     <div class="card p-4"><div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Custo pendente</div><div class="font-display font-bold text-2xl mt-1">${fmtMoeda(pend.reduce((a,x)=>a+x.minutos/60*Number(x.custo_hora_epoca||0),0),2)}</div></div>
-    <div class="card p-4"><div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Despesas pendentes</div><div class="font-display font-bold text-2xl mt-1">${fmtMoeda(pendD.reduce((a,x)=>a+Number(x.valor||0),0),2)}</div><div class="text-xs text-ink-300">${pendD.length} item${pendD.length===1?'':'s'} <button class="underline ml-1" onclick="sfSetAba('despesas')">ver</button></div></div>
+    <div class="card p-4"><div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Despesas (Nota Rápida)</div><div class="font-display font-bold text-2xl mt-1">${(STATE.pagamentos||[]).filter(x=>x.origem==='nota_rapida' && !x.validado).length}</div><div class="text-xs text-ink-300">aguardando validação <button class="underline ml-1" onclick="navigate('validador')">validar</button></div></div>
   </div>
   <div class="card p-0 overflow-hidden">
     <div class="px-5 py-3 border-b border-ink-800 flex items-center justify-between flex-wrap gap-2"><div class="font-display font-bold">Horas aguardando aprovação</div>
@@ -7894,17 +7952,19 @@ function sfRealizadoProjeto(pid){
   const minAp = ap.reduce((a,t)=>a+t.minutos,0), minPe = pe.reduce((a,t)=>a+t.minutos,0);
   const custoAp = ap.reduce((a,t)=>a+t.minutos/60*Number(t.custo_hora_epoca||0),0);
   const custoPe = pe.reduce((a,t)=>a+t.minutos/60*Number(t.custo_hora_epoca||0),0);
-  const desp = STATE.sf.despesas.filter(d=>d.projeto_id===pid && d.status==='APROVADO').reduce((a,d)=>a+Number(d.valor||0),0);
+  // Despesas do projeto = notas rápidas validadas do orçamento vinculado (módulo Nota Rápida)
+  const p = sfProjeto(pid);
+  const desp = p && p.orcamento_id ? (STATE.pagamentos||[]).filter(x => String(x.orcamento_id) === String(p.orcamento_id) && x.origem === 'nota_rapida' && x.validado).reduce((a,x)=>a+Number(x.valor||0),0) : 0;
   return { minAp, minPe, custoAp, custoPe, desp, pessoas: new Set(ap.concat(pe).map(t=>t.membro_id)).size };
 }
 function renderSfProjetos(){
   const s = STATE.sf; const f = (s.filtroProj||'').toLowerCase();
   const lista = s.projetos.filter(p => !f || (p.cliente+' '+p.nome+' '+(p.orcamento_id||'')).toLowerCase().includes(f));
-  const aprovadosSemProj = (STATE.orcamentos||[]).filter(o=>o.status==='Aprovada' && !s.projetos.some(p=>p.orcamento_id===o.id)).length;
+  const aprovadosSemProj = (STATE.orcamentos||[]).filter(o=>o.status==='Aprovada' && sfHorasOrcadasDoOrc(o) > 0 && !s.projetos.some(p=>p.orcamento_id===o.id)).length;
   return `
   <div class="card p-3 flex items-center gap-3 flex-wrap">
     <input class="input py-1.5 text-sm" style="width:260px" placeholder="Buscar cliente, projeto ou ID" value="${escapeHtml(s.filtroProj||'')}" oninput="STATE.sf.filtroProj=this.value; document.getElementById('sf-proj-wrap').innerHTML=renderSfProjetosTabela();">
-    ${sfEhGestor() ? `<button class="btn btn-ghost text-sm" onclick="sfImportarOrcamentos()" title="Cria um projeto pra cada orçamento aprovado que ainda não tem">⬇ Importar orçamentos aprovados${aprovadosSemProj?` <span class="badge-num ml-1">${aprovadosSemProj}</span>`:''}</button><button class="btn btn-primary text-sm" onclick="abrirSfProjeto(null)">+ Projeto avulso</button>` : ''}
+    ${sfEhGestor() ? `<button class="btn btn-ghost text-sm" onclick="sfImportarOrcamentos()" title="Cria um projeto pra cada orçamento aprovado com squad alocado que ainda não tem">⬇ Importar orçamentos aprovados${aprovadosSemProj?` <span class="badge-num ml-1">${aprovadosSemProj}</span>`:''}</button><button class="btn btn-primary text-sm" onclick="abrirSfProjeto(null)">+ Projeto avulso</button>` : ''}
     <div class="ml-auto text-xs text-ink-400">${lista.length} projeto${lista.length===1?'':'s'}</div>
   </div>
   <div id="sf-proj-wrap">${renderSfProjetosTabela()}</div>`;
@@ -7913,7 +7973,7 @@ function renderSfProjetosTabela(){
   const s = STATE.sf; const f = (s.filtroProj||'').toLowerCase();
   const lista = s.projetos.filter(p => !f || (p.cliente+' '+p.nome+' '+(p.orcamento_id||'')).toLowerCase().includes(f));
   if (!lista.length) return `<div class="card p-8 text-center text-ink-400 text-sm">Nenhum projeto. ${sfEhGestor()?'Clique em "Importar orçamentos aprovados" pra começar.':''}</div>`;
-  return `<div class="card overflow-auto" style="max-height:calc(100vh - 300px)"><table class="w-full text-sm"><thead class="bg-ink-900 sticky top-0 z-10"><tr class="text-[10px] uppercase tracking-wider text-ink-400 text-left"><th class="p-3">Projeto</th><th class="p-3">Status</th><th class="p-3 text-right">Horas orçadas</th><th class="p-3 text-right">Horas realizadas</th><th class="p-3">Consumo</th><th class="p-3 text-right">Squad orçado</th><th class="p-3 text-right">Custo realizado</th><th class="p-3 text-right">Despesas</th><th class="p-3 text-center">Tarefas</th><th class="p-3"></th></tr></thead><tbody>
+  return `<div class="card overflow-auto" style="max-height:calc(100vh - 300px)"><table class="w-full text-sm"><thead class="bg-ink-900 sticky top-0 z-10"><tr class="text-[10px] uppercase tracking-wider text-ink-400 text-left"><th class="p-3">Projeto</th><th class="p-3">Status</th><th class="p-3 text-right">Horas orçadas</th><th class="p-3 text-right">Horas realizadas</th><th class="p-3">Consumo</th><th class="p-3 text-right">Squad orçado</th><th class="p-3 text-right">Custo realizado</th><th class="p-3 text-right" title="Notas rápidas validadas do orçamento">Despesas (NF)</th><th class="p-3 text-center">Tarefas</th><th class="p-3"></th></tr></thead><tbody>
     ${lista.map(p => { const r = sfRealizadoProjeto(p.id); const hOrc = Number(p.horas_orcadas)||0; const hReal = r.minAp/60; const pct = hOrc>0 ? hReal/hOrc : 0; const cor = pct>1?'#EF4444':pct>0.8?'#F59E0B':'#4ADE80'; const nT = s.tarefas.filter(t=>t.projeto_id===p.id).length;
       return `<tr class="border-t border-ink-800 hover:bg-ink-850 ${p.status!=='EM_ANDAMENTO'?'opacity-60':''}">
         <td class="p-3"><div class="font-semibold">${escapeHtml(p.cliente)}</div><div class="text-xs text-ink-400">${escapeHtml(p.nome)}${p.orcamento_id?` · <span class="font-mono text-laranja">${escapeHtml(p.orcamento_id)}</span>`:' · avulso'}</div></td>
@@ -7934,9 +7994,10 @@ function sfHorasOrcadasDoOrc(o){ // alocação × 160h × meses do cargo
 }
 async function sfImportarOrcamentos(){
   const s = STATE.sf; const quem = (STATE.currentUser?.email||'').toLowerCase();
-  const faltam = (STATE.orcamentos||[]).filter(o=>o.status==='Aprovada' && !s.projetos.some(p=>p.orcamento_id===o.id));
-  if (!faltam.length){ alert('Todos os orçamentos aprovados já têm projeto.'); return; }
-  if (!confirm(`Criar ${faltam.length} projeto(s) a partir dos orçamentos aprovados de ${STATE.pais}? Horas orçadas = alocação do squad × 160h × meses; squad orçado = custo do squad com encargos.`)) return;
+  const semSquad = (STATE.orcamentos||[]).filter(o=>o.status==='Aprovada' && !s.projetos.some(p=>p.orcamento_id===o.id) && !(sfHorasOrcadasDoOrc(o) > 0)).length;
+  const faltam = (STATE.orcamentos||[]).filter(o=>o.status==='Aprovada' && sfHorasOrcadasDoOrc(o) > 0 && !s.projetos.some(p=>p.orcamento_id===o.id));
+  if (!faltam.length){ alert('Todos os orçamentos aprovados com squad alocado já têm projeto.' + (semSquad?` (${semSquad} aprovado(s) sem squad foram ignorados.)`:'')); return; }
+  if (!confirm(`Criar ${faltam.length} projeto(s) a partir dos orçamentos aprovados de ${STATE.pais} que têm squad alocado?${semSquad?` ${semSquad} aprovado(s) sem squad ficam de fora.`:''}\n\nHoras orçadas = alocação do squad × 160h × meses; squad orçado = custo do squad com encargos.`)) return;
   const rows = faltam.map(o => { const c = calcular(o); return { orcamento_id: o.id, cliente: o.cliente, nome: o.projeto || o.tipo || 'Projeto', status: 'EM_ANDAMENTO', horas_orcadas: Math.round(sfHorasOrcadasDoOrc(o)*100)/100, valor_orcado: Math.round(((c.squadTotal||0) + (c.encargos||0))*100)/100, pais: STATE.pais, created_by: quem }; });
   let ok = 0, erro = 0;
   for (let i=0;i<rows.length;i+=100){
@@ -8041,36 +8102,71 @@ async function sfExcluirDespesa(id){ if (!confirm('Excluir a despesa?')) return;
 function renderSfAusencias(){
   const s = STATE.sf; const lista = sfEhGestor() ? s.ausencias : s.ausencias.filter(a=>a.membro_id===s.eu.id);
   const hojeISO = hoje();
+  // Agrupa ausências coletivas numa linha só
+  const vistos = new Set(); const linhas = [];
+  lista.forEach(a => { if (a.coletiva && a.grupo_id){ if (vistos.has(a.grupo_id)) return; vistos.add(a.grupo_id); linhas.push({ ...a, _n: lista.filter(x=>x.grupo_id===a.grupo_id).length }); } else linhas.push(a); });
   return `
-  <div class="card p-3 flex items-center justify-between flex-wrap gap-2"><div class="text-sm text-ink-300">Férias, atestados e folgas — aparecem na semana de horas e ajudam o gestor a planejar o squad.</div><button class="btn btn-primary text-sm" onclick="abrirSfAusencia()">+ Ausência</button></div>
-  <div class="card overflow-hidden">${lista.length===0?'<div class="p-8 text-center text-ink-400 text-sm">Nenhuma ausência registrada.</div>':`<table class="w-full text-sm"><thead class="bg-ink-900"><tr class="text-[10px] uppercase tracking-wider text-ink-400 text-left"><th class="p-3">Pessoa</th><th class="p-3">Tipo</th><th class="p-3">Período</th><th class="p-3">Dias</th><th class="p-3">Obs</th><th class="p-3"></th></tr></thead><tbody>
-    ${lista.map(a=>{ const m = sfMembro(a.membro_id); const dias = Math.round((new Date(a.fim)-new Date(a.inicio))/86400000)+1; const ativa = a.inicio<=hojeISO && a.fim>=hojeISO;
-      return `<tr class="border-t border-ink-800 ${ativa?'bg-yellow-500/5':''}"><td class="p-3 font-semibold">${escapeHtml(m?.nome||m?.email||'—')}</td><td class="p-3"><span class="pill ${a.tipo==='FERIAS'?'pill-azul':a.tipo==='ATESTADO'?'pill-red':'pill-ink'}" style="font-size:10px">${SF_AUSENCIA[a.tipo]}</span></td><td class="p-3 whitespace-nowrap">${fmtData(a.inicio)} → ${fmtData(a.fim)}</td><td class="p-3">${dias}</td><td class="p-3 text-xs text-ink-300">${escapeHtml(a.obs||'—')}</td><td class="p-3 text-right">${(sfEhGestor()||a.membro_id===s.eu.id)?`<button class="text-ink-400 text-xs" onclick="sfExcluirAusencia('${a.id}')">🗑</button>`:''}</td></tr>`; }).join('')}
+  <div class="card p-3 flex items-center justify-between flex-wrap gap-2"><div class="text-sm text-ink-300">Licenças, férias, day-off e recesso — aparecem na semana de horas e ajudam o gestor a planejar o squad. Ausência coletiva vale pra toda a equipe.</div><button class="btn btn-primary text-sm" onclick="abrirSfAusencia()">+ Ausência</button></div>
+  <div class="card overflow-hidden">${linhas.length===0?'<div class="p-8 text-center text-ink-400 text-sm">Nenhuma ausência registrada.</div>':`<table class="w-full text-sm"><thead class="bg-ink-900"><tr class="text-[10px] uppercase tracking-wider text-ink-400 text-left"><th class="p-3">Pessoa</th><th class="p-3">Tipo</th><th class="p-3">Início</th><th class="p-3">Fim</th><th class="p-3">Dias</th><th class="p-3">Obs</th><th class="p-3">Anexo</th><th class="p-3"></th></tr></thead><tbody>
+    ${linhas.map(a=>{ const m = sfMembro(a.membro_id); const dias = Math.round((new Date(a.fim)-new Date(a.inicio))/86400000)+1; const ativa = a.inicio<=hojeISO && a.fim>=hojeISO;
+      return `<tr class="border-t border-ink-800 ${ativa?'bg-yellow-500/5':''}"><td class="p-3 font-semibold">${a.coletiva?`<span class="pill pill-orange" style="font-size:10px">Coletiva · ${a._n} pessoa${a._n===1?'':'s'}</span>`:escapeHtml(m?.nome||m?.email||'—')}</td><td class="p-3"><span class="pill ${a.tipo==='FERIAS'||a.tipo==='RECESSO'?'pill-azul':a.tipo==='LIC_MEDICA'||a.tipo==='ATESTADO'?'pill-red':'pill-ink'}" style="font-size:10px">${SF_AUSENCIA[a.tipo]||a.tipo}</span></td><td class="p-3 whitespace-nowrap">${sfFmtDataHora(a.inicio, a.inicio_em)}</td><td class="p-3 whitespace-nowrap">${sfFmtDataHora(a.fim, a.fim_em)}</td><td class="p-3">${dias}</td><td class="p-3 text-xs text-ink-300">${escapeHtml(a.obs||'—')}</td><td class="p-3">${a.anexo_url?`<button class="text-azul-400 text-xs" onclick="baixarAnexo('${a.anexo_url}')">📎 abrir</button>`:'<span class="text-ink-600">—</span>'}</td><td class="p-3 text-right">${(sfEhGestor()||a.membro_id===s.eu.id)?`<button class="text-ink-400 text-xs" onclick="sfExcluirAusencia('${a.id}', ${a.coletiva?`'${a.grupo_id}'`:'null'})">🗑</button>`:''}</td></tr>`; }).join('')}
   </tbody></table>`}</div>`;
 }
 function abrirSfAusencia(){
   const s = STATE.sf; const old = document.getElementById('modal-sf'); if (old) old.remove();
   const div = document.createElement('div'); div.id = 'modal-sf'; div.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4';
+  const dtIni = `${hoje()}T09:00`, dtFim = `${hoje()}T18:00`;
   div.innerHTML = `<div class="card p-6 w-full max-w-md" onclick="event.stopPropagation()"><h3 class="font-bold text-lg">Registrar ausência</h3>
     <div class="grid grid-cols-2 gap-3 mt-4">
-      ${sfEhGestor()?`<div class="col-span-2"><label class="text-xs text-ink-400">Pessoa</label><select id="sfa-membro" class="input mt-1">${s.membros.map(m=>`<option value="${m.id}" ${m.id===s.eu.id?'selected':''}>${escapeHtml(m.nome||m.email)}</option>`).join('')}</select></div>`:`<input type="hidden" id="sfa-membro" value="${s.eu.id}">`}
-      <div class="col-span-2"><label class="text-xs text-ink-400">Tipo</label><select id="sfa-tipo" class="input mt-1">${Object.entries(SF_AUSENCIA).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></div>
-      <div><label class="text-xs text-ink-400">Início</label><input id="sfa-ini" type="date" class="input mt-1" value="${hoje()}"></div>
-      <div><label class="text-xs text-ink-400">Fim</label><input id="sfa-fim" type="date" class="input mt-1" value="${hoje()}"></div>
+      <div class="col-span-2 flex items-end gap-3">
+        <div class="flex-1">${sfEhGestor()?`<label class="text-xs text-ink-400">Pessoa</label><select id="sfa-membro" class="input mt-1">${s.membros.filter(m=>m.ativo!==false).map(m=>`<option value="${m.id}" ${m.id===s.eu.id?'selected':''}>${escapeHtml(m.nome||m.email)}</option>`).join('')}</select>`:`<label class="text-xs text-ink-400">Pessoa</label><input class="input mt-1" value="${escapeHtml(s.eu.nome||s.eu.email)}" readonly><input type="hidden" id="sfa-membro" value="${s.eu.id}">`}</div>
+        ${sfEhGestor()?`<label class="flex items-center gap-2 text-xs text-ink-300 pb-2.5 whitespace-nowrap cursor-pointer" title="Registra a mesma ausência pra todos os usuários ativos"><input type="checkbox" id="sfa-coletiva" class="accent-orange-500 w-4 h-4" onchange="document.getElementById('sfa-membro').disabled=this.checked">Ausência Coletiva</label>`:''}
+      </div>
+      <div class="col-span-2"><label class="text-xs text-ink-400">Tipo</label><select id="sfa-tipo" class="input mt-1">${SF_AUSENCIA_NOVAS.map(k=>`<option value="${k}">${SF_AUSENCIA[k]}</option>`).join('')}</select></div>
+      <div><label class="text-xs text-ink-400">Início (dia e hora)</label><input id="sfa-ini" type="datetime-local" class="input mt-1" value="${dtIni}"></div>
+      <div><label class="text-xs text-ink-400">Fim (dia e hora)</label><input id="sfa-fim" type="datetime-local" class="input mt-1" value="${dtFim}"></div>
       <div class="col-span-2"><label class="text-xs text-ink-400">Obs</label><input id="sfa-obs" class="input mt-1"></div>
+      <div class="col-span-2"><label class="text-xs text-ink-400">Anexo (PDF ou imagem, opcional)</label><input id="sfa-arquivo" type="file" accept="image/*,application/pdf" class="input mt-1 text-xs"></div>
     </div>
     <div id="sf-erro" class="text-xs text-red-400 mt-2 hidden"></div>
-    <div class="flex justify-end gap-2 mt-5"><button class="btn-ghost" onclick="document.getElementById('modal-sf').remove()">Cancelar</button><button class="btn-primary" onclick="salvarSfAusencia()">Salvar</button></div></div>`;
+    <div class="flex justify-end gap-2 mt-5"><button class="btn-ghost" onclick="document.getElementById('modal-sf').remove()">Cancelar</button><button class="btn-primary" id="sfa-ok" onclick="salvarSfAusencia()">Salvar</button></div></div>`;
   div.addEventListener('click', ()=>div.remove()); document.body.appendChild(div);
 }
 async function salvarSfAusencia(){
-  const erro = document.getElementById('sf-erro'); const ini = document.getElementById('sfa-ini').value, fim = document.getElementById('sfa-fim').value;
-  if (!ini || !fim || fim < ini){ erro.textContent = 'Período inválido.'; erro.classList.remove('hidden'); return; }
-  const { error } = await sb.from('sf_ausencias').insert({ membro_id: document.getElementById('sfa-membro').value, tipo: document.getElementById('sfa-tipo').value, inicio: ini, fim, obs: document.getElementById('sfa-obs').value.trim() || null });
-  if (error){ erro.textContent = 'Erro: ' + error.message; erro.classList.remove('hidden'); return; }
-  document.getElementById('modal-sf')?.remove(); await sfRecarregar();
+  const erro = document.getElementById('sf-erro'); const mostrar = m => { erro.textContent = m; erro.classList.remove('hidden'); };
+  const iniV = document.getElementById('sfa-ini').value, fimV = document.getElementById('sfa-fim').value;
+  if (!iniV || !fimV) return mostrar('Informe início e fim.');
+  const iniD = new Date(iniV), fimD = new Date(fimV); if (isNaN(iniD) || isNaN(fimD) || fimD < iniD) return mostrar('Período inválido (fim antes do início).');
+  const coletiva = !!document.getElementById('sfa-coletiva')?.checked;
+  const tipo = document.getElementById('sfa-tipo').value, obs = document.getElementById('sfa-obs').value.trim() || null;
+  const arquivo = document.getElementById('sfa-arquivo')?.files?.[0];
+  const btn = document.getElementById('sfa-ok'); btn.disabled = true; btn.textContent = 'Salvando…';
+  try {
+    let anexo = null;
+    if (arquivo){
+      if (arquivo.size > 15*1024*1024) throw new Error('Anexo acima de 15 MB.');
+      const nome = `ausencias/${Date.now()}_${arquivo.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
+      const { error: upErr } = await sb.storage.from('comprovantes').upload(nome, arquivo); if (upErr) throw upErr; anexo = nome;
+    }
+    const quem = (STATE.currentUser?.email||'').toLowerCase();
+    const base = { tipo, inicio: sfISO(iniD), fim: sfISO(fimD), inicio_em: iniD.toISOString(), fim_em: fimD.toISOString(), obs, anexo_url: anexo, criado_por: quem };
+    let rows;
+    if (coletiva){
+      const grupo = crypto.randomUUID();
+      rows = STATE.sf.membros.filter(m=>m.ativo!==false).map(m => ({ ...base, membro_id: m.id, coletiva: true, grupo_id: grupo }));
+    } else rows = [{ ...base, membro_id: document.getElementById('sfa-membro').value, coletiva: false }];
+    const { error } = await sb.from('sf_ausencias').insert(rows); if (error) throw error;
+    await sfAudit('criar', 'ausencia', coletiva ? 'coletiva' : rows[0].membro_id, null, { tipo, inicio: base.inicio, fim: base.fim, pessoas: rows.length });
+    document.getElementById('modal-sf')?.remove(); await sfRecarregar();
+  } catch(e){ btn.disabled = false; btn.textContent = 'Salvar'; mostrar('Erro: ' + (e.message||e)); }
 }
-async function sfExcluirAusencia(id){ if (!confirm('Excluir a ausência?')) return; await sb.from('sf_ausencias').delete().eq('id', id); await sfRecarregar(); }
+async function sfExcluirAusencia(id, grupoId){
+  const coletiva = !!grupoId;
+  if (!confirm(coletiva ? 'Excluir esta ausência coletiva de TODAS as pessoas?' : 'Excluir a ausência?')) return;
+  const q = coletiva ? sb.from('sf_ausencias').delete().eq('grupo_id', grupoId) : sb.from('sf_ausencias').delete().eq('id', id);
+  const { error } = await q; if (error){ alert(error.message); return; }
+  await sfRecarregar();
+}
 
 // ---------- Equipe (membros, papéis, custo/hora) ----------
 function renderSfEquipe(){
@@ -8160,7 +8256,7 @@ function renderSfRelatorio(){
     <div class="card p-4"><div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold mb-3">Horas por pessoa</div>${listaM.length?listaM.map(([mid,v])=>{ const m = sfMembro(mid); const cap = diasUteis*8*60; const occ = cap?v.min/cap:0;
       return barra(v.min, maxM, occ>1.1?'#EF4444':occ>0.85?'#4ADE80':'#2E6BFF', `${escapeHtml(m?.nome||m?.email||'?')} <span class="text-ink-500">· ${v.projetos.size} proj. · ocupação ${Math.round(occ*100)}%</span>`, `${sfFmtH(v.min)} · ${fmtMoeda(v.custo,0)}`); }).join(''):'<div class="text-ink-500 text-sm">Sem lançamentos no período.</div>'}</div>
   </div>
-  <div class="text-[11px] text-ink-500">Ocupação = horas lançadas ÷ (dias úteis × 8h). Custo realizado usa o custo/hora congelado em cada lançamento. Despesas aprovadas aparecem na aba Projetos.</div>`;
+  <div class="text-[11px] text-ink-500">Ocupação = horas lançadas ÷ (dias úteis × 8h). Custo realizado usa o custo/hora congelado em cada lançamento. Despesas vêm da Nota Rápida (validadas) e aparecem na aba Projetos.</div>`;
 }
 function exportarCSVSnackFlow(){
   const s = STATE.sf; const r = s.rel;
