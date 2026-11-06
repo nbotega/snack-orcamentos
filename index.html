@@ -237,6 +237,10 @@ tailwind.config = {
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
           Pipeline
         </div>
+        <div class="nav-item" data-route="snackflow" title="SnackFlow: horas por projeto, aprovação e realizado">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          SnackFlow
+        </div>
         <div class="nav-item" data-route="custos">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
           Custos
@@ -886,7 +890,7 @@ const VIEW_TITLES = {
   'nota-rapida':'Nota Rápida',
   'relatorio-mensal':'Relatório de Custos',
   'backlog':'Backlog de Faturamento',
-  'usuarios':'Usuários & Acessos', realizado:'Realizado × Orçado', validador:'Validar NF Rápida', anexo:'Anexo', pipeline:'Pipeline Comercial'
+  'usuarios':'Usuários & Acessos', realizado:'Realizado × Orçado', validador:'Validar NF Rápida', anexo:'Anexo', pipeline:'Pipeline Comercial', snackflow:'SnackFlow · Horas & Realizado'
 };
 
 function navigate(r, ctx) {
@@ -952,6 +956,7 @@ function render() {
   else if (r==='usuarios') { el.innerHTML = renderUsuarios(); carregarUsuariosAcesso(); }
   else if (r==='anexo') el.innerHTML = renderAnexoView();
   else if (r==='pipeline') { el.innerHTML = renderPipeline(); if (!STATE.pipe.carregado) carregarPipeline(); }
+  else if (r==='snackflow') { el.innerHTML = renderSnackFlow(); if (!STATE.sf.carregado) carregarSnackFlow(); }
   // Aplica formatação BRL em todos inputs marcados depois do render
   aplicarBRLEmTodos();
 }
@@ -4831,6 +4836,7 @@ const ABAS_DEF = [
   {id:'clientes', nome:'Clientes'},
   {id:'backlog', nome:'Backlog'},
   {id:'pipeline', nome:'Pipeline'},
+  {id:'snackflow', nome:'SnackFlow'},
   {id:'custos', nome:'Custos'},
   {id:'nota-rapida', nome:'Nota rápida'},
   {id:'validador', nome:'Validar NF Rápida'},
@@ -4866,6 +4872,7 @@ function podeAba(r){
   if (r === 'usuarios') return isAdminAcesso();
   const a = STATE.acesso;
   if (r === 'pipeline') return isAdminAcesso() || !!(a && a.ativo !== false && (a.abas||[]).includes('pipeline'));
+  if (r === 'snackflow') return isAdminAcesso() || !!(a && a.ativo !== false && (a.abas||[]).includes('snackflow'));
   if (!a) return true;
   if (a.ativo === false) return false;
   if (a.admin) return true;
@@ -4875,7 +4882,7 @@ function podeAba(r){
   return abas.includes(base);
 }
 function primeiraAbaPermitida(){
-  const ordem = ['dashboard','orcamentos','novo','clientes','backlog','pipeline','custos','nota-rapida','validador','relatorio-mensal','realizado','comparador','premissas','cargos','tipos'];
+  const ordem = ['dashboard','orcamentos','novo','clientes','backlog','pipeline','snackflow','custos','nota-rapida','validador','relatorio-mensal','realizado','comparador','premissas','cargos','tipos'];
   return ordem.find(r => podeAba(r)) || 'nota-rapida';
 }
 function aplicarAcessoNaUI(){
@@ -5030,7 +5037,7 @@ function renderUsuariosTabela(){
             return `<span class="text-xs text-green-400" title="Último acesso: ${ult}">ativo</span> ${podeSenha?`<button class="btn-ghost text-xs ml-1" onclick="abrirModalSenha('${u.email}', false)">Senha</button>`:''}`;
           })()}</td>
           <td class="px-3 py-2 text-center bg-ink-900/30">${cb(todas, `toggleAcessoTodas(${i},this.checked)`)}</td>
-          ${ABAS_DEF.map(a=>`<td class="px-3 py-2 text-center">${a.id==='pipeline' ? cb(!!u.admin || (u.abas||[]).includes('pipeline'), `toggleAcessoAba(${i},'pipeline',this.checked)`, !!u.admin) : cb(todas || (u.abas||[]).includes(a.id), `toggleAcessoAba(${i},'${a.id}',this.checked)`, todas)}</td>`).join('')}
+          ${ABAS_DEF.map(a=>`<td class="px-3 py-2 text-center">${(a.id==='pipeline'||a.id==='snackflow') ? cb(!!u.admin || (u.abas||[]).includes(a.id), `toggleAcessoAba(${i},'${a.id}',this.checked)`, !!u.admin) : cb(todas || (u.abas||[]).includes(a.id), `toggleAcessoAba(${i},'${a.id}',this.checked)`, todas)}</td>`).join('')}
           <td class="px-3 py-2 text-right whitespace-nowrap">
             <button class="btn-ghost text-xs" onclick="salvarUsuarioAcesso(${i})" id="btn-salvar-user-${i}">Salvar</button>
             ${ehEu?'':`<button class="btn-ghost text-xs text-red-400" onclick="removerUsuarioAcesso(${i})" title="Remove só o controle de acesso (o login continua existindo)">Remover</button>`}
@@ -5040,7 +5047,7 @@ function renderUsuariosTabela(){
       ${lista.length?'':'<tr><td colspan="30" class="p-6 text-center text-ink-400">Nenhum usuário cadastrado.</td></tr>'}
     </tbody>
   </table>
-  <div class="p-3 text-xs text-ink-500 border-t border-ink-800">Dica: "Todas as abas" libera tudo, inclusive abas novas que forem criadas no futuro — exceto <b>Pipeline</b>, que é liberado à parte (admins sempre têm). Desmarque pra escolher aba por aba. A aba <b>Validar NF Rápida</b> além disso exige um dos e-mails validadores (financeiro@, daniel@, administracao@).</div>`;
+  <div class="p-3 text-xs text-ink-500 border-t border-ink-800">Dica: "Todas as abas" libera tudo, inclusive abas novas que forem criadas no futuro — exceto <b>Pipeline</b> e <b>SnackFlow</b>, que são liberados à parte (admins sempre têm). Desmarque pra escolher aba por aba. A aba <b>Validar NF Rápida</b> além disso exige um dos e-mails validadores (financeiro@, daniel@, administracao@).</div>`;
 }
 function marcarPendente(i){ const b=document.getElementById('btn-salvar-user-'+i); if(b){ b.classList.add('btn-primary'); b.classList.remove('btn-ghost'); b.textContent='Salvar *'; } }
 function setAcessoCampo(i,campo,val){ STATE.usuariosAcesso[i][campo]=val; marcarPendente(i); }
@@ -5056,8 +5063,8 @@ function toggleAcessoTodas(i,on){
 }
 function toggleAcessoAba(i,aba,on){
   const u=STATE.usuariosAcesso[i];
-  if (aba==='pipeline'){ // pipeline é liberado à parte; mantém o "*" se existir
-    let a=(u.abas||[]).filter(x=>x!=='pipeline'); if(on) a.push('pipeline'); u.abas=a; marcarPendente(i); return;
+  if (aba==='pipeline' || aba==='snackflow'){ // liberados à parte; mantém o "*" se existir
+    let a=(u.abas||[]).filter(x=>x!==aba); if(on) a.push(aba); u.abas=a; marcarPendente(i); return;
   }
   let a=(u.abas||[]).filter(x=>x!==aba && x!=='*'); if(on) a.push(aba); u.abas=a; marcarPendente(i);
 }
@@ -7646,6 +7653,526 @@ async function salvarFontePipeline(){
   if (error){ alert('Erro: ' + error.message); return; }
   STATE.pipe.sheetCfg = cfg; document.getElementById('modal-fonte')?.remove();
   await sincronizarPipelineSheet({});
+}
+
+
+/* =============================================================
+   MÓDULO SNACKFLOW — timesheet e realizado de horas
+   Projetos vinculados aos orçamentos, lançamento de horas por pessoa
+   (custo/hora congelado na data: blindagem do P&L), aprovação, despesas,
+   ausências e auditoria. Fase 2 (fora desta versão): Google Calendar / IA.
+============================================================= */
+const SF_PAPEIS = { ADMIN:'Admin', FINANCEIRO:'Financeiro', OPERACOES:'Operações', MEMBRO:'Membro', EXTERNO:'Externo' };
+const SF_TS_STATUS = { PENDENTE:{nome:'Pendente', cls:'pill-yellow'}, APROVADO:{nome:'Aprovado', cls:'pill-green'}, REPROVADO:{nome:'Reprovado', cls:'pill-red'} };
+const SF_PROJ_STATUS = { EM_ANDAMENTO:'Em andamento', CONCLUIDO:'Concluído', CANCELADO:'Cancelado' };
+const SF_TAREFA_STATUS = { NAO_INICIADA:'Não iniciada', EM_ANDAMENTO:'Em andamento', IMPEDIMENTO:'Impedimento', FINALIZADA:'Finalizada' };
+const SF_AUSENCIA = { FERIAS:'Férias', ATESTADO:'Atestado', FOLGA:'Folga' };
+const SF_DIAS = ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
+
+STATE.sf = { carregado:false, aba:'horas', eu:null, membros:[], projetos:[], tarefas:[], ts:[], despesas:[], ausencias:[], semana:null, filtroProj:'', filtroMembro:'', rel:{de:null, ate:null} };
+
+function sfPodeAprovar(){ const p = STATE.sf.eu?.papel; return p === 'ADMIN' || p === 'FINANCEIRO' || p === 'OPERACOES' || isAdminAcesso(); }
+function sfEhGestor(){ return sfPodeAprovar(); }
+function sfFmtH(min){ const m = Math.round(Number(min)||0); const h = Math.floor(m/60), r = m%60; return `${h}:${String(r).padStart(2,'0')}`; }
+function sfParseH(str){ // "1:30", "1,5", "90m", "2h"
+  let s = String(str||'').trim().toLowerCase(); if (!s) return 0;
+  if (s.includes(':')){ const [h,m] = s.split(':'); return (parseInt(h,10)||0)*60 + (parseInt(m,10)||0); }
+  if (s.endsWith('m')) return parseInt(s,10)||0;
+  s = s.replace('h','').replace(',','.'); const n = parseFloat(s); return isNaN(n) ? 0 : Math.round(n*60);
+}
+function sfSegunda(d){ const x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); const dow = (x.getDay()+6)%7; x.setDate(x.getDate()-dow); return x; }
+function sfISO(d){ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+function sfDiasSemana(){ const seg = STATE.sf.semana || sfSegunda(new Date()); return [...Array(7)].map((_,i)=>{ const d = new Date(seg); d.setDate(seg.getDate()+i); return d; }); }
+function sfCustoHoraCargo(cargoId){ const c = CARGOS.find(x=>x.id===cargoId); if (!c) return 0; return Math.round((Number(c.salario)||0) * (1 + (PREMISSAS.encargo||0)) / 160 * 100) / 100; }
+
+// ---------- Carga ----------
+async function carregarSnackFlow(){
+  try {
+    const email = (STATE.currentUser?.email||'').toLowerCase();
+    // garante que o usuário logado existe como membro
+    let { data: eu } = await sb.from('sf_membros').select('*').eq('email', email).maybeSingle();
+    if (!eu){
+      const papel = isAdminAcesso() ? 'ADMIN' : (usuarioPodeValidar() ? 'FINANCEIRO' : 'MEMBRO');
+      const nome = STATE.acesso?.nome || email.split('@')[0];
+      const { data: novo, error } = await sb.from('sf_membros').insert({ email, nome, papel, pais: STATE.pais }).select('*').single();
+      if (error) throw error; eu = novo;
+    }
+    STATE.sf.eu = eu;
+    await sfRecarregar();
+    STATE.sf.carregado = true;
+    const el = document.getElementById('view'); if (el && STATE.route === 'snackflow') el.innerHTML = renderSnackFlow();
+  } catch(e){ console.error(e); alert('Erro ao carregar o SnackFlow: ' + (e.message||e)); }
+}
+async function sfRecarregar(){
+  const dias = sfDiasSemana(); const de = sfISO(dias[0]), ate = sfISO(dias[6]);
+  const gestor = sfPodeAprovar();
+  const [m, p, t, ts, d, a] = await Promise.all([
+    sb.from('sf_membros').select('*').order('nome'),
+    sb.from('sf_projetos').select('*').order('cliente').order('nome'),
+    sb.from('sf_tarefas').select('*').order('titulo'),
+    gestor ? sb.from('sf_timesheets').select('*').order('data', {ascending:false}).limit(3000)
+           : sb.from('sf_timesheets').select('*').eq('membro_id', STATE.sf.eu.id).order('data', {ascending:false}).limit(1500),
+    sb.from('sf_despesas').select('*').order('data', {ascending:false}).limit(1000),
+    sb.from('sf_ausencias').select('*').order('inicio', {ascending:false}).limit(500)
+  ]);
+  STATE.sf.membros = m.data||[]; STATE.sf.projetos = p.data||[]; STATE.sf.tarefas = t.data||[];
+  STATE.sf.ts = ts.data||[]; STATE.sf.despesas = d.data||[]; STATE.sf.ausencias = a.data||[];
+  if (STATE.sf.carregado){ const el = document.getElementById('view'); if (el && STATE.route === 'snackflow') el.innerHTML = renderSnackFlow(); }
+}
+async function sfAudit(acao, entidade, entidadeId, antes, depois){
+  try { await sb.from('sf_auditoria').insert({ usuario: (STATE.currentUser?.email||'').toLowerCase(), acao, entidade, entidade_id: entidadeId ? String(entidadeId) : null, antes: antes||null, depois: depois||null }); } catch(e){}
+}
+function sfMembro(id){ return STATE.sf.membros.find(x=>x.id===id); }
+function sfProjeto(id){ return STATE.sf.projetos.find(x=>x.id===id); }
+function sfSetAba(a){ STATE.sf.aba = a; const el = document.getElementById('view'); if (el) el.innerHTML = renderSnackFlow(); }
+
+// ---------- Render principal ----------
+function renderSnackFlow(){
+  if (!STATE.sf.carregado) return `<div class="p-10 text-center text-ink-400">Carregando SnackFlow…</div>`;
+  const s = STATE.sf; const eu = s.eu;
+  const pend = s.ts.filter(x=>x.status==='PENDENTE').length + s.despesas.filter(x=>x.status==='PENDENTE').length;
+  const tab = (id, txt, badge) => `<button class="px-4 py-2 rounded-lg text-sm font-semibold transition ${s.aba===id?'bg-white/10 text-white':'text-ink-400 hover:text-white'}" onclick="sfSetAba('${id}')">${txt}${badge?` <span class="badge-num ml-1" style="background:#EAB308;color:#000">${badge}</span>`:''}</button>`;
+  return `
+  <div class="space-y-4 fade-in">
+    <div class="flex items-center justify-between gap-4 flex-wrap">
+      <div>
+        <h1 class="font-display font-bold text-2xl">SnackFlow <span class="text-ink-500 font-normal text-lg">horas & realizado</span></h1>
+        <div class="text-sm text-ink-400">Lance as horas por projeto, o financeiro aprova, e o custo realizado entra no P&L com o custo/hora da data do lançamento. Você: <b>${escapeHtml(eu.nome||eu.email)}</b> · ${SF_PAPEIS[eu.papel]||eu.papel}${eu.custo_hora>0?` · custo ${fmtMoeda(eu.custo_hora,2)}/h`:''}</div>
+      </div>
+      <div class="flex items-center gap-1 bg-ink-900 rounded-lg p-1 flex-wrap">
+        ${tab('horas','⏱ Minhas horas')}
+        ${sfPodeAprovar() ? tab('aprovacoes','✅ Aprovações', pend) : ''}
+        ${tab('projetos','📁 Projetos')}
+        ${tab('despesas','🧾 Despesas')}
+        ${tab('ausencias','🏖 Ausências')}
+        ${sfEhGestor() ? tab('equipe','👥 Equipe') : ''}
+        ${sfEhGestor() ? tab('relatorio','📊 Relatório') : ''}
+      </div>
+    </div>
+    ${s.aba==='horas' ? renderSfHoras() : s.aba==='aprovacoes' ? renderSfAprovacoes() : s.aba==='projetos' ? renderSfProjetos() : s.aba==='despesas' ? renderSfDespesas() : s.aba==='ausencias' ? renderSfAusencias() : s.aba==='equipe' ? renderSfEquipe() : renderSfRelatorio()}
+  </div>`;
+}
+
+// ---------- Minhas horas (semana) ----------
+function renderSfHoras(){
+  const s = STATE.sf; const dias = sfDiasSemana(); const de = sfISO(dias[0]), ate = sfISO(dias[6]);
+  const meus = s.ts.filter(x => x.membro_id === s.eu.id && x.data >= de && x.data <= ate);
+  const porDia = dias.map(d => meus.filter(x => x.data === sfISO(d)).reduce((a,x)=>a+x.minutos,0));
+  const totalSemana = porDia.reduce((a,b)=>a+b,0);
+  const hojeISO = hoje();
+  const projAtivos = s.projetos.filter(p=>p.status==='EM_ANDAMENTO');
+  const aus = s.ausencias.filter(a => a.membro_id === s.eu.id && a.fim >= de && a.inicio <= ate);
+  return `
+  <div class="card p-4 flex items-center justify-between gap-3 flex-wrap">
+    <div class="flex items-center gap-2">
+      <button class="btn btn-ghost text-xs" onclick="sfMudarSemana(-1)">←</button>
+      <div class="font-semibold">Semana de ${fmtData(de)} a ${fmtData(ate)}</div>
+      <button class="btn btn-ghost text-xs" onclick="sfMudarSemana(1)">→</button>
+      <button class="btn btn-ghost text-xs" onclick="STATE.sf.semana=null; sfRecarregar();">Hoje</button>
+    </div>
+    <div class="flex items-center gap-4 text-sm">
+      <div>Total da semana: <b class="text-orange">${sfFmtH(totalSemana)}</b></div>
+      <div class="text-ink-400">${meus.filter(x=>x.status==='APROVADO').length} aprov. · ${meus.filter(x=>x.status==='PENDENTE').length} pend.</div>
+      <button class="btn btn-primary text-sm" onclick="abrirSfLancamento(null)">+ Lançar horas</button>
+    </div>
+  </div>
+  <div class="grid grid-cols-7 gap-2">
+    ${dias.map((d,i)=>{ const iso = sfISO(d); const ehHoje = iso===hojeISO; const ausDia = aus.find(a=>a.inicio<=iso && a.fim>=iso);
+      return `<div class="card p-3 ${ehHoje?'border-orange/60':''}"><div class="flex items-center justify-between"><div class="text-[10px] uppercase tracking-widest ${ehHoje?'text-orange':'text-ink-500'} font-semibold">${SF_DIAS[i]} ${d.getDate()}</div><button class="text-ink-500 hover:text-orange text-sm" title="Lançar neste dia" onclick="abrirSfLancamento(null,'${iso}')">+</button></div>
+        <div class="font-display font-bold text-xl tabular-nums mt-1 ${porDia[i]>=480?'text-green-400':porDia[i]>0?'':'text-ink-600'}">${sfFmtH(porDia[i])}</div>
+        ${ausDia?`<div class="text-[10px] text-yellow-400 mt-1">${SF_AUSENCIA[ausDia.tipo]}</div>`:''}
+        <div class="mt-2 space-y-1">${meus.filter(x=>x.data===iso).map(x=>{ const p = sfProjeto(x.projeto_id); const st = SF_TS_STATUS[x.status];
+          return `<div class="text-[11px] rounded px-1.5 py-1 bg-white/5 cursor-pointer hover:bg-white/10" onclick="abrirSfLancamento('${x.id}')" title="${escapeHtml(x.descricao||'')}"><div class="flex justify-between gap-1"><span class="truncate">${escapeHtml(p?.cliente||'?')}</span><b>${sfFmtH(x.minutos)}</b></div><div class="truncate text-ink-500">${escapeHtml(p?.nome||'')}</div><span class="pill ${st.cls}" style="font-size:9px;padding:1px 6px">${st.nome}</span></div>`; }).join('')}</div>
+      </div>`; }).join('')}
+  </div>
+  ${projAtivos.length===0 ? `<div class="card p-6 text-center text-ink-400 text-sm">Nenhum projeto ativo ainda. ${sfEhGestor()?'Vá em <b>Projetos</b> e importe dos orçamentos aprovados.':'Peça ao financeiro pra cadastrar os projetos.'}</div>` : ''}`;
+}
+function sfMudarSemana(delta){ const seg = STATE.sf.semana || sfSegunda(new Date()); const n = new Date(seg); n.setDate(seg.getDate()+delta*7); STATE.sf.semana = n; sfRecarregar(); }
+
+function abrirSfLancamento(id, dataPad){
+  const s = STATE.sf; const t = id ? s.ts.find(x=>x.id===id) : null;
+  if (t && t.status === 'APROVADO' && !sfPodeAprovar()){ alert('Lançamento já aprovado — só o financeiro pode alterar.'); return; }
+  const old = document.getElementById('modal-sf'); if (old) old.remove();
+  const div = document.createElement('div'); div.id = 'modal-sf'; div.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4';
+  const projs = s.projetos.filter(p=>p.status==='EM_ANDAMENTO' || (t && p.id===t.projeto_id));
+  const projSel = t ? t.projeto_id : (projs[0]?.id||'');
+  const membroSel = t ? t.membro_id : s.eu.id;
+  div.innerHTML = `<div class="card p-6 w-full max-w-lg" onclick="event.stopPropagation()">
+    <h3 class="font-bold text-lg">${t?'Editar lançamento':'Lançar horas'}</h3>
+    ${t ? `<div class="text-xs text-ink-400 mt-1">Status: <span class="pill ${SF_TS_STATUS[t.status].cls}" style="font-size:10px">${SF_TS_STATUS[t.status].nome}</span>${t.motivo_reprovacao?` · motivo: ${escapeHtml(t.motivo_reprovacao)}`:''}</div>`:''}
+    <div class="grid grid-cols-2 gap-3 mt-4">
+      ${sfPodeAprovar() ? `<div class="col-span-2"><label class="text-xs text-ink-400">Pessoa</label><select id="sf-membro" class="input mt-1">${s.membros.filter(m=>m.ativo!==false).map(m=>`<option value="${m.id}" ${m.id===membroSel?'selected':''}>${escapeHtml(m.nome||m.email)}</option>`).join('')}</select></div>` : `<input type="hidden" id="sf-membro" value="${s.eu.id}">`}
+      <div class="col-span-2"><label class="text-xs text-ink-400">Projeto *</label><select id="sf-proj" class="input mt-1" onchange="sfAtualizaTarefas()">${projs.map(p=>`<option value="${p.id}" ${p.id===projSel?'selected':''}>${escapeHtml(p.cliente)} · ${escapeHtml(p.nome)}${p.orcamento_id?' ('+escapeHtml(p.orcamento_id)+')':''}</option>`).join('')}</select></div>
+      <div class="col-span-2"><label class="text-xs text-ink-400">Tarefa (opcional)</label><select id="sf-tarefa" class="input mt-1"></select></div>
+      <div><label class="text-xs text-ink-400">Data *</label><input id="sf-data" type="date" class="input mt-1" value="${t?t.data:(dataPad||hoje())}"></div>
+      <div><label class="text-xs text-ink-400">Tempo * <span class="text-ink-500">(ex.: 1:30, 2h, 45m)</span></label><input id="sf-tempo" class="input mt-1" value="${t?sfFmtH(t.minutos):''}" placeholder="1:30"></div>
+      <div class="col-span-2"><label class="text-xs text-ink-400">O que foi feito</label><textarea id="sf-desc" rows="2" class="input mt-1" placeholder="Ex.: roteiro dos 3 reels da semana">${escapeHtml(t?.descricao||'')}</textarea></div>
+    </div>
+    <div id="sf-erro" class="text-xs text-red-400 mt-2 hidden"></div>
+    <div class="flex justify-between items-center mt-5">
+      <div>${t ? `<button class="btn-ghost text-xs text-red-400" onclick="excluirSfLancamento('${t.id}')">Excluir</button>` : ''}</div>
+      <div class="flex gap-2"><button class="btn-ghost" onclick="document.getElementById('modal-sf').remove()">Cancelar</button><button class="btn-primary" id="sf-ok" onclick="salvarSfLancamento(${t?`'${t.id}'`:'null'})">${t?'Salvar':'Lançar'}</button></div>
+    </div>
+    <div class="text-[11px] text-ink-500 mt-3">O custo/hora do seu cargo é congelado na data do lançamento — mudanças de salário depois não alteram o realizado passado.</div>
+  </div>`;
+  div.addEventListener('click', ()=>div.remove()); document.body.appendChild(div);
+  sfAtualizaTarefas(t?.tarefa_id);
+  setTimeout(()=>document.getElementById('sf-tempo')?.focus(), 50);
+}
+function sfAtualizaTarefas(sel){
+  const pid = document.getElementById('sf-proj')?.value; const el = document.getElementById('sf-tarefa'); if (!el) return;
+  const ts = STATE.sf.tarefas.filter(t=>t.projeto_id===pid && t.status!=='FINALIZADA');
+  el.innerHTML = `<option value="">— sem tarefa —</option>` + ts.map(t=>`<option value="${t.id}" ${t.id===sel?'selected':''}>${escapeHtml(t.titulo)}</option>`).join('');
+}
+async function salvarSfLancamento(id){
+  const erro = document.getElementById('sf-erro'); const mostrar = m => { erro.textContent = m; erro.classList.remove('hidden'); };
+  const membroId = document.getElementById('sf-membro').value, projId = document.getElementById('sf-proj').value, tarefaId = document.getElementById('sf-tarefa').value || null;
+  const data = document.getElementById('sf-data').value, minutos = sfParseH(document.getElementById('sf-tempo').value), desc = document.getElementById('sf-desc').value.trim() || null;
+  if (!projId) return mostrar('Escolhe o projeto.'); if (!data) return mostrar('Informe a data.'); if (!(minutos>0)) return mostrar('Tempo inválido (ex.: 1:30).'); if (minutos > 1440) return mostrar('Mais de 24h num dia?');
+  const m = sfMembro(membroId); const custo = Number(m?.custo_hora)||sfCustoHoraCargo(m?.cargo_id), rate = Number(m?.rate_hora)||0;
+  const btn = document.getElementById('sf-ok'); btn.disabled = true; btn.textContent = 'Salvando…';
+  try {
+    const antigo = id ? STATE.sf.ts.find(x=>x.id===id) : null;
+    const payload = { membro_id: membroId, projeto_id: projId, tarefa_id: tarefaId, data, minutos, descricao: desc, updated_at: new Date().toISOString() };
+    if (!id){ Object.assign(payload, { custo_hora_epoca: custo, rate_hora_epoca: rate, origem: 'manual', status: 'PENDENTE' }); }
+    else if (antigo && antigo.status === 'REPROVADO'){ payload.status = 'PENDENTE'; payload.motivo_reprovacao = null; }
+    const q = id ? sb.from('sf_timesheets').update(payload).eq('id', id) : sb.from('sf_timesheets').insert(payload).select('id').single();
+    const { data: r, error } = await q; if (error) throw error;
+    await sfAudit(id?'editar':'criar', 'timesheet', id || r?.id, antigo ? { minutos: antigo.minutos, data: antigo.data } : null, { minutos, data, projeto_id: projId });
+    document.getElementById('modal-sf')?.remove();
+    await sfRecarregar();
+  } catch(e){ btn.disabled = false; btn.textContent = id?'Salvar':'Lançar'; mostrar('Erro: ' + (e.message||e)); }
+}
+async function excluirSfLancamento(id){
+  const t = STATE.sf.ts.find(x=>x.id===id); if (!t) return;
+  if (t.status === 'APROVADO' && !sfPodeAprovar()){ alert('Lançamento aprovado só pode ser excluído pelo financeiro.'); return; }
+  if (!confirm('Excluir este lançamento?')) return;
+  const { error } = await sb.from('sf_timesheets').delete().eq('id', id); if (error){ alert('Erro: '+error.message); return; }
+  await sfAudit('excluir', 'timesheet', id, { minutos: t.minutos, data: t.data, projeto_id: t.projeto_id }, null);
+  document.getElementById('modal-sf')?.remove(); await sfRecarregar();
+}
+
+// ---------- Aprovações ----------
+function renderSfAprovacoes(){
+  const s = STATE.sf;
+  const pend = s.ts.filter(x=>x.status==='PENDENTE').sort((a,b)=> a.data.localeCompare(b.data));
+  const pendD = s.despesas.filter(x=>x.status==='PENDENTE');
+  const porMembro = {}; pend.forEach(t => { (porMembro[t.membro_id] = porMembro[t.membro_id] || []).push(t); });
+  return `
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+    <div class="card p-4"><div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Horas pendentes</div><div class="font-display font-bold text-2xl mt-1 text-yellow-400">${sfFmtH(pend.reduce((a,x)=>a+x.minutos,0))}</div><div class="text-xs text-ink-300">${pend.length} lançamento${pend.length===1?'':'s'} · ${Object.keys(porMembro).length} pessoa${Object.keys(porMembro).length===1?'':'s'}</div></div>
+    <div class="card p-4"><div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Custo pendente</div><div class="font-display font-bold text-2xl mt-1">${fmtMoeda(pend.reduce((a,x)=>a+x.minutos/60*Number(x.custo_hora_epoca||0),0),2)}</div></div>
+    <div class="card p-4"><div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Despesas pendentes</div><div class="font-display font-bold text-2xl mt-1">${fmtMoeda(pendD.reduce((a,x)=>a+Number(x.valor||0),0),2)}</div><div class="text-xs text-ink-300">${pendD.length} item${pendD.length===1?'':'s'} <button class="underline ml-1" onclick="sfSetAba('despesas')">ver</button></div></div>
+  </div>
+  <div class="card p-0 overflow-hidden">
+    <div class="px-5 py-3 border-b border-ink-800 flex items-center justify-between flex-wrap gap-2"><div class="font-display font-bold">Horas aguardando aprovação</div>
+      <div class="flex gap-2"><button class="btn btn-ghost text-xs" onclick="document.querySelectorAll('.sf-chk').forEach(c=>c.checked=true)">Marcar todas</button><button class="btn btn-primary text-xs" onclick="sfAprovarSelecionados('APROVADO')">✓ Aprovar selecionados</button><button class="btn btn-ghost text-xs text-red-400" onclick="sfAprovarSelecionados('REPROVADO')">✕ Reprovar selecionados</button></div></div>
+    ${pend.length===0 ? '<div class="p-8 text-center text-ink-400 text-sm">Nada pendente. 🎉</div>' : `
+    <div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-ink-900"><tr class="text-[10px] uppercase tracking-wider text-ink-400 text-left"><th class="p-3 w-8"></th><th class="p-3">Data</th><th class="p-3">Pessoa</th><th class="p-3">Projeto</th><th class="p-3">Tarefa / descrição</th><th class="p-3 text-right">Tempo</th><th class="p-3 text-right">Custo</th><th class="p-3 text-center">Ações</th></tr></thead><tbody>
+      ${pend.map(t => { const m = sfMembro(t.membro_id), p = sfProjeto(t.projeto_id), ta = STATE.sf.tarefas.find(x=>x.id===t.tarefa_id);
+        return `<tr class="border-t border-ink-800 hover:bg-ink-850"><td class="p-3"><input type="checkbox" class="sf-chk" data-id="${t.id}"></td><td class="p-3 whitespace-nowrap">${fmtData(t.data)}</td><td class="p-3 font-semibold">${escapeHtml(m?.nome||m?.email||'?')}</td><td class="p-3">${escapeHtml(p?.cliente||'?')} <span class="text-ink-400">· ${escapeHtml(p?.nome||'')}</span></td><td class="p-3 text-xs text-ink-300">${ta?`<b>${escapeHtml(ta.titulo)}</b> · `:''}${escapeHtml(t.descricao||'—')}</td><td class="p-3 text-right tabular-nums font-bold">${sfFmtH(t.minutos)}</td><td class="p-3 text-right tabular-nums">${fmtMoeda(t.minutos/60*Number(t.custo_hora_epoca||0),2)}</td>
+          <td class="p-3 text-center whitespace-nowrap"><button class="px-2 py-1 rounded bg-green-500/15 text-green-400 text-xs font-semibold" onclick="sfAprovar(['${t.id}'],'APROVADO')">✓</button> <button class="px-2 py-1 rounded text-red-400 hover:bg-red-500/15 text-xs" onclick="sfAprovar(['${t.id}'],'REPROVADO')">✕</button> <button class="px-2 py-1 rounded text-azul-400 text-xs" onclick="abrirSfLancamento('${t.id}')">✎</button></td></tr>`; }).join('')}
+    </tbody></table></div>`}
+  </div>`;
+}
+function sfAprovarSelecionados(status){ const ids = [...document.querySelectorAll('.sf-chk:checked')].map(c=>c.dataset.id); if (!ids.length){ alert('Marque ao menos um lançamento.'); return; } sfAprovar(ids, status); }
+async function sfAprovar(ids, status){
+  if (!sfPodeAprovar()) return;
+  let motivo = null;
+  if (status === 'REPROVADO'){ motivo = prompt('Motivo da reprovação (a pessoa vai ver):'); if (motivo === null) return; }
+  const quem = (STATE.currentUser?.email||'').toLowerCase();
+  const { error } = await sb.from('sf_timesheets').update({ status, aprovado_por: quem, aprovado_em: new Date().toISOString(), motivo_reprovacao: motivo, updated_at: new Date().toISOString() }).in('id', ids);
+  if (error){ alert('Erro: '+error.message); return; }
+  await sfAudit(status.toLowerCase(), 'timesheet', ids.join(','), null, { status, motivo });
+  await sfRecarregar();
+}
+
+// ---------- Projetos (vínculo com orçamentos) ----------
+function sfRealizadoProjeto(pid){
+  const ts = STATE.sf.ts.filter(t=>t.projeto_id===pid);
+  const ap = ts.filter(t=>t.status==='APROVADO'), pe = ts.filter(t=>t.status==='PENDENTE');
+  const minAp = ap.reduce((a,t)=>a+t.minutos,0), minPe = pe.reduce((a,t)=>a+t.minutos,0);
+  const custoAp = ap.reduce((a,t)=>a+t.minutos/60*Number(t.custo_hora_epoca||0),0);
+  const custoPe = pe.reduce((a,t)=>a+t.minutos/60*Number(t.custo_hora_epoca||0),0);
+  const desp = STATE.sf.despesas.filter(d=>d.projeto_id===pid && d.status==='APROVADO').reduce((a,d)=>a+Number(d.valor||0),0);
+  return { minAp, minPe, custoAp, custoPe, desp, pessoas: new Set(ap.concat(pe).map(t=>t.membro_id)).size };
+}
+function renderSfProjetos(){
+  const s = STATE.sf; const f = (s.filtroProj||'').toLowerCase();
+  const lista = s.projetos.filter(p => !f || (p.cliente+' '+p.nome+' '+(p.orcamento_id||'')).toLowerCase().includes(f));
+  const aprovadosSemProj = (STATE.orcamentos||[]).filter(o=>o.status==='Aprovada' && !s.projetos.some(p=>p.orcamento_id===o.id)).length;
+  return `
+  <div class="card p-3 flex items-center gap-3 flex-wrap">
+    <input class="input py-1.5 text-sm" style="width:260px" placeholder="Buscar cliente, projeto ou ID" value="${escapeHtml(s.filtroProj||'')}" oninput="STATE.sf.filtroProj=this.value; document.getElementById('sf-proj-wrap').innerHTML=renderSfProjetosTabela();">
+    ${sfEhGestor() ? `<button class="btn btn-ghost text-sm" onclick="sfImportarOrcamentos()" title="Cria um projeto pra cada orçamento aprovado que ainda não tem">⬇ Importar orçamentos aprovados${aprovadosSemProj?` <span class="badge-num ml-1">${aprovadosSemProj}</span>`:''}</button><button class="btn btn-primary text-sm" onclick="abrirSfProjeto(null)">+ Projeto avulso</button>` : ''}
+    <div class="ml-auto text-xs text-ink-400">${lista.length} projeto${lista.length===1?'':'s'}</div>
+  </div>
+  <div id="sf-proj-wrap">${renderSfProjetosTabela()}</div>`;
+}
+function renderSfProjetosTabela(){
+  const s = STATE.sf; const f = (s.filtroProj||'').toLowerCase();
+  const lista = s.projetos.filter(p => !f || (p.cliente+' '+p.nome+' '+(p.orcamento_id||'')).toLowerCase().includes(f));
+  if (!lista.length) return `<div class="card p-8 text-center text-ink-400 text-sm">Nenhum projeto. ${sfEhGestor()?'Clique em "Importar orçamentos aprovados" pra começar.':''}</div>`;
+  return `<div class="card overflow-auto" style="max-height:calc(100vh - 300px)"><table class="w-full text-sm"><thead class="bg-ink-900 sticky top-0 z-10"><tr class="text-[10px] uppercase tracking-wider text-ink-400 text-left"><th class="p-3">Projeto</th><th class="p-3">Status</th><th class="p-3 text-right">Horas orçadas</th><th class="p-3 text-right">Horas realizadas</th><th class="p-3">Consumo</th><th class="p-3 text-right">Squad orçado</th><th class="p-3 text-right">Custo realizado</th><th class="p-3 text-right">Despesas</th><th class="p-3 text-center">Tarefas</th><th class="p-3"></th></tr></thead><tbody>
+    ${lista.map(p => { const r = sfRealizadoProjeto(p.id); const hOrc = Number(p.horas_orcadas)||0; const hReal = r.minAp/60; const pct = hOrc>0 ? hReal/hOrc : 0; const cor = pct>1?'#EF4444':pct>0.8?'#F59E0B':'#4ADE80'; const nT = s.tarefas.filter(t=>t.projeto_id===p.id).length;
+      return `<tr class="border-t border-ink-800 hover:bg-ink-850 ${p.status!=='EM_ANDAMENTO'?'opacity-60':''}">
+        <td class="p-3"><div class="font-semibold">${escapeHtml(p.cliente)}</div><div class="text-xs text-ink-400">${escapeHtml(p.nome)}${p.orcamento_id?` · <span class="font-mono text-laranja">${escapeHtml(p.orcamento_id)}</span>`:' · avulso'}</div></td>
+        <td class="p-3"><span class="pill ${p.status==='EM_ANDAMENTO'?'pill-azul':p.status==='CONCLUIDO'?'pill-green':'pill-ink'}" style="font-size:10px">${SF_PROJ_STATUS[p.status]}</span></td>
+        <td class="p-3 text-right tabular-nums">${hOrc?hOrc.toLocaleString('pt-BR',{maximumFractionDigits:0})+'h':'—'}</td>
+        <td class="p-3 text-right tabular-nums font-bold">${hReal.toLocaleString('pt-BR',{maximumFractionDigits:1})}h${r.minPe?`<div class="text-[10px] text-yellow-400 font-normal">+${sfFmtH(r.minPe)} pend.</div>`:''}</td>
+        <td class="p-3" style="min-width:120px">${hOrc?`<div class="h-2 rounded bg-white/5 overflow-hidden"><div class="h-2" style="width:${Math.min(100,Math.round(pct*100))}%;background:${cor}"></div></div><div class="text-[10px] mt-1" style="color:${cor}">${Math.round(pct*100)}%</div>`:'<span class="text-ink-600 text-xs">sem horas orçadas</span>'}</td>
+        <td class="p-3 text-right tabular-nums">${p.valor_orcado?fmtMoeda(p.valor_orcado,0):'—'}</td>
+        <td class="p-3 text-right tabular-nums font-semibold ${p.valor_orcado&&r.custoAp>Number(p.valor_orcado)?'text-red-400':''}">${fmtMoeda(r.custoAp,0)}</td>
+        <td class="p-3 text-right tabular-nums text-ink-300">${r.desp?fmtMoeda(r.desp,0):'—'}</td>
+        <td class="p-3 text-center"><button class="btn-ghost text-xs" onclick="abrirSfTarefas('${p.id}')">${nT} ✎</button></td>
+        <td class="p-3 text-right whitespace-nowrap">${sfEhGestor()?`<button class="btn-ghost text-xs" onclick="abrirSfProjeto('${p.id}')">Editar</button>`:''}</td>
+      </tr>`; }).join('')}
+  </tbody></table></div>`;
+}
+function sfHorasOrcadasDoOrc(o){ // alocação × 160h × meses do cargo
+  return (o.squad||[]).reduce((s,l)=>s + (Number(l.alocacao)||0) * 160 * (l.meses!=null&&Number(l.meses)>0?Number(l.meses):(o.meses||1)), 0);
+}
+async function sfImportarOrcamentos(){
+  const s = STATE.sf; const quem = (STATE.currentUser?.email||'').toLowerCase();
+  const faltam = (STATE.orcamentos||[]).filter(o=>o.status==='Aprovada' && !s.projetos.some(p=>p.orcamento_id===o.id));
+  if (!faltam.length){ alert('Todos os orçamentos aprovados já têm projeto.'); return; }
+  if (!confirm(`Criar ${faltam.length} projeto(s) a partir dos orçamentos aprovados de ${STATE.pais}? Horas orçadas = alocação do squad × 160h × meses; squad orçado = custo do squad com encargos.`)) return;
+  const rows = faltam.map(o => { const c = calcular(o); return { orcamento_id: o.id, cliente: o.cliente, nome: o.projeto || o.tipo || 'Projeto', status: 'EM_ANDAMENTO', horas_orcadas: Math.round(sfHorasOrcadasDoOrc(o)*100)/100, valor_orcado: Math.round(((c.squadTotal||0) + (c.encargos||0))*100)/100, pais: STATE.pais, created_by: quem }; });
+  let ok = 0, erro = 0;
+  for (let i=0;i<rows.length;i+=100){
+    const lote = rows.slice(i,i+100);
+    const { data, error } = await sb.from('sf_projetos').insert(lote).select('id, orcamento_id');
+    if (error){ erro += lote.length; await sb.from('sf_migracao').insert({ origem:'orcamentos', origem_id: lote.map(r=>r.orcamento_id).join(','), status:'ERROR', detalhe: error.message }); }
+    else { ok += data.length; await sb.from('sf_migracao').insert(data.map(d=>({ origem:'orcamentos', origem_id: d.orcamento_id, destino_id: d.id, status:'SUCCESS' }))); }
+  }
+  await sfAudit('importar', 'projeto', null, null, { ok, erro });
+  await sfRecarregar();
+  alert(`Importação: ${ok} projeto(s) criado(s)${erro?`, ${erro} com erro`:''}.`);
+}
+function abrirSfProjeto(id){
+  const p = id ? sfProjeto(id) : null;
+  const old = document.getElementById('modal-sf'); if (old) old.remove();
+  const div = document.createElement('div'); div.id = 'modal-sf'; div.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4';
+  const orcs = (STATE.orcamentos||[]).filter(o=>o.status==='Aprovada');
+  div.innerHTML = `<div class="card p-6 w-full max-w-lg" onclick="event.stopPropagation()">
+    <h3 class="font-bold text-lg">${p?'Editar projeto':'Novo projeto'}</h3>
+    <div class="grid grid-cols-2 gap-3 mt-4">
+      <div class="col-span-2"><label class="text-xs text-ink-400">Orçamento vinculado (opcional)</label><select id="sfp-orc" class="input mt-1" onchange="const o=(STATE.orcamentos||[]).find(x=>x.id===this.value); if(o){ document.getElementById('sfp-cliente').value=o.cliente; document.getElementById('sfp-nome').value=o.projeto||''; document.getElementById('sfp-horas').value=Math.round(sfHorasOrcadasDoOrc(o)); const c=calcular(o); document.getElementById('sfp-valor').value=Math.round((c.squadTotal||0)+(c.encargos||0)); }"><option value="">— sem vínculo (avulso) —</option>${orcs.map(o=>`<option value="${o.id}" ${p?.orcamento_id===o.id?'selected':''}>${escapeHtml(o.id)} · ${escapeHtml(o.cliente)} · ${escapeHtml(o.projeto||'')}</option>`).join('')}</select></div>
+      <div><label class="text-xs text-ink-400">Cliente *</label><input id="sfp-cliente" class="input mt-1" value="${escapeHtml(p?.cliente||'')}"></div>
+      <div><label class="text-xs text-ink-400">Nome do projeto *</label><input id="sfp-nome" class="input mt-1" value="${escapeHtml(p?.nome||'')}"></div>
+      <div><label class="text-xs text-ink-400">Horas orçadas</label><input id="sfp-horas" type="number" step="1" class="input mt-1" value="${p?.horas_orcadas||''}"></div>
+      <div><label class="text-xs text-ink-400">Squad orçado (${moedaAtual().simbolo})</label><input id="sfp-valor" type="number" step="1" class="input mt-1" value="${p?.valor_orcado||''}"></div>
+      <div class="col-span-2"><label class="text-xs text-ink-400">Status</label><select id="sfp-status" class="input mt-1">${Object.entries(SF_PROJ_STATUS).map(([k,v])=>`<option value="${k}" ${(p?.status||'EM_ANDAMENTO')===k?'selected':''}>${v}</option>`).join('')}</select></div>
+    </div>
+    <div id="sf-erro" class="text-xs text-red-400 mt-2 hidden"></div>
+    <div class="flex justify-end gap-2 mt-5"><button class="btn-ghost" onclick="document.getElementById('modal-sf').remove()">Cancelar</button><button class="btn-primary" onclick="salvarSfProjeto(${p?`'${p.id}'`:'null'})">Salvar</button></div>
+  </div>`;
+  div.addEventListener('click', ()=>div.remove()); document.body.appendChild(div);
+}
+async function salvarSfProjeto(id){
+  const g = x => document.getElementById(x)?.value; const erro = document.getElementById('sf-erro');
+  const payload = { orcamento_id: g('sfp-orc') || null, cliente: (g('sfp-cliente')||'').trim(), nome: (g('sfp-nome')||'').trim(), horas_orcadas: Number(g('sfp-horas'))||null, valor_orcado: Number(g('sfp-valor'))||null, status: g('sfp-status'), pais: STATE.pais, updated_at: new Date().toISOString() };
+  if (!payload.cliente || !payload.nome){ erro.textContent = 'Cliente e nome são obrigatórios.'; erro.classList.remove('hidden'); return; }
+  const q = id ? sb.from('sf_projetos').update(payload).eq('id', id) : sb.from('sf_projetos').insert({ ...payload, created_by: (STATE.currentUser?.email||'').toLowerCase() });
+  const { error } = await q; if (error){ erro.textContent = 'Erro: ' + error.message; erro.classList.remove('hidden'); return; }
+  await sfAudit(id?'editar':'criar', 'projeto', id, null, payload);
+  document.getElementById('modal-sf')?.remove(); await sfRecarregar();
+}
+function abrirSfTarefas(pid){
+  const p = sfProjeto(pid); if (!p) return;
+  const old = document.getElementById('modal-sf'); if (old) old.remove();
+  const div = document.createElement('div'); div.id = 'modal-sf'; div.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4';
+  const ts = STATE.sf.tarefas.filter(t=>t.projeto_id===pid);
+  div.innerHTML = `<div class="card p-6 w-full max-w-xl max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
+    <h3 class="font-bold text-lg">Tarefas · ${escapeHtml(p.cliente)} / ${escapeHtml(p.nome)}</h3>
+    <div class="mt-3 space-y-2" id="sf-tarefas-lista">${ts.length?ts.map(t=>{ const h = STATE.sf.ts.filter(x=>x.tarefa_id===t.id && x.status!=='REPROVADO').reduce((a,x)=>a+x.minutos,0);
+      return `<div class="flex items-center gap-2 bg-white/5 rounded-lg px-3 py-2"><select class="input py-1 text-xs" style="width:auto" onchange="sfTarefaStatus('${t.id}', this.value)">${Object.entries(SF_TAREFA_STATUS).map(([k,v])=>`<option value="${k}" ${t.status===k?'selected':''}>${v}</option>`).join('')}</select><div class="flex-1 text-sm">${escapeHtml(t.titulo)}</div><div class="text-xs text-ink-400 tabular-nums">${sfFmtH(h)}${t.horas_estimadas?` / ${t.horas_estimadas}h`:''}</div><button class="text-red-400 text-xs" onclick="sfExcluirTarefa('${t.id}')">🗑</button></div>`; }).join(''):'<div class="text-sm text-ink-500">Nenhuma tarefa ainda.</div>'}</div>
+    <div class="flex gap-2 mt-4"><input id="sft-titulo" class="input" placeholder="Nova tarefa"><input id="sft-horas" type="number" step="0.5" class="input" style="width:110px" placeholder="h est."><button class="btn btn-primary text-sm" onclick="sfNovaTarefa('${pid}')">Adicionar</button></div>
+    <div class="flex justify-end mt-4"><button class="btn-ghost" onclick="document.getElementById('modal-sf').remove()">Fechar</button></div>
+  </div>`;
+  div.addEventListener('click', ()=>div.remove()); document.body.appendChild(div);
+  setTimeout(()=>document.getElementById('sft-titulo')?.focus(), 50);
+}
+async function sfNovaTarefa(pid){
+  const titulo = document.getElementById('sft-titulo').value.trim(); if (!titulo) return;
+  const { error } = await sb.from('sf_tarefas').insert({ projeto_id: pid, titulo, horas_estimadas: Number(document.getElementById('sft-horas').value)||null });
+  if (error){ alert('Erro: '+error.message); return; }
+  await sfRecarregar(); abrirSfTarefas(pid);
+}
+async function sfTarefaStatus(id, status){ await sb.from('sf_tarefas').update({ status }).eq('id', id); const t = STATE.sf.tarefas.find(x=>x.id===id); if (t) t.status = status; }
+async function sfExcluirTarefa(id){ const t = STATE.sf.tarefas.find(x=>x.id===id); if (!t || !confirm('Excluir a tarefa? Os lançamentos ficam, só perdem o vínculo.')) return; await sb.from('sf_tarefas').delete().eq('id', id); await sfRecarregar(); abrirSfTarefas(t.projeto_id); }
+
+// ---------- Despesas ----------
+function renderSfDespesas(){
+  const s = STATE.sf; const minhas = sfPodeAprovar() ? s.despesas : s.despesas.filter(d=>d.membro_id===s.eu.id);
+  return `
+  <div class="card p-3 flex items-center justify-between flex-wrap gap-2"><div class="text-sm text-ink-300">Despesas de projeto (reembolsos, compras pontuais). ${sfPodeAprovar()?'Aprovadas entram no custo realizado do projeto.':'Depois de aprovadas pelo financeiro entram no custo do projeto.'}</div><button class="btn btn-primary text-sm" onclick="abrirSfDespesa()">+ Despesa</button></div>
+  <div class="card overflow-hidden">${minhas.length===0?'<div class="p-8 text-center text-ink-400 text-sm">Nenhuma despesa.</div>':`<table class="w-full text-sm"><thead class="bg-ink-900"><tr class="text-[10px] uppercase tracking-wider text-ink-400 text-left"><th class="p-3">Data</th><th class="p-3">Pessoa</th><th class="p-3">Projeto</th><th class="p-3">Descrição</th><th class="p-3 text-right">Valor</th><th class="p-3">Status</th><th class="p-3"></th></tr></thead><tbody>
+    ${minhas.map(d=>{ const m = sfMembro(d.membro_id), p = sfProjeto(d.projeto_id), st = SF_TS_STATUS[d.status];
+      return `<tr class="border-t border-ink-800"><td class="p-3 whitespace-nowrap">${fmtData(d.data)}</td><td class="p-3">${escapeHtml(m?.nome||m?.email||'—')}</td><td class="p-3">${escapeHtml(p?.cliente||'?')} <span class="text-ink-400">· ${escapeHtml(p?.nome||'')}</span></td><td class="p-3 text-xs text-ink-300">${escapeHtml(d.descricao||'—')}</td><td class="p-3 text-right tabular-nums font-bold">${fmtMoeda(d.valor,2)}</td><td class="p-3"><span class="pill ${st.cls}" style="font-size:10px">${st.nome}</span></td>
+        <td class="p-3 text-right whitespace-nowrap">${sfPodeAprovar()&&d.status==='PENDENTE'?`<button class="px-2 py-1 rounded bg-green-500/15 text-green-400 text-xs font-semibold" onclick="sfAprovarDespesa('${d.id}','APROVADO')">✓</button> <button class="px-2 py-1 rounded text-red-400 text-xs" onclick="sfAprovarDespesa('${d.id}','REPROVADO')">✕</button>`:''}${d.status!=='APROVADO'||sfPodeAprovar()?` <button class="px-2 py-1 rounded text-ink-400 text-xs" onclick="sfExcluirDespesa('${d.id}')">🗑</button>`:''}</td></tr>`; }).join('')}
+  </tbody></table>`}</div>`;
+}
+function abrirSfDespesa(){
+  const s = STATE.sf; const old = document.getElementById('modal-sf'); if (old) old.remove();
+  const div = document.createElement('div'); div.id = 'modal-sf'; div.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4';
+  div.innerHTML = `<div class="card p-6 w-full max-w-md" onclick="event.stopPropagation()"><h3 class="font-bold text-lg">Nova despesa</h3>
+    <div class="grid grid-cols-2 gap-3 mt-4">
+      <div class="col-span-2"><label class="text-xs text-ink-400">Projeto *</label><select id="sfd-proj" class="input mt-1">${s.projetos.filter(p=>p.status==='EM_ANDAMENTO').map(p=>`<option value="${p.id}">${escapeHtml(p.cliente)} · ${escapeHtml(p.nome)}</option>`).join('')}</select></div>
+      <div><label class="text-xs text-ink-400">Data</label><input id="sfd-data" type="date" class="input mt-1" value="${hoje()}"></div>
+      <div><label class="text-xs text-ink-400">Valor (${moedaAtual().simbolo}) *</label><input id="sfd-valor" type="text" inputmode="decimal" class="input mt-1" placeholder="0,00"></div>
+      <div class="col-span-2"><label class="text-xs text-ink-400">Descrição</label><input id="sfd-desc" class="input mt-1" placeholder="Ex.: Uber pra gravação"></div>
+    </div>
+    <div id="sf-erro" class="text-xs text-red-400 mt-2 hidden"></div>
+    <div class="flex justify-end gap-2 mt-5"><button class="btn-ghost" onclick="document.getElementById('modal-sf').remove()">Cancelar</button><button class="btn-primary" onclick="salvarSfDespesa()">Salvar</button></div></div>`;
+  div.addEventListener('click', ()=>div.remove()); document.body.appendChild(div);
+}
+async function salvarSfDespesa(){
+  const erro = document.getElementById('sf-erro'); const valor = parseBRnum(document.getElementById('sfd-valor').value); const proj = document.getElementById('sfd-proj').value;
+  if (!proj || !(valor>0)){ erro.textContent = 'Projeto e valor são obrigatórios.'; erro.classList.remove('hidden'); return; }
+  const { error } = await sb.from('sf_despesas').insert({ projeto_id: proj, membro_id: STATE.sf.eu.id, data: document.getElementById('sfd-data').value || hoje(), valor, descricao: document.getElementById('sfd-desc').value.trim() || null });
+  if (error){ erro.textContent = 'Erro: ' + error.message; erro.classList.remove('hidden'); return; }
+  document.getElementById('modal-sf')?.remove(); await sfRecarregar();
+}
+async function sfAprovarDespesa(id, status){ if (!sfPodeAprovar()) return; const { error } = await sb.from('sf_despesas').update({ status, aprovado_por: (STATE.currentUser?.email||'').toLowerCase(), aprovado_em: new Date().toISOString() }).eq('id', id); if (error){ alert(error.message); return; } await sfAudit(status.toLowerCase(), 'despesa', id); await sfRecarregar(); }
+async function sfExcluirDespesa(id){ if (!confirm('Excluir a despesa?')) return; const { error } = await sb.from('sf_despesas').delete().eq('id', id); if (error){ alert(error.message); return; } await sfRecarregar(); }
+
+// ---------- Ausências ----------
+function renderSfAusencias(){
+  const s = STATE.sf; const lista = sfEhGestor() ? s.ausencias : s.ausencias.filter(a=>a.membro_id===s.eu.id);
+  const hojeISO = hoje();
+  return `
+  <div class="card p-3 flex items-center justify-between flex-wrap gap-2"><div class="text-sm text-ink-300">Férias, atestados e folgas — aparecem na semana de horas e ajudam o gestor a planejar o squad.</div><button class="btn btn-primary text-sm" onclick="abrirSfAusencia()">+ Ausência</button></div>
+  <div class="card overflow-hidden">${lista.length===0?'<div class="p-8 text-center text-ink-400 text-sm">Nenhuma ausência registrada.</div>':`<table class="w-full text-sm"><thead class="bg-ink-900"><tr class="text-[10px] uppercase tracking-wider text-ink-400 text-left"><th class="p-3">Pessoa</th><th class="p-3">Tipo</th><th class="p-3">Período</th><th class="p-3">Dias</th><th class="p-3">Obs</th><th class="p-3"></th></tr></thead><tbody>
+    ${lista.map(a=>{ const m = sfMembro(a.membro_id); const dias = Math.round((new Date(a.fim)-new Date(a.inicio))/86400000)+1; const ativa = a.inicio<=hojeISO && a.fim>=hojeISO;
+      return `<tr class="border-t border-ink-800 ${ativa?'bg-yellow-500/5':''}"><td class="p-3 font-semibold">${escapeHtml(m?.nome||m?.email||'—')}</td><td class="p-3"><span class="pill ${a.tipo==='FERIAS'?'pill-azul':a.tipo==='ATESTADO'?'pill-red':'pill-ink'}" style="font-size:10px">${SF_AUSENCIA[a.tipo]}</span></td><td class="p-3 whitespace-nowrap">${fmtData(a.inicio)} → ${fmtData(a.fim)}</td><td class="p-3">${dias}</td><td class="p-3 text-xs text-ink-300">${escapeHtml(a.obs||'—')}</td><td class="p-3 text-right">${(sfEhGestor()||a.membro_id===s.eu.id)?`<button class="text-ink-400 text-xs" onclick="sfExcluirAusencia('${a.id}')">🗑</button>`:''}</td></tr>`; }).join('')}
+  </tbody></table>`}</div>`;
+}
+function abrirSfAusencia(){
+  const s = STATE.sf; const old = document.getElementById('modal-sf'); if (old) old.remove();
+  const div = document.createElement('div'); div.id = 'modal-sf'; div.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4';
+  div.innerHTML = `<div class="card p-6 w-full max-w-md" onclick="event.stopPropagation()"><h3 class="font-bold text-lg">Registrar ausência</h3>
+    <div class="grid grid-cols-2 gap-3 mt-4">
+      ${sfEhGestor()?`<div class="col-span-2"><label class="text-xs text-ink-400">Pessoa</label><select id="sfa-membro" class="input mt-1">${s.membros.map(m=>`<option value="${m.id}" ${m.id===s.eu.id?'selected':''}>${escapeHtml(m.nome||m.email)}</option>`).join('')}</select></div>`:`<input type="hidden" id="sfa-membro" value="${s.eu.id}">`}
+      <div class="col-span-2"><label class="text-xs text-ink-400">Tipo</label><select id="sfa-tipo" class="input mt-1">${Object.entries(SF_AUSENCIA).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select></div>
+      <div><label class="text-xs text-ink-400">Início</label><input id="sfa-ini" type="date" class="input mt-1" value="${hoje()}"></div>
+      <div><label class="text-xs text-ink-400">Fim</label><input id="sfa-fim" type="date" class="input mt-1" value="${hoje()}"></div>
+      <div class="col-span-2"><label class="text-xs text-ink-400">Obs</label><input id="sfa-obs" class="input mt-1"></div>
+    </div>
+    <div id="sf-erro" class="text-xs text-red-400 mt-2 hidden"></div>
+    <div class="flex justify-end gap-2 mt-5"><button class="btn-ghost" onclick="document.getElementById('modal-sf').remove()">Cancelar</button><button class="btn-primary" onclick="salvarSfAusencia()">Salvar</button></div></div>`;
+  div.addEventListener('click', ()=>div.remove()); document.body.appendChild(div);
+}
+async function salvarSfAusencia(){
+  const erro = document.getElementById('sf-erro'); const ini = document.getElementById('sfa-ini').value, fim = document.getElementById('sfa-fim').value;
+  if (!ini || !fim || fim < ini){ erro.textContent = 'Período inválido.'; erro.classList.remove('hidden'); return; }
+  const { error } = await sb.from('sf_ausencias').insert({ membro_id: document.getElementById('sfa-membro').value, tipo: document.getElementById('sfa-tipo').value, inicio: ini, fim, obs: document.getElementById('sfa-obs').value.trim() || null });
+  if (error){ erro.textContent = 'Erro: ' + error.message; erro.classList.remove('hidden'); return; }
+  document.getElementById('modal-sf')?.remove(); await sfRecarregar();
+}
+async function sfExcluirAusencia(id){ if (!confirm('Excluir a ausência?')) return; await sb.from('sf_ausencias').delete().eq('id', id); await sfRecarregar(); }
+
+// ---------- Equipe (membros, papéis, custo/hora) ----------
+function renderSfEquipe(){
+  const s = STATE.sf;
+  const semMembro = (STATE.usuariosAcesso||[]).length ? (STATE.usuariosAcesso||[]).filter(u => !s.membros.some(m=>m.email===u.email)) : [];
+  return `
+  <div class="card p-3 flex items-center justify-between flex-wrap gap-2">
+    <div class="text-sm text-ink-300">Quem lança horas, com papel, cargo e custo/hora. O custo/hora vem do cargo (salário com encargos ÷ 160h) e pode ser ajustado; o rate é o valor cobrado por hora (referência).</div>
+    <div class="flex gap-2">${isAdminAcesso()?`<button class="btn btn-ghost text-sm" onclick="sfSincronizarUsuarios()" title="Cria membros pra todos os usuários da plataforma que ainda não estão aqui">⬇ Trazer usuários da plataforma</button>`:''}<button class="btn btn-primary text-sm" onclick="abrirSfMembro(null)">+ Pessoa</button></div>
+  </div>
+  <div class="card overflow-auto"><table class="w-full text-sm"><thead class="bg-ink-900"><tr class="text-[10px] uppercase tracking-wider text-ink-400 text-left"><th class="p-3">Pessoa</th><th class="p-3">Papel</th><th class="p-3">Cargo</th><th class="p-3 text-right">Custo/h</th><th class="p-3 text-right">Rate/h</th><th class="p-3 text-right">Horas (30d)</th><th class="p-3">Ativo</th><th class="p-3"></th></tr></thead><tbody>
+    ${s.membros.map(m => { const c = CARGOS.find(x=>x.id===m.cargo_id); const d30 = new Date(); d30.setDate(d30.getDate()-30); const iso = sfISO(d30); const min = s.ts.filter(t=>t.membro_id===m.id && t.data>=iso && t.status!=='REPROVADO').reduce((a,t)=>a+t.minutos,0);
+      return `<tr class="border-t border-ink-800 ${m.ativo===false?'opacity-50':''}"><td class="p-3"><div class="font-semibold">${escapeHtml(m.nome||'')}</div><div class="text-xs text-ink-500">${escapeHtml(m.email)}</div></td><td class="p-3"><span class="pill ${m.papel==='ADMIN'?'pill-orange':m.papel==='FINANCEIRO'?'pill-green':m.papel==='OPERACOES'?'pill-azul':'pill-ink'}" style="font-size:10px">${SF_PAPEIS[m.papel]||m.papel}</span></td><td class="p-3 text-xs">${c?`${escapeHtml(c.cargo)} <span class="text-ink-500">${escapeHtml(c.nivel||'')}</span>`:'<span class="text-ink-600">—</span>'}</td><td class="p-3 text-right tabular-nums">${m.custo_hora>0?fmtMoeda(m.custo_hora,2):'<span class="text-yellow-400 text-xs">definir</span>'}</td><td class="p-3 text-right tabular-nums text-ink-300">${m.rate_hora>0?fmtMoeda(m.rate_hora,2):'—'}</td><td class="p-3 text-right tabular-nums">${sfFmtH(min)}</td><td class="p-3">${m.ativo===false?'não':'sim'}</td><td class="p-3 text-right"><button class="btn-ghost text-xs" onclick="abrirSfMembro('${m.id}')">Editar</button></td></tr>`; }).join('')}
+  </tbody></table></div>`;
+}
+function abrirSfMembro(id){
+  const m = id ? sfMembro(id) : null; const old = document.getElementById('modal-sf'); if (old) old.remove();
+  const div = document.createElement('div'); div.id = 'modal-sf'; div.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4';
+  const cargosOrd = [...CARGOS].sort((a,b)=> (a.area+a.cargo).localeCompare(b.area+b.cargo));
+  div.innerHTML = `<div class="card p-6 w-full max-w-lg" onclick="event.stopPropagation()"><h3 class="font-bold text-lg">${m?'Editar pessoa':'Nova pessoa'}</h3>
+    <div class="grid grid-cols-2 gap-3 mt-4">
+      <div><label class="text-xs text-ink-400">Nome</label><input id="sfm-nome" class="input mt-1" value="${escapeHtml(m?.nome||'')}"></div>
+      <div><label class="text-xs text-ink-400">E-mail (login) *</label><input id="sfm-email" class="input mt-1" value="${escapeHtml(m?.email||'')}" ${m?'readonly':''}></div>
+      <div><label class="text-xs text-ink-400">Papel</label><select id="sfm-papel" class="input mt-1" ${isAdminAcesso()?'':'disabled'}>${Object.entries(SF_PAPEIS).map(([k,v])=>`<option value="${k}" ${(m?.papel||'MEMBRO')===k?'selected':''}>${v}</option>`).join('')}</select></div>
+      <div><label class="text-xs text-ink-400">Cargo (Cargos & Salários)</label><select id="sfm-cargo" class="input mt-1" onchange="const v=sfCustoHoraCargo(this.value); if(v) document.getElementById('sfm-custo').value=v.toFixed(2).replace('.',',');"><option value="">—</option>${cargosOrd.map(c=>`<option value="${c.id}" ${m?.cargo_id===c.id?'selected':''}>${escapeHtml(c.area)} · ${escapeHtml(c.cargo)} ${escapeHtml(c.nivel||'')}</option>`).join('')}</select></div>
+      <div><label class="text-xs text-ink-400">Custo/hora (${moedaAtual().simbolo})</label><input id="sfm-custo" class="input mt-1" inputmode="decimal" value="${m?Number(m.custo_hora).toFixed(2).replace('.',','):''}"></div>
+      <div><label class="text-xs text-ink-400">Rate/hora (${moedaAtual().simbolo})</label><input id="sfm-rate" class="input mt-1" inputmode="decimal" value="${m?Number(m.rate_hora).toFixed(2).replace('.',','):''}"></div>
+      <div><label class="text-xs text-ink-400">Ativo</label><select id="sfm-ativo" class="input mt-1"><option value="1" ${m?.ativo!==false?'selected':''}>Sim</option><option value="0" ${m?.ativo===false?'selected':''}>Não</option></select></div>
+    </div>
+    <div class="text-[11px] text-ink-500 mt-3">Custo/hora sugerido = salário do cargo × (1 + encargos ${Math.round((PREMISSAS.encargo||0)*100)}%) ÷ 160h. Lançamentos antigos mantêm o custo da época.</div>
+    <div id="sf-erro" class="text-xs text-red-400 mt-2 hidden"></div>
+    <div class="flex justify-end gap-2 mt-5"><button class="btn-ghost" onclick="document.getElementById('modal-sf').remove()">Cancelar</button><button class="btn-primary" onclick="salvarSfMembro(${m?`'${m.id}'`:'null'})">Salvar</button></div></div>`;
+  div.addEventListener('click', ()=>div.remove()); document.body.appendChild(div);
+}
+async function salvarSfMembro(id){
+  const g = x => document.getElementById(x)?.value; const erro = document.getElementById('sf-erro');
+  const email = (g('sfm-email')||'').trim().toLowerCase(); if (!email.includes('@')){ erro.textContent = 'E-mail inválido.'; erro.classList.remove('hidden'); return; }
+  const payload = { nome: (g('sfm-nome')||'').trim() || email.split('@')[0], cargo_id: g('sfm-cargo') || null, custo_hora: parseBRnum(g('sfm-custo')), rate_hora: parseBRnum(g('sfm-rate')), ativo: g('sfm-ativo') === '1', updated_at: new Date().toISOString() };
+  if (isAdminAcesso()) payload.papel = g('sfm-papel');
+  const q = id ? sb.from('sf_membros').update(payload).eq('id', id) : sb.from('sf_membros').insert({ ...payload, email, papel: isAdminAcesso() ? g('sfm-papel') : 'MEMBRO', pais: STATE.pais });
+  const { error } = await q; if (error){ erro.textContent = 'Erro: ' + error.message; erro.classList.remove('hidden'); return; }
+  await sfAudit(id?'editar':'criar', 'membro', id || email, null, payload);
+  document.getElementById('modal-sf')?.remove();
+  if (id === STATE.sf.eu?.id) { const { data } = await sb.from('sf_membros').select('*').eq('id', id).single(); if (data) STATE.sf.eu = data; }
+  await sfRecarregar();
+}
+async function sfSincronizarUsuarios(){
+  if (!isAdminAcesso()) return;
+  const { data: users } = await sb.from('usuarios_acesso').select('email, nome, admin, validador, ativo');
+  const faltam = (users||[]).filter(u => u.ativo !== false && !STATE.sf.membros.some(m=>m.email===u.email));
+  if (!faltam.length){ alert('Todos os usuários da plataforma já estão na equipe.'); return; }
+  if (!confirm(`Criar ${faltam.length} pessoa(s) na equipe do SnackFlow (como Membro; admins como Admin, validadores como Financeiro)? Depois é só definir cargo e custo/hora.`)) return;
+  const rows = faltam.map(u => ({ email: u.email, nome: u.nome || u.email.split('@')[0], papel: u.admin ? 'ADMIN' : (u.validador ? 'FINANCEIRO' : 'MEMBRO'), pais: STATE.pais }));
+  const { error } = await sb.from('sf_membros').insert(rows); if (error){ alert('Erro: ' + error.message); return; }
+  await sfRecarregar();
+}
+
+// ---------- Relatório ----------
+function renderSfRelatorio(){
+  const s = STATE.sf; const r = s.rel;
+  if (!r.de){ const d = new Date(); r.de = sfISO(new Date(d.getFullYear(), d.getMonth(), 1)); r.ate = sfISO(new Date(d.getFullYear(), d.getMonth()+1, 0)); }
+  const ts = s.ts.filter(t => t.data >= r.de && t.data <= r.ate && t.status !== 'REPROVADO' && (!s.filtroMembro || t.membro_id === s.filtroMembro));
+  const ap = ts.filter(t=>t.status==='APROVADO');
+  const custo = ap.reduce((a,t)=>a+t.minutos/60*Number(t.custo_hora_epoca||0),0);
+  const porProj = {}; ts.forEach(t => { const k = t.projeto_id; porProj[k] = porProj[k] || {min:0, minAp:0, custo:0, pessoas:new Set()}; porProj[k].min += t.minutos; if (t.status==='APROVADO'){ porProj[k].minAp += t.minutos; porProj[k].custo += t.minutos/60*Number(t.custo_hora_epoca||0); } porProj[k].pessoas.add(t.membro_id); });
+  const porMembro = {}; ts.forEach(t => { const k = t.membro_id; porMembro[k] = porMembro[k] || {min:0, minAp:0, custo:0, projetos:new Set()}; porMembro[k].min += t.minutos; if (t.status==='APROVADO'){ porMembro[k].minAp += t.minutos; porMembro[k].custo += t.minutos/60*Number(t.custo_hora_epoca||0); } porMembro[k].projetos.add(t.projeto_id); });
+  const listaP = Object.entries(porProj).sort((a,b)=>b[1].min-a[1].min), listaM = Object.entries(porMembro).sort((a,b)=>b[1].min-a[1].min);
+  const maxP = Math.max(...listaP.map(x=>x[1].min), 1), maxM = Math.max(...listaM.map(x=>x[1].min), 1);
+  const diasUteis = (()=>{ let n=0; const d = new Date(r.de+'T00:00:00'), f = new Date(r.ate+'T00:00:00'); while (d<=f){ const w=d.getDay(); if (w!==0&&w!==6) n++; d.setDate(d.getDate()+1); } return n; })();
+  return `
+  <div class="card p-3 flex items-end gap-3 flex-wrap">
+    <div><label class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">De</label><input type="date" class="input py-1.5 text-sm mt-1" value="${r.de}" onchange="STATE.sf.rel.de=this.value; sfSetAba('relatorio')"></div>
+    <div><label class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">Até</label><input type="date" class="input py-1.5 text-sm mt-1" value="${r.ate}" onchange="STATE.sf.rel.ate=this.value; sfSetAba('relatorio')"></div>
+    <div><label class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">Pessoa</label><select class="input py-1.5 text-sm mt-1" onchange="STATE.sf.filtroMembro=this.value; sfSetAba('relatorio')"><option value="">Todas</option>${s.membros.map(m=>`<option value="${m.id}" ${s.filtroMembro===m.id?'selected':''}>${escapeHtml(m.nome||m.email)}</option>`).join('')}</select></div>
+    <button class="btn btn-ghost text-sm" onclick="exportarCSVSnackFlow()">⬇ CSV (lançamentos)</button>
+    <div class="ml-auto text-xs text-ink-400">${diasUteis} dias úteis no período</div>
+  </div>
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+    <div class="card p-4"><div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Horas lançadas</div><div class="font-display font-bold text-2xl mt-1">${sfFmtH(ts.reduce((a,t)=>a+t.minutos,0))}</div></div>
+    <div class="card p-4"><div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Horas aprovadas</div><div class="font-display font-bold text-2xl mt-1 text-green-400">${sfFmtH(ap.reduce((a,t)=>a+t.minutos,0))}</div></div>
+    <div class="card p-4"><div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Custo realizado (aprovado)</div><div class="font-display font-bold text-2xl mt-1">${fmtMoeda(custo,0)}</div></div>
+    <div class="card p-4"><div class="text-[10px] uppercase tracking-widest text-ink-400 font-semibold">Pessoas · projetos</div><div class="font-display font-bold text-2xl mt-1">${listaM.length} · ${listaP.length}</div></div>
+  </div>
+  <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+    <div class="card p-4"><div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold mb-3">Horas por projeto</div>${listaP.length?listaP.map(([pid,v])=>{ const p = sfProjeto(pid); const hOrc = Number(p?.horas_orcadas)||0;
+      return barra(v.min, maxP, '#FF5722', `${escapeHtml(p?.cliente||'?')} · ${escapeHtml(p?.nome||'')}${hOrc?` <span class="text-ink-500">(${Math.round(v.minAp/60/hOrc*100)}% do orçado)</span>`:''}`, `${sfFmtH(v.min)} · ${fmtMoeda(v.custo,0)}`); }).join(''):'<div class="text-ink-500 text-sm">Sem lançamentos no período.</div>'}</div>
+    <div class="card p-4"><div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold mb-3">Horas por pessoa</div>${listaM.length?listaM.map(([mid,v])=>{ const m = sfMembro(mid); const cap = diasUteis*8*60; const occ = cap?v.min/cap:0;
+      return barra(v.min, maxM, occ>1.1?'#EF4444':occ>0.85?'#4ADE80':'#2E6BFF', `${escapeHtml(m?.nome||m?.email||'?')} <span class="text-ink-500">· ${v.projetos.size} proj. · ocupação ${Math.round(occ*100)}%</span>`, `${sfFmtH(v.min)} · ${fmtMoeda(v.custo,0)}`); }).join(''):'<div class="text-ink-500 text-sm">Sem lançamentos no período.</div>'}</div>
+  </div>
+  <div class="text-[11px] text-ink-500">Ocupação = horas lançadas ÷ (dias úteis × 8h). Custo realizado usa o custo/hora congelado em cada lançamento. Despesas aprovadas aparecem na aba Projetos.</div>`;
+}
+function exportarCSVSnackFlow(){
+  const s = STATE.sf; const r = s.rel;
+  const ts = s.ts.filter(t => t.data >= r.de && t.data <= r.ate && (!s.filtroMembro || t.membro_id === s.filtroMembro)).sort((a,b)=>a.data.localeCompare(b.data));
+  if (!ts.length){ alert('Nada pra exportar no período.'); return; }
+  const dec = v => (Number(v)||0).toFixed(2).replace('.', ',');
+  const rows = [['Data','Pessoa','E-mail','Cliente','Projeto','ID orcamento','Tarefa','Descricao','Minutos','Horas','Custo/h (epoca)','Custo','Status','Aprovado por','Aprovado em']];
+  ts.forEach(t => { const m = sfMembro(t.membro_id), p = sfProjeto(t.projeto_id), ta = s.tarefas.find(x=>x.id===t.tarefa_id);
+    rows.push([fmtData(t.data), m?.nome||'', m?.email||'', p?.cliente||'', p?.nome||'', p?.orcamento_id||'', ta?.titulo||'', t.descricao||'', t.minutos, dec(t.minutos/60), dec(t.custo_hora_epoca), dec(t.minutos/60*Number(t.custo_hora_epoca||0)), SF_TS_STATUS[t.status]?.nome||t.status, t.aprovado_por||'', t.aprovado_em ? new Date(t.aprovado_em).toLocaleString('pt-BR') : '']); });
+  const csv = rows.map(rw=>rw.map(v=>{ const x=String(v==null?'':v); return x.includes(';')||x.includes(',')||x.includes('\n')||x.includes('"') ? '"'+x.replace(/"/g,'""')+'"' : x; }).join(';')).join('\n');
+  const blob = new Blob(['﻿'+csv], { type:'text/csv;charset=utf-8' }); const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = `snackflow_${r.de}_a_${r.ate}.csv`; a.click(); URL.revokeObjectURL(url);
 }
 
 </script>
