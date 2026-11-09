@@ -1773,7 +1773,7 @@ function renderPLGrupo(){
         <div class="rounded-xl p-3 bg-ink-900/50 border border-white/5">
           <div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">(−) Custo direto</div>
           <div class="font-display font-bold text-xl mt-1 tabular-nums text-ink-300">${fmtMoeda(pl.custoDireto, 0)}</div>
-          <div class="text-[10px] text-ink-500 mt-0.5">Cachês + Mídia + Prod + Frilas</div>
+          <div class="text-[10px] text-ink-500 mt-0.5">Cachês + Mídia + Prod + Freelas</div>
         </div>
         <div class="rounded-xl p-3 bg-ink-900/50 border border-white/5">
           <div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">(−) Squad consumido</div>
@@ -1984,7 +1984,7 @@ function renderNovoOrcamento(ctx) {
         </div>
         ${orc.custos_mensais && (orc.meses||0) > 1 ? `<div class="mb-4 text-[11px] text-azul-400 flex items-center gap-1.5">
           <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-          Cachês, mídia, produção e frilas serão multiplicados por ${orc.meses} meses no cálculo.
+          Cachês, mídia, produção e freelas serão multiplicados por ${orc.meses} meses no cálculo.
         </div>` : ''}
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div>
@@ -2026,7 +2026,7 @@ function renderNovoOrcamento(ctx) {
         <div class="mt-5 rounded-xl p-4" style="background: rgba(168,85,247,.05); border: 1px solid rgba(168,85,247,.25);">
           <div class="flex items-center justify-between mb-3">
             <div>
-              <div class="text-[11px] uppercase tracking-widest font-semibold" style="color:#D8B4FE;">Freelas <span class="text-ink-500 font-normal normal-case ml-1">(ou frilas)</span></div>
+              <div class="text-[11px] uppercase tracking-widest font-semibold" style="color:#D8B4FE;">Freelas</div>
               <div class="text-xs text-ink-400 mt-0.5">Pessoas contratadas pra esse projeto específico. Soma entra em custos diretos.</div>
             </div>
             <div class="text-sm">
@@ -2039,7 +2039,7 @@ function renderNovoOrcamento(ctx) {
 
           <div class="mt-3 grid grid-cols-1 md:grid-cols-[1fr,auto] gap-3 items-end">
             <div>
-              <label class="label">Adicionar frila</label>
+              <label class="label">Adicionar freela</label>
               <select id="add-frila" class="input">
                 <option value="">Escolha um cargo...</option>
                 ${CARGOS.slice().sort((a,b)=>a.area.localeCompare(b.area)||a.cargo.localeCompare(b.cargo)||a.nivel.localeCompare(b.nivel)).map(c=>`<option value="${c.id}">${c.area === 'HEADS' ? 'HEAD · ' : c.area + ' · '}${c.cargo}${c.nivel && c.nivel !== 'Head' ? ' ('+c.nivel+')' : ''}</option>`).join('')}
@@ -2047,7 +2047,7 @@ function renderNovoOrcamento(ctx) {
             </div>
             <button class="btn btn-ghost" style="background:rgba(168,85,247,.15); border-color:rgba(168,85,247,.4); color:#D8B4FE;" onclick="addFrila()">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              Adicionar frila
+              Adicionar freela
             </button>
           </div>
         </div>
@@ -2567,7 +2567,7 @@ function renderFrilas(){
   setTimeout(aplicarBRLEmTodos, 0);
   const lista = CURRENT_ORC.frilas || [];
   if (!lista.length){
-    cont.innerHTML = '<div class="text-xs text-ink-400 italic p-3 text-center">Nenhum frila adicionado.</div>';
+    cont.innerHTML = '<div class="text-xs text-ink-400 italic p-3 text-center">Nenhum freela adicionado.</div>';
     return;
   }
   cont.innerHTML = lista.map((f, i)=>{
@@ -2578,13 +2578,13 @@ function renderFrilas(){
       <span class="area-tag" style="background:rgba(168,85,247,.18); color:#D8B4FE;">${isHead?'HEAD':cargo.area.split(' ')[0]}</span>
       <div class="flex-1 min-w-0">
         <div class="font-semibold text-sm truncate">${cargo.cargo}${cargo.nivel && cargo.nivel!=='Head' ? ' <span class="text-ink-400 font-normal">'+cargo.nivel+'</span>' : ''}</div>
-        <div class="text-[11px] text-ink-400">Frila · valor total no contrato</div>
+        <div class="text-[11px] text-ink-400">Freela · valor total no contrato</div>
       </div>
       <div class="flex items-center gap-2">
         <span class="text-xs text-ink-400">${moedaAtual().simbolo}</span>
         <input type="text" inputmode="decimal" class="input input-brl w-32 text-right tabular-nums font-bold" data-brl-decimals="2" value="${f.valor}" oninput="alterarValorFrila(${i}, parseFloat(this.dataset.numericValue||0))">
       </div>
-      <button class="text-ink-500 hover:text-red-400 p-1" onclick="removerFrila(${i})" title="Remover frila">
+      <button class="text-ink-500 hover:text-red-400 p-1" onclick="removerFrila(${i})" title="Remover freela">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg>
       </button>
     </div>`;
@@ -5497,7 +5497,7 @@ async function salvarNotaRapida(){
    VIEW: RELATÓRIO MENSAL DE CUSTOS
 ============================================================= */
 
-const NOMES_CAT_REL = { cache:'Cachês', midia:'Mídia', producao:'Produção', frila:'Frilas' };
+const NOMES_CAT_REL = { cache:'Cachês', midia:'Mídia', producao:'Produção', frila:'Freelas' };
 const CORES_CAT_REL = { cache:'#FF5722', midia:'#2E6BFF', producao:'#A855F7', frila:'#EC4899' };
 
 // Retorna o valor da categoria de UM projeto que cai em UM mês/ano específicos
@@ -5883,8 +5883,8 @@ function renderTabelaRealizado(){
           <th class="p-3 text-right">Cachê real</th>
           <th class="p-3 text-right">Prod orç</th>
           <th class="p-3 text-right">Prod real</th>
-          <th class="p-3 text-right">Frila orç</th>
-          <th class="p-3 text-right">Frila real</th>
+          <th class="p-3 text-right">Freela orç</th>
+          <th class="p-3 text-right">Freela real</th>
           <th class="p-3 text-right border-l border-white/10">Total orç</th>
           <th class="p-3 text-right">Total real</th>
           <th class="p-3 text-right">Δ ${moedaAtual().simbolo}</th>
