@@ -6893,6 +6893,17 @@ function gerarNovoCargoId(){
   return 'CG' + String(max+1).padStart(2,'0');
 }
 
+function exportarCSVCargos(){
+  if (!CARGOS.length){ alert('Nenhum cargo pra exportar.'); return; }
+  const dec = v => (Number(v)||0).toFixed(2).replace('.', ',');
+  const enc = PREMISSAS.encargo || 0;
+  const lista = [...CARGOS].sort((x,y)=> String(x.area).localeCompare(String(y.area)) || String(x.cargo).localeCompare(String(y.cargo)) || String(x.nivel||'').localeCompare(String(y.nivel||'')));
+  const rows = [['ID','Area','Cargo','Nivel','Salario (c/ benef)','Salario c/ encargos','Custo/hora (160h)','Unidade','Moeda']];
+  lista.forEach(c => rows.push([c.id, c.area, c.cargo, c.nivel||'', dec(c.salario), dec(c.salario*(1+enc)), dec(c.salario*(1+enc)/160), STATE.pais, STATE.pais==='PT'?'EUR':'BRL']));
+  const csv = rows.map(r=>r.map(v=>{ const x=String(v==null?'':v); return x.includes(';')||x.includes(',')||x.includes('\n')||x.includes('"') ? '"'+x.replace(/"/g,'""')+'"' : x; }).join(';')).join('\n');
+  const blob = new Blob(['\ufeff'+csv], { type:'text/csv;charset=utf-8' }); const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = `cargos_salarios_${STATE.pais}_${hoje()}.csv`; a.click(); URL.revokeObjectURL(url);
+}
 function renderCargos() {
   const porArea = {};
   CARGOS.forEach(c=>{ if(!porArea[c.area]) porArea[c.area]=[]; porArea[c.area].push(c); });
@@ -6909,10 +6920,13 @@ function renderCargos() {
             <p class="text-sm text-ink-300 mt-1"><span id="cargos-count">${CARGOS.length}</span> cargos. Edite qualquer campo — afeta os orçamentos em tempo real.</p>
           </div>
         </div>
+        <div class="flex gap-2">
+        <button class="btn btn-ghost" onclick="exportarCSVCargos()" title="Exporta os cargos da unidade atual (${STATE.pais})">⬇ CSV</button>
         <button class="btn btn-primary" onclick="abrirModalNovoCargo()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           Novo cargo
         </button>
+        </div>
       </div>
     </div>
 
