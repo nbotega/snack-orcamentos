@@ -217,6 +217,10 @@ tailwind.config = {
           Orçamentos
           <span id="nav-orc-count" class="ml-auto badge-num">0</span>
         </div>
+        <div class="nav-item" data-route="cadastro-clientes" title="Cadastro de clientes (razão social, CNPJ, endereço)">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M15 8h2M15 12h2M7 16h10"/></svg>
+          Cadastro de Clientes
+        </div>
         <div class="nav-item" data-route="novo">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
           Novo Orçamento
@@ -481,6 +485,7 @@ async function carregarDoSupabase(){
     });
     STATE.orcamentos = mapearOrcamentos(o.data||[], squadByOrc);
     recalcularNextId();
+    carregarClientesCad();
     setSyncStatus('idle');
     console.log(`✓ Carregado do Supabase: ${CARGOS.length} cargos, ${STATE.orcamentos.length} orçamentos`);
   } catch(e){
@@ -890,7 +895,7 @@ const VIEW_TITLES = {
   'nota-rapida':'Nota Rápida',
   'relatorio-mensal':'Relatório de Custos',
   'backlog':'Backlog de Faturamento',
-  'usuarios':'Usuários & Acessos', realizado:'Realizado × Orçado', validador:'Validar NF Rápida', anexo:'Anexo', pipeline:'Pipeline Comercial', snackflow:'SnackFlow · Horas & Realizado'
+  'usuarios':'Usuários & Acessos', realizado:'Realizado × Orçado', validador:'Validar NF Rápida', anexo:'Anexo', pipeline:'Pipeline Comercial', snackflow:'SnackFlow · Horas & Realizado', 'cadastro-clientes':'Cadastro de Clientes'
 };
 
 function navigate(r, ctx) {
@@ -957,6 +962,7 @@ function render() {
   else if (r==='anexo') el.innerHTML = renderAnexoView();
   else if (r==='pipeline') { el.innerHTML = renderPipeline(); if (!STATE.pipe.carregado) carregarPipeline(); }
   else if (r==='snackflow') { el.innerHTML = renderSnackFlow(); if (!STATE.sf.carregado) carregarSnackFlow(); }
+  else if (r==='cadastro-clientes') { el.innerHTML = renderCadClientes(); carregarClientesCad(); }
   // Aplica formatação BRL em todos inputs marcados depois do render
   aplicarBRLEmTodos();
 }
@@ -1567,7 +1573,7 @@ function renderListaOrcamentos() {
   }
   const f = STATE.filtroLista;
   const STATUS_LISTA = ['Rascunho','Proposta','Aprovada','Perdida'];
-  const orcs = STATE.orcamentos.map(o => ({o, c: calcular(o)}));
+  const orcs = ordenarListaOrcs(STATE.orcamentos.map(o => ({o, c: calcular(o)})));
 
   return `
   <div class="space-y-4">
@@ -1622,19 +1628,19 @@ function renderListaOrcamentos() {
       <table class="w-full text-sm" id="tabela-orcs">
         <thead class="bg-ink-900">
           <tr class="text-[11px] uppercase tracking-wider text-ink-400">
-            <th class="text-left font-semibold py-3.5 px-5">ID</th>
-            <th class="text-left font-semibold">Data</th>
-            <th class="text-left font-semibold">Cliente</th>
-            <th class="text-left font-semibold">Projeto</th>
-            <th class="text-left font-semibold">Vendedor</th>
-            <th class="text-left font-semibold">Tipo</th>
-            <th class="text-center font-semibold">Meses</th>
-            <th class="text-right font-semibold">Fee/mês</th>
-            <th class="text-right font-semibold">Receita</th>
-            <th class="text-right font-semibold" title="Margem de Contribuição sobre a receita">MC %</th>
-            <th class="text-right font-semibold" title="MC total do contrato e equivalente em meses de overhead Snack coberto">MC contrato</th>
-            <th class="text-center font-semibold">Saúde</th>
-            <th class="text-center font-semibold">Status</th>
+            ${thOrd('id','ID','text-left py-3.5 px-5')}
+            ${thOrd('data','Data','text-left')}
+            ${thOrd('cliente','Cliente','text-left')}
+            ${thOrd('projeto','Projeto','text-left')}
+            ${thOrd('vendedor','Vendedor','text-left')}
+            ${thOrd('tipo','Tipo','text-left')}
+            ${thOrd('meses','Meses','text-center')}
+            ${thOrd('fee','Fee/mês','text-right')}
+            ${thOrd('receita','Receita','text-right')}
+            ${thOrd('mcpct','MC %','text-right','Margem de Contribuição sobre a receita')}
+            ${thOrd('mc','MC contrato','text-right','MC total do contrato')}
+            ${thOrd('saude','Saúde','text-center')}
+            ${thOrd('status','Status','text-center')}
             <th class="pr-5"></th>
           </tr>
         </thead>
@@ -1927,7 +1933,7 @@ function renderNovoOrcamento(ctx) {
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div>
             <label class="label">Cliente</label>
-            <input id="i-cliente" class="input" placeholder="Ex: BIC Soleil" value="${orc.cliente}" oninput="onChange('cliente', this.value)">
+            ${clienteSelectHTML(orc)}
           </div>
           <div>
             <label class="label">Nome do projeto</label>
@@ -2045,6 +2051,7 @@ function renderNovoOrcamento(ctx) {
                 ${CARGOS.slice().sort((a,b)=>a.area.localeCompare(b.area)||a.cargo.localeCompare(b.cargo)||a.nivel.localeCompare(b.nivel)).map(c=>`<option value="${c.id}">${c.area === 'HEADS' ? 'HEAD · ' : c.area + ' · '}${c.cargo}${c.nivel && c.nivel !== 'Head' ? ' ('+c.nivel+')' : ''}</option>`).join('')}
               </select>
             </div>
+            <div class="md:col-span-2 -mt-1"><label class="label">…ou digite um cargo que não está na lista</label><input id="add-frila-manual" class="input" placeholder="Ex: Maquiadora, Operador de drone, Tradutor" onkeydown="if(event.key==='Enter'){event.preventDefault(); addFrila();}"></div>
             <button class="btn btn-ghost" style="background:rgba(168,85,247,.15); border-color:rgba(168,85,247,.4); color:#D8B4FE;" onclick="addFrila()">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
               Adicionar freela
@@ -2541,10 +2548,13 @@ function rerenderFormCustosDiretos(){
 
 function addFrila(){
   const id = document.getElementById('add-frila').value;
-  if (!id) { alert('Escolha um cargo primeiro.'); return; }
+  const manual = (document.getElementById('add-frila-manual')?.value || '').trim();
+  if (!id && !manual) { alert('Escolha um cargo da lista ou digite o cargo do freela.'); return; }
   CURRENT_ORC.frilas = CURRENT_ORC.frilas || [];
-  CURRENT_ORC.frilas.push({ cargo_id: id, valor: 0 });
+  if (manual) CURRENT_ORC.frilas.push({ cargo_id: null, cargo_nome: manual, valor: 0 });
+  else CURRENT_ORC.frilas.push({ cargo_id: id, valor: 0 });
   document.getElementById('add-frila').value = '';
+  const im = document.getElementById('add-frila-manual'); if (im) im.value = '';
   renderFrilas();
   recalc();
 }
@@ -2571,7 +2581,7 @@ function renderFrilas(){
     return;
   }
   cont.innerHTML = lista.map((f, i)=>{
-    const cargo = CARGOS.find(c=>c.id===f.cargo_id);
+    const cargo = CARGOS.find(c=>c.id===f.cargo_id) || (f.cargo_nome ? { area:'FREELA', cargo: escapeHtml(f.cargo_nome), nivel:'', _manual:true } : null);
     if (!cargo) return '';
     const isHead = cargo.area === 'HEADS';
     return `<div class="bg-ink-900 hover:bg-ink-850 rounded-lg flex items-center gap-3 px-3 py-2" style="border-left: 3px solid #A855F7;">
@@ -3133,7 +3143,7 @@ function montarContextoIA(){
     };
   }).filter(Boolean);
   const frilas = (o.frilas||[]).map(f=>{
-    const cg = CARGOS.find(x=>x.id===f.cargo_id);
+    const cg = CARGOS.find(x=>x.id===f.cargo_id) || (f.cargo_nome ? { cargo: f.cargo_nome } : null);
     return cg ? { cargo: cg.cargo, valor: Number(f.valor)||0 } : null;
   }).filter(Boolean);
   return {
@@ -3672,6 +3682,7 @@ function renderCarta(ctx){
   });
   // Frilas: entram com alocação 100% por convenção (cliente vê como parte da equipe)
   (orc.frilas||[]).forEach(f=>{
+    if (!f.cargo_id && f.cargo_nome){ addAreaCargo('FREELAS', f.cargo_nome, 1.0); return; }
     const cargo = CARGOS.find(c=>c.id===f.cargo_id);
     if (!cargo) return;
     if (cargo.area === 'HEADS'){
@@ -4164,6 +4175,7 @@ function copiarCarta(id){
     else _add(cg.area, cg.cargo, l.alocacao||0);
   });
   (orc.frilas||[]).forEach(f=>{
+    if (!f.cargo_id && f.cargo_nome){ _add('FREELAS', f.cargo_nome, 1.0); return; }
     const cg = CARGOS.find(c=>c.id===f.cargo_id);
     if (!cg) return;
     if (cg.area==='HEADS'){ const m=HEAD_TO_AREA[cg.cargo]; if(m) _add(m.area,m.cargo,1.0); else _add('LIDERANÇA','Diretor de '+cg.cargo,1.0); }
@@ -4831,6 +4843,7 @@ function statusPagamentoPill(p){
 const ABAS_DEF = [
   {id:'dashboard', nome:'Dashboard'},
   {id:'orcamentos', nome:'Orçamentos'},
+  {id:'cadastro-clientes', nome:'Cadastro de Clientes'},
   {id:'novo', nome:'Novo Orçamento'},
   {id:'comparador', nome:'Comparador'},
   {id:'clientes', nome:'Clientes'},
@@ -7815,6 +7828,7 @@ function renderSnackFlow(){
       <div class="flex items-center gap-1 bg-ink-900 rounded-lg p-1 flex-wrap">
         ${tab('horas','⏱ Minhas horas')}
         ${sfPodeAprovar() ? tab('aprovacoes','✅ Aprovações', pend) : ''}
+        ${tab('painel','🗂 Tarefas')}
         ${tab('projetos','📁 Projetos')}
         <button class="px-4 py-2 rounded-lg text-sm font-semibold transition text-ink-400 hover:text-white" onclick="navigate('nota-rapida')" title="Despesas são lançadas pela Nota Rápida">🧾 Despesas ↗</button>
         ${tab('ausencias','🏖 Ausências')}
@@ -7822,7 +7836,7 @@ function renderSnackFlow(){
         ${sfEhGestor() ? tab('relatorio','📊 Relatório') : ''}
       </div>
     </div>
-    ${s.aba==='horas' ? renderSfHoras() : s.aba==='aprovacoes' ? renderSfAprovacoes() : s.aba==='projetos' ? renderSfProjetos() : s.aba==='despesas' ? renderSfDespesas() : s.aba==='ausencias' ? renderSfAusencias() : s.aba==='equipe' ? renderSfEquipe() : renderSfRelatorio()}
+    ${s.aba==='painel' ? renderSfPainel() : s.aba==='horas' ? renderSfHoras() : s.aba==='aprovacoes' ? renderSfAprovacoes() : s.aba==='projetos' ? renderSfProjetos() : s.aba==='despesas' ? renderSfDespesas() : s.aba==='ausencias' ? renderSfAusencias() : s.aba==='equipe' ? renderSfEquipe() : renderSfRelatorio()}
   </div>`;
 }
 
@@ -8283,6 +8297,344 @@ function exportarCSVSnackFlow(){
   const csv = rows.map(rw=>rw.map(v=>{ const x=String(v==null?'':v); return x.includes(';')||x.includes(',')||x.includes('\n')||x.includes('"') ? '"'+x.replace(/"/g,'""')+'"' : x; }).join(';')).join('\n');
   const blob = new Blob(['﻿'+csv], { type:'text/csv;charset=utf-8' }); const url = URL.createObjectURL(blob);
   const a = document.createElement('a'); a.href = url; a.download = `snackflow_${r.de}_a_${r.ate}.csv`; a.click(); URL.revokeObjectURL(url);
+}
+
+
+/* =============================================================
+   CADASTRO DE CLIENTES
+============================================================= */
+STATE.clientesCad = [];
+async function carregarClientesCad(){
+  try {
+    const { data, error } = await sb.from('clientes_cadastro').select('*').eq('pais', STATE.pais).order('nome');
+    if (error) throw error;
+    STATE.clientesCad = data || [];
+    if (STATE.route === 'cadastro-clientes'){ const el = document.getElementById('cadcli-wrap'); if (el) el.innerHTML = renderCadClientesTabela(); }
+  } catch(e){ console.warn('clientes_cadastro:', e.message||e); }
+}
+function renderCadClientes(){
+  return `
+  <div class="space-y-4 fade-in">
+    <div class="flex items-center justify-between gap-4 flex-wrap">
+      <div>
+        <h1 class="font-display font-bold text-2xl">Cadastro de Clientes</h1>
+        <div class="text-sm text-ink-400">Clientes usados nos orçamentos. Os nomes foram captados dos orçamentos existentes; complete razão social, CNPJ e endereço quando tiver.</div>
+      </div>
+      <div class="flex items-center gap-2">
+        <input class="input py-2 text-sm" style="width:240px" placeholder="Buscar cliente, CNPJ…" value="${escapeHtml(STATE.cadCliBusca||'')}" oninput="STATE.cadCliBusca=this.value; document.getElementById('cadcli-wrap').innerHTML=renderCadClientesTabela();">
+        <button class="btn btn-ghost text-sm" onclick="exportarCSVCadClientes()">⬇ CSV</button>
+        <button class="btn btn-primary text-sm" onclick="abrirCadCliente(null)">+ Novo cliente</button>
+      </div>
+    </div>
+    <div id="cadcli-wrap">${renderCadClientesTabela()}</div>
+  </div>`;
+}
+function renderCadClientesTabela(){
+  const f = (STATE.cadCliBusca||'').toLowerCase();
+  const lista = (STATE.clientesCad||[]).filter(c => !f || [c.nome,c.razao_social,c.cnpj].some(x => String(x||'').toLowerCase().includes(f)));
+  if (!lista.length) return `<div class="card p-8 text-center text-ink-400 text-sm">${(STATE.clientesCad||[]).length ? 'Nenhum cliente bate com a busca.' : 'Nenhum cliente cadastrado.'}</div>`;
+  const nOrc = {}; (STATE.orcamentos||[]).forEach(o => { const k = String(o.cliente||'').trim().toLowerCase(); nOrc[k] = (nOrc[k]||0)+1; });
+  return `<div class="card overflow-auto" style="max-height:calc(100vh - 230px)"><table class="w-full text-sm"><thead class="bg-ink-900 sticky top-0 z-10"><tr class="text-[10px] uppercase tracking-wider text-ink-400 text-left"><th class="p-3">Nome</th><th class="p-3">Razão Social</th><th class="p-3">CNPJ</th><th class="p-3">Endereço</th><th class="p-3">Estado</th><th class="p-3">País</th><th class="p-3">CEP</th><th class="p-3 text-center">Orçamentos</th><th class="p-3"></th></tr></thead><tbody>
+    ${lista.map(c => { const v = x => x ? escapeHtml(x) : '<span class="text-ink-600">—</span>';
+      return `<tr class="border-t border-ink-800 hover:bg-ink-850 cursor-pointer" onclick="abrirCadCliente(${c.id})"><td class="p-3 font-semibold">${escapeHtml(c.nome)}</td><td class="p-3">${v(c.razao_social)}</td><td class="p-3 font-mono text-xs">${v(c.cnpj)}</td><td class="p-3 text-xs max-w-[220px] truncate">${v(c.endereco)}</td><td class="p-3">${v(c.estado)}</td><td class="p-3">${v(c.pais_cliente)}</td><td class="p-3 font-mono text-xs">${v(c.cep)}</td><td class="p-3 text-center tabular-nums">${nOrc[String(c.nome).trim().toLowerCase()]||0}</td><td class="p-3 text-right text-ink-500">›</td></tr>`; }).join('')}
+  </tbody></table></div>
+  <div class="text-xs text-ink-500 mt-2">${lista.length} cliente${lista.length===1?'':'s'}</div>`;
+}
+// aoSalvar(nome): callback opcional (usado pelo Novo Orçamento pra já selecionar o cliente criado)
+function abrirCadCliente(id, aoSalvar){
+  const c = id ? (STATE.clientesCad||[]).find(x=>x.id===id) : null;
+  STATE._cadCliCb = aoSalvar || null;
+  const old = document.getElementById('modal-cadcli'); if (old) old.remove();
+  const div = document.createElement('div'); div.id = 'modal-cadcli'; div.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4';
+  const v = k => escapeHtml(c?.[k]||'');
+  div.innerHTML = `<div class="card p-6 w-full max-w-xl" onclick="event.stopPropagation()">
+    <h3 class="font-bold text-lg">${c?'Editar cliente':'Cadastrar novo cliente'}</h3>
+    <div class="grid grid-cols-2 gap-3 mt-4">
+      <div class="col-span-2"><label class="text-xs text-ink-400">Nome * <span class="text-ink-500">(como aparece nos orçamentos)</span></label><input id="cc-nome" class="input mt-1" value="${v('nome')}"></div>
+      <div class="col-span-2"><label class="text-xs text-ink-400">Razão Social</label><input id="cc-razao" class="input mt-1" value="${v('razao_social')}"></div>
+      <div><label class="text-xs text-ink-400">CNPJ</label><input id="cc-cnpj" class="input mt-1" value="${v('cnpj')}" placeholder="00.000.000/0000-00"></div>
+      <div><label class="text-xs text-ink-400">CEP</label><input id="cc-cep" class="input mt-1" value="${v('cep')}"></div>
+      <div class="col-span-2"><label class="text-xs text-ink-400">Endereço</label><input id="cc-end" class="input mt-1" value="${v('endereco')}"></div>
+      <div><label class="text-xs text-ink-400">Estado</label><input id="cc-uf" class="input mt-1" value="${v('estado')}"></div>
+      <div><label class="text-xs text-ink-400">País</label><input id="cc-pais" class="input mt-1" value="${v('pais_cliente')}"></div>
+    </div>
+    <div id="cc-erro" class="text-xs text-red-400 mt-2 hidden"></div>
+    <div class="flex justify-between items-center mt-5">
+      <div>${c ? `<button class="btn-ghost text-xs text-red-400" onclick="excluirCadCliente(${c.id})">Excluir</button>` : ''}</div>
+      <div class="flex gap-2"><button class="btn-ghost" onclick="document.getElementById('modal-cadcli').remove()">Cancelar</button><button class="btn-primary" onclick="salvarCadCliente(${c?c.id:'null'})">Salvar</button></div>
+    </div>
+  </div>`;
+  div.addEventListener('click', ()=>div.remove()); document.body.appendChild(div);
+  setTimeout(()=>document.getElementById('cc-nome')?.focus(), 50);
+}
+async function salvarCadCliente(id){
+  const g = x => (document.getElementById(x)?.value||'').trim(); const erro = document.getElementById('cc-erro'); const mostrar = m => { erro.textContent = m; erro.classList.remove('hidden'); };
+  const nome = g('cc-nome'); if (!nome) return mostrar('O nome é obrigatório.');
+  const dup = (STATE.clientesCad||[]).find(x => x.id !== id && String(x.nome).trim().toLowerCase() === nome.toLowerCase()); if (dup) return mostrar('Já existe um cliente com esse nome.');
+  const antigo = id ? (STATE.clientesCad||[]).find(x=>x.id===id) : null;
+  const payload = { nome, razao_social: g('cc-razao')||null, cnpj: g('cc-cnpj')||null, endereco: g('cc-end')||null, estado: g('cc-uf')||null, pais_cliente: g('cc-pais')||null, cep: g('cc-cep')||null, pais: STATE.pais, updated_at: new Date().toISOString() };
+  if (antigo && antigo.nome !== nome){
+    const usados = (STATE.orcamentos||[]).filter(o => String(o.cliente||'').trim().toLowerCase() === String(antigo.nome).trim().toLowerCase()).length;
+    if (usados && !confirm(`"${antigo.nome}" aparece em ${usados} orçamento(s). O cadastro será renomeado, mas os orçamentos antigos continuam com o nome antigo. Continuar?`)) return;
+  }
+  const q = id ? sb.from('clientes_cadastro').update(payload).eq('id', id) : sb.from('clientes_cadastro').insert({ ...payload, created_by: (STATE.currentUser?.email||'').toLowerCase() });
+  const { error } = await q; if (error) return mostrar('Erro: ' + error.message);
+  document.getElementById('modal-cadcli')?.remove();
+  await carregarClientesCad();
+  const cb = STATE._cadCliCb; STATE._cadCliCb = null; if (cb) cb(nome);
+}
+async function excluirCadCliente(id){
+  const c = (STATE.clientesCad||[]).find(x=>x.id===id); if (!c) return;
+  const usados = (STATE.orcamentos||[]).filter(o => String(o.cliente||'').trim().toLowerCase() === String(c.nome).trim().toLowerCase()).length;
+  if (!confirm(usados ? `"${c.nome}" está em ${usados} orçamento(s). Excluir só o cadastro (os orçamentos não mudam)?` : `Excluir o cadastro de "${c.nome}"?`)) return;
+  const { error } = await sb.from('clientes_cadastro').delete().eq('id', id); if (error){ alert(error.message); return; }
+  document.getElementById('modal-cadcli')?.remove(); await carregarClientesCad();
+}
+function exportarCSVCadClientes(){
+  const rows = [['Nome','Razao Social','CNPJ','Endereco','Estado','Pais','CEP']];
+  (STATE.clientesCad||[]).forEach(c => rows.push([c.nome, c.razao_social||'', c.cnpj||'', c.endereco||'', c.estado||'', c.pais_cliente||'', c.cep||'']));
+  const csv = rows.map(r=>r.map(v=>{ const x=String(v==null?'':v); return x.includes(';')||x.includes(',')||x.includes('\n')||x.includes('"') ? '"'+x.replace(/"/g,'""')+'"' : x; }).join(';')).join('\n');
+  const blob = new Blob(['﻿'+csv], { type:'text/csv;charset=utf-8' }); const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = `clientes_${STATE.pais}.csv`; a.click(); URL.revokeObjectURL(url);
+}
+// Campo Cliente do orçamento: lista do cadastro + "cadastrar novo cliente" no fim
+function clienteSelectHTML(orc){
+  const nomes = (STATE.clientesCad||[]).map(c=>c.nome);
+  const atual = String(orc.cliente||'').trim();
+  const fora = atual && !nomes.some(n => n.toLowerCase() === atual.toLowerCase());
+  return `<select id="i-cliente" class="input" onchange="onClienteSelect(this)">
+    <option value="">Selecione o cliente…</option>
+    ${fora ? `<option value="${escapeHtml(atual)}" selected>${escapeHtml(atual)} (não cadastrado)</option>` : ''}
+    ${nomes.map(n=>`<option value="${escapeHtml(n)}" ${n.toLowerCase()===atual.toLowerCase()?'selected':''}>${escapeHtml(n)}</option>`).join('')}
+    <option value="__novo__">+ Cadastrar novo cliente…</option>
+  </select>`;
+}
+function onClienteSelect(sel){
+  if (sel.value !== '__novo__'){ onChange('cliente', sel.value); return; }
+  sel.value = CURRENT_ORC?.cliente || '';
+  abrirCadCliente(null, (nome) => {
+    const s2 = document.getElementById('i-cliente');
+    if (s2){ const op = document.createElement('option'); op.value = nome; op.textContent = nome; s2.insertBefore(op, s2.querySelector('option[value="__novo__"]')); s2.value = nome; }
+    onChange('cliente', nome);
+  });
+}
+
+/* =============================================================
+   ORÇAMENTOS — classificação por coluna (A→Z / Z→A)
+============================================================= */
+STATE.ordemOrcs = { col: null, dir: 1 };
+const ORDEM_SAUDE = { IDEAL:3, OK:2, ABAIXO_MIN:1, PREJUIZO:0 };
+function ordemValorOrc(col, o, c){
+  switch(col){
+    case 'id': { const n = parseInt(String(o.id).replace(/[^0-9]/g,''),10); return isNaN(n) ? String(o.id) : n; }
+    case 'data': return o.data || '';
+    case 'cliente': return String(o.cliente||'').toLowerCase();
+    case 'projeto': return String(o.projeto||'').toLowerCase();
+    case 'vendedor': return String(o.vendedor||'').toLowerCase();
+    case 'tipo': return String(grupoDoTipo(o.tipo)||'').toLowerCase();
+    case 'meses': return Number(o.meses)||0;
+    case 'fee': return Number(o.fee_mensal)||0;
+    case 'receita': return Number(c.receitaTotal)||0;
+    case 'mcpct': return c.receitaTotal>0 ? mcTotal(o,c)/c.receitaTotal : -1e9;
+    case 'mc': return mcTotal(o,c);
+    case 'saude': return ORDEM_SAUDE[c.statusMargem] ?? -1;
+    case 'status': return String(o.status||'').toLowerCase();
+  }
+  return 0;
+}
+function ordenarListaOrcs(orcs){
+  const { col, dir } = STATE.ordemOrcs || {}; if (!col) return orcs;
+  return orcs.map(x => ({ ...x, _k: ordemValorOrc(col, x.o, x.c) })).sort((a,b) => {
+    const A = a._k, B = b._k;
+    if (typeof A === 'number' && typeof B === 'number') return (A - B) * dir;
+    return String(A).localeCompare(String(B), 'pt-BR', { numeric:true, sensitivity:'base' }) * dir;
+  });
+}
+function ordenarOrcs(col){
+  const o = STATE.ordemOrcs;
+  if (o.col !== col){ o.col = col; o.dir = 1; } else if (o.dir === 1) o.dir = -1; else { o.col = null; o.dir = 1; }
+  render();
+}
+function thOrd(col, label, cls, title){
+  const o = STATE.ordemOrcs || {}; const ativo = o.col === col;
+  return `<th class="${cls} font-semibold cursor-pointer select-none hover:text-white ${ativo?'text-orange':''}" onclick="ordenarOrcs('${col}')" title="${title?title+' — ':''}clique pra classificar (A→Z, Z→A, sem ordem)">${label} <span class="text-[9px]">${ativo ? (o.dir===1?'▲':'▼') : '↕'}</span></th>`;
+}
+
+/* =============================================================
+   SNACKFLOW — PAINEL DE TAREFAS
+   Responsável único, participantes, quem está trabalhando agora,
+   encaminhamento entre participantes, prazo, descrição e anexos.
+============================================================= */
+const SF_TAREFA_COR = { NAO_INICIADA:'#8E8D98', EM_ANDAMENTO:'#2E6BFF', IMPEDIMENTO:'#EF4444', FINALIZADA:'#22C55E' };
+STATE.sfPainel = { projeto:'', pessoa:'', soMinhas:false };
+function sfIniciais(m){ const n = String(m?.nome||m?.email||'?').trim().split(/\s+/); return ((n[0]||'?')[0] + (n.length>1 ? n[n.length-1][0] : '')).toUpperCase(); }
+function sfAvatar(id, ativo, tam){
+  const m = sfMembro(id); const t = tam || 26;
+  return `<span title="${escapeHtml(m?.nome||m?.email||'?')}${ativo?' — trabalhando agora':''}" style="width:${t}px;height:${t}px;font-size:${Math.round(t*0.38)}px;${ativo?'background:#FF5722;color:#fff;box-shadow:0 0 0 2px rgba(255,87,34,.35)':'background:rgb(var(--ink-800));color:rgb(var(--ink-200))'}" class="inline-flex items-center justify-center rounded-full font-bold shrink-0">${escapeHtml(sfIniciais(m))}</span>`;
+}
+function sfTarefaPessoas(t){ return [...new Set([t.responsavel_id, ...(t.participantes||[])].filter(Boolean))]; }
+function sfTarefasFiltradas(){
+  const s = STATE.sf, f = STATE.sfPainel;
+  return s.tarefas.filter(t => {
+    if (f.projeto && t.projeto_id !== f.projeto) return false;
+    if (f.pessoa && !sfTarefaPessoas(t).includes(f.pessoa)) return false;
+    if (f.soMinhas && !sfTarefaPessoas(t).includes(s.eu.id)) return false;
+    return true;
+  });
+}
+function renderSfPainel(){
+  const s = STATE.sf, f = STATE.sfPainel; const hojeISO = hoje();
+  const lista = sfTarefasFiltradas();
+  const comigo = s.tarefas.filter(t => (t.ativos||[]).includes(s.eu.id) && t.status !== 'FINALIZADA').length;
+  const atrasadas = lista.filter(t => t.prazo && t.prazo < hojeISO && t.status !== 'FINALIZADA').length;
+  const col = (st) => { const ts = lista.filter(t=>t.status===st).sort((a,b)=> String(a.prazo||'9999').localeCompare(String(b.prazo||'9999')));
+    return `<div class="rounded-xl p-2 min-w-[260px] flex-1" style="background:var(--fx-white-weak)">
+      <div class="flex items-center justify-between px-2 py-1.5"><div class="flex items-center gap-2 text-xs font-bold uppercase tracking-wider"><span class="w-2 h-2 rounded-full" style="background:${SF_TAREFA_COR[st]}"></span>${SF_TAREFA_STATUS[st]}</div><span class="text-xs text-ink-400">${ts.length}</span></div>
+      <div class="space-y-2 mt-1" ondragover="event.preventDefault()" ondrop="sfDropTarefa(event,'${st}')" style="min-height:60px">
+        ${ts.map(t => { const p = sfProjeto(t.projeto_id); const atras = t.prazo && t.prazo < hojeISO && st !== 'FINALIZADA'; const pessoas = sfTarefaPessoas(t); const ativos = t.ativos||[]; const nAnx = (t.anexos||[]).length;
+          return `<div class="card p-3 cursor-pointer card-hover" draggable="true" ondragstart="event.dataTransfer.setData('text/plain','${t.id}')" onclick="abrirSfTarefa('${t.id}')" style="border-left:3px solid ${SF_TAREFA_COR[st]}">
+            <div class="text-[10px] uppercase tracking-wider text-ink-500 truncate">${escapeHtml(p?.cliente||'?')} · ${escapeHtml(p?.nome||'')}</div>
+            <div class="font-semibold text-sm mt-0.5">${escapeHtml(t.titulo)}</div>
+            ${t.descricao?`<div class="text-xs text-ink-400 mt-1" style="display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${escapeHtml(t.descricao)}</div>`:''}
+            <div class="flex items-center justify-between gap-2 mt-2">
+              <div class="flex items-center -space-x-1">${pessoas.slice(0,5).map(id=>sfAvatar(id, ativos.includes(id), 24)).join('')}${pessoas.length>5?`<span class="text-[10px] text-ink-400 pl-2">+${pessoas.length-5}</span>`:''}</div>
+              <div class="flex items-center gap-2 text-[11px]">${nAnx?`<span class="text-ink-400">📎 ${nAnx}</span>`:''}${t.prazo?`<span class="${atras?'text-red-400 font-bold':'text-ink-400'}">${atras?'⚠ ':''}${fmtData(t.prazo).slice(0,5)}</span>`:''}</div>
+            </div>
+            ${ativos.length?`<div class="text-[10px] text-orange mt-1.5 truncate">▶ ${ativos.map(id=>escapeHtml((sfMembro(id)?.nome||'?').split(' ')[0])).join(', ')} trabalhando agora</div>`:''}
+          </div>`; }).join('') || '<div class="text-xs text-ink-500 text-center py-4">—</div>'}
+      </div></div>`; };
+  return `
+  <div class="card p-3 flex items-end gap-3 flex-wrap">
+    <div><label class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">Projeto</label><select class="input py-1.5 text-sm mt-1" style="max-width:260px" onchange="STATE.sfPainel.projeto=this.value; sfSetAba('painel')"><option value="">Todos</option>${s.projetos.filter(p=>p.status==='EM_ANDAMENTO').map(p=>`<option value="${p.id}" ${f.projeto===p.id?'selected':''}>${escapeHtml(p.cliente)} · ${escapeHtml(p.nome)}</option>`).join('')}</select></div>
+    <div><label class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">Pessoa</label><select class="input py-1.5 text-sm mt-1" onchange="STATE.sfPainel.pessoa=this.value; sfSetAba('painel')"><option value="">Todas</option>${s.membros.filter(m=>m.ativo!==false).map(m=>`<option value="${m.id}" ${f.pessoa===m.id?'selected':''}>${escapeHtml(m.nome||m.email)}</option>`).join('')}</select></div>
+    <label class="flex items-center gap-2 text-xs text-ink-300 pb-2 cursor-pointer"><input type="checkbox" class="accent-orange-500 w-4 h-4" ${f.soMinhas?'checked':''} onchange="STATE.sfPainel.soMinhas=this.checked; sfSetAba('painel')">Só as minhas</label>
+    <div class="ml-auto flex items-center gap-4 text-xs"><span>Comigo agora: <b class="text-orange">${comigo}</b></span>${atrasadas?`<span class="text-red-400 font-bold">⚠ ${atrasadas} atrasada${atrasadas===1?'':'s'}</span>`:''}<button class="btn btn-primary text-sm" onclick="abrirSfTarefa(null)">+ Tarefa</button></div>
+  </div>
+  <div class="flex gap-3 overflow-x-auto pb-2 items-start">${['NAO_INICIADA','EM_ANDAMENTO','IMPEDIMENTO','FINALIZADA'].map(col).join('')}</div>
+  <div class="text-[11px] text-ink-500">Arraste o cartão pra mudar o status. Avatar laranja = quem está com a tarefa agora. Clique no cartão pra ver detalhes, encaminhar pra outro participante e anexar arquivos.</div>`;
+}
+async function sfMov(tarefaId, acao, de, para, obs){
+  try { await sb.from('sf_tarefa_mov').insert({ tarefa_id: tarefaId, acao, de_membro: de||null, para_membro: para||null, obs: obs||null, por: (STATE.currentUser?.email||'').toLowerCase() }); } catch(e){}
+}
+async function sfUpdTarefa(id, patch){
+  const { error } = await sb.from('sf_tarefas').update({ ...patch, updated_at: new Date().toISOString() }).eq('id', id);
+  if (error){ alert('Erro: ' + error.message); return false; }
+  const t = STATE.sf.tarefas.find(x=>x.id===id); if (t) Object.assign(t, patch);
+  return true;
+}
+async function sfDropTarefa(ev, status){
+  ev.preventDefault(); const id = ev.dataTransfer.getData('text/plain'); const t = STATE.sf.tarefas.find(x=>x.id===id); if (!t || t.status === status) return;
+  const antes = t.status; const patch = { status }; if (status === 'FINALIZADA') patch.ativos = [];
+  if (await sfUpdTarefa(id, patch)){ await sfMov(id, 'status', null, null, `${SF_TAREFA_STATUS[antes]} → ${SF_TAREFA_STATUS[status]}`); sfSetAba('painel'); }
+}
+// ---- Modal: criar / detalhar tarefa ----
+async function abrirSfTarefa(id){
+  const s = STATE.sf; const t = id ? s.tarefas.find(x=>x.id===id) : null;
+  const old = document.getElementById('modal-sf'); if (old) old.remove();
+  const div = document.createElement('div'); div.id = 'modal-sf'; div.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4';
+  const membros = s.membros.filter(m=>m.ativo!==false);
+  const part = new Set(t?.participantes||[]); const ativos = t?.ativos||[];
+  const projs = s.projetos.filter(p=>p.status==='EM_ANDAMENTO' || p.id===t?.projeto_id);
+  let movs = [];
+  if (t){ const { data } = await sb.from('sf_tarefa_mov').select('*').eq('tarefa_id', t.id).order('criado_em', {ascending:false}).limit(40); movs = data||[]; }
+  const pessoas = t ? sfTarefaPessoas(t) : [];
+  const euParticipo = t && pessoas.includes(s.eu.id); const euAtivo = ativos.includes(s.eu.id);
+  div.innerHTML = `<div class="card w-full max-w-3xl max-h-[92vh] overflow-y-auto" onclick="event.stopPropagation()">
+    <div class="p-6 border-b border-ink-800 flex items-start justify-between gap-3"><h3 class="font-bold text-lg">${t?'Tarefa':'Nova tarefa'}</h3><button class="text-ink-400 hover:text-white text-xl leading-none" onclick="document.getElementById('modal-sf').remove()">×</button></div>
+    <div class="p-6 grid grid-cols-1 md:grid-cols-[1fr,260px] gap-6">
+      <div class="space-y-3">
+        <div><label class="text-xs text-ink-400">Título *</label><input id="tk-titulo" class="input mt-1" value="${escapeHtml(t?.titulo||'')}"></div>
+        <div><label class="text-xs text-ink-400">Projeto *</label><select id="tk-proj" class="input mt-1">${projs.map(p=>`<option value="${p.id}" ${(t?.projeto_id||STATE.sfPainel.projeto)===p.id?'selected':''}>${escapeHtml(p.cliente)} · ${escapeHtml(p.nome)}</option>`).join('')}</select></div>
+        <div><label class="text-xs text-ink-400">Descrição</label><textarea id="tk-desc" rows="3" class="input mt-1" placeholder="Breve descrição do que precisa ser feito">${escapeHtml(t?.descricao||'')}</textarea></div>
+        <div class="grid grid-cols-3 gap-3">
+          <div><label class="text-xs text-ink-400">Prazo de entrega</label><input id="tk-prazo" type="date" class="input mt-1" value="${t?.prazo||''}"></div>
+          <div><label class="text-xs text-ink-400">Horas estimadas</label><input id="tk-horas" type="number" step="0.5" class="input mt-1" value="${t?.horas_estimadas||''}"></div>
+          <div><label class="text-xs text-ink-400">Status</label><select id="tk-status" class="input mt-1">${Object.entries(SF_TAREFA_STATUS).map(([k,v])=>`<option value="${k}" ${(t?.status||'NAO_INICIADA')===k?'selected':''}>${v}</option>`).join('')}</select></div>
+        </div>
+        <div><label class="text-xs text-ink-400">Responsável * <span class="text-ink-500">(um só)</span></label><select id="tk-resp" class="input mt-1">${membros.map(m=>`<option value="${m.id}" ${(t?.responsavel_id||s.eu.id)===m.id?'selected':''}>${escapeHtml(m.nome||m.email)}</option>`).join('')}</select></div>
+        <div><label class="text-xs text-ink-400">Participantes <span class="text-ink-500">(um ou vários)</span></label>
+          <div class="mt-1 grid grid-cols-2 gap-1 max-h-40 overflow-y-auto rounded-lg p-2" style="background:var(--fx-white-weak)">${membros.map(m=>`<label class="flex items-center gap-2 text-xs py-0.5 cursor-pointer"><input type="checkbox" class="tk-part accent-orange-500" value="${m.id}" ${part.has(m.id)?'checked':''}>${escapeHtml(m.nome||m.email)}</label>`).join('')}</div></div>
+        <div><label class="text-xs text-ink-400">Anexos</label>
+          <div class="mt-1 space-y-1">${(t?.anexos||[]).map((a,i)=>`<div class="flex items-center gap-2 text-xs bg-white/5 rounded px-2 py-1"><button class="text-azul-400 truncate flex-1 text-left" onclick="baixarAnexo('${a.path}')">📎 ${escapeHtml(a.nome)}</button><button class="text-ink-500 hover:text-red-400" onclick="sfRemoverAnexoTarefa('${t.id}',${i})">✕</button></div>`).join('')}</div>
+          <input id="tk-arquivos" type="file" multiple class="input mt-1 text-xs"></div>
+        <div id="tk-erro" class="text-xs text-red-400 hidden"></div>
+      </div>
+      <div class="space-y-4">
+        ${t ? `<div><div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold mb-2">Trabalhando agora</div>
+          <div class="space-y-1">${pessoas.map(id=>`<div class="flex items-center gap-2 text-xs">${sfAvatar(id, ativos.includes(id), 24)}<span class="flex-1 truncate">${escapeHtml(sfMembro(id)?.nome||'?')}${id===t.responsavel_id?' <span class="text-ink-500">(resp.)</span>':''}</span>${ativos.includes(id)?'<span class="text-orange font-bold">▶</span>':''}</div>`).join('')}</div>
+          ${t.status!=='FINALIZADA' && (euParticipo || sfEhGestor()) ? `<div class="mt-3 space-y-2">
+            ${euParticipo ? `<button class="btn btn-ghost text-xs w-full justify-center" onclick="sfToggleAtivo('${t.id}')">${euAtivo?'⏸ Parei de trabalhar nisso':'▶ Estou trabalhando nisso'}</button>`:''}
+            <div class="rounded-lg p-2" style="background:var(--fx-white-weak)"><div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold mb-1">Encaminhar</div>
+              <select id="tk-enc-para" class="input py-1 text-xs">${pessoas.filter(id=>id!==s.eu.id).map(id=>`<option value="${id}">${escapeHtml(sfMembro(id)?.nome||'?')}</option>`).join('')}</select>
+              <input id="tk-enc-obs" class="input py-1 text-xs mt-1" placeholder="Recado (opcional)">
+              <button class="btn btn-primary text-xs w-full justify-center mt-1" onclick="sfEncaminhar('${t.id}')">Terminei minha parte → encaminhar</button></div>
+          </div>`:''}</div>
+        <div><div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold mb-2">Movimentação</div>
+          <div class="space-y-2 max-h-56 overflow-y-auto">${movs.length?movs.map(m=>{ const de = sfMembro(m.de_membro), pa = sfMembro(m.para_membro); const quando = new Date(m.criado_em).toLocaleString('pt-BR',{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'});
+            const txt = m.acao==='encaminhar' ? `<b>${escapeHtml(de?.nome||'?')}</b> → <b>${escapeHtml(pa?.nome||'?')}</b>` : m.acao==='iniciar' ? `<b>${escapeHtml(de?.nome||'?')}</b> começou` : m.acao==='pausar' ? `<b>${escapeHtml(de?.nome||'?')}</b> pausou` : m.acao==='criar' ? 'Tarefa criada' : escapeHtml(m.acao);
+            return `<div class="text-[11px] border-l-2 border-ink-700 pl-2"><div>${txt}${m.obs?` · <span class="text-ink-300">${escapeHtml(m.obs)}</span>`:''}</div><div class="text-ink-500">${quando} · ${escapeHtml(String(m.por||'').split('@')[0])}</div></div>`; }).join(''):'<div class="text-xs text-ink-500">Sem movimentação ainda.</div>'}</div></div>` : '<div class="text-xs text-ink-500">Depois de criar, dá pra marcar quem está trabalhando, encaminhar entre participantes e acompanhar a movimentação.</div>'}
+      </div>
+    </div>
+    <div class="p-6 border-t border-ink-800 flex items-center justify-between">
+      <div>${t && (sfEhGestor() || t.responsavel_id===s.eu.id) ? `<button class="btn-ghost text-xs text-red-400" onclick="sfExcluirTarefaPainel('${t.id}')">Excluir tarefa</button>`:''}</div>
+      <div class="flex gap-2"><button class="btn-ghost" onclick="document.getElementById('modal-sf').remove()">Fechar</button><button class="btn-primary" id="tk-ok" onclick="salvarSfTarefa(${t?`'${t.id}'`:'null'})">${t?'Salvar':'Criar tarefa'}</button></div>
+    </div></div>`;
+  div.addEventListener('click', ()=>div.remove()); document.body.appendChild(div);
+}
+async function salvarSfTarefa(id){
+  const s = STATE.sf; const erro = document.getElementById('tk-erro'); const mostrar = m => { erro.textContent = m; erro.classList.remove('hidden'); };
+  const g = x => document.getElementById(x)?.value;
+  const titulo = (g('tk-titulo')||'').trim(), proj = g('tk-proj'), resp = g('tk-resp');
+  if (!titulo) return mostrar('Informe o título.'); if (!proj) return mostrar('Escolha o projeto (importe/cadastre projetos antes).'); if (!resp) return mostrar('Escolha o responsável.');
+  const participantes = [...document.querySelectorAll('.tk-part:checked')].map(c=>c.value).filter(x=>x!==resp);
+  const antigo = id ? s.tarefas.find(x=>x.id===id) : null;
+  const btn = document.getElementById('tk-ok'); btn.disabled = true; btn.textContent = 'Salvando…';
+  try {
+    const anexos = [...(antigo?.anexos||[])];
+    for (const f of [...(document.getElementById('tk-arquivos')?.files||[])]){
+      if (f.size > 20*1024*1024) throw new Error(`"${f.name}" passa de 20 MB.`);
+      const path = `tarefas/${Date.now()}_${f.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
+      const { error: upErr } = await sb.storage.from('comprovantes').upload(path, f); if (upErr) throw upErr;
+      anexos.push({ nome: f.name, path, por: (STATE.currentUser?.email||'').toLowerCase(), em: new Date().toISOString() });
+    }
+    const status = g('tk-status');
+    const validos = new Set([resp, ...participantes]);
+    const payload = { titulo, projeto_id: proj, descricao: (g('tk-desc')||'').trim() || null, prazo: g('tk-prazo') || null, horas_estimadas: Number(g('tk-horas'))||null, status, responsavel_id: resp, participantes, anexos,
+      ativos: status === 'FINALIZADA' ? [] : (antigo?.ativos||[]).filter(x=>validos.has(x)), updated_at: new Date().toISOString() };
+    if (id){
+      const { error } = await sb.from('sf_tarefas').update(payload).eq('id', id); if (error) throw error;
+      if (antigo && antigo.status !== status) await sfMov(id, 'status', null, null, `${SF_TAREFA_STATUS[antigo.status]} → ${SF_TAREFA_STATUS[status]}`);
+    } else {
+      const { data, error } = await sb.from('sf_tarefas').insert({ ...payload, created_by: (STATE.currentUser?.email||'').toLowerCase() }).select('id').single(); if (error) throw error;
+      await sfMov(data.id, 'criar', null, resp, null);
+    }
+    document.getElementById('modal-sf')?.remove(); await sfRecarregar(); sfSetAba('painel');
+  } catch(e){ btn.disabled = false; btn.textContent = id?'Salvar':'Criar tarefa'; mostrar('Erro: ' + (e.message||e)); }
+}
+async function sfToggleAtivo(id){
+  const s = STATE.sf; const t = s.tarefas.find(x=>x.id===id); if (!t) return;
+  const era = (t.ativos||[]).includes(s.eu.id);
+  const ativos = era ? t.ativos.filter(x=>x!==s.eu.id) : [...(t.ativos||[]), s.eu.id];
+  const patch = { ativos }; if (!era && t.status === 'NAO_INICIADA') patch.status = 'EM_ANDAMENTO';
+  if (await sfUpdTarefa(id, patch)){ await sfMov(id, era?'pausar':'iniciar', s.eu.id, null, null); await abrirSfTarefa(id); const el = document.getElementById('view'); if (el && STATE.sf.aba==='painel') el.innerHTML = renderSnackFlow(); }
+}
+async function sfEncaminhar(id){
+  const s = STATE.sf; const t = s.tarefas.find(x=>x.id===id); if (!t) return;
+  const para = document.getElementById('tk-enc-para')?.value; if (!para){ alert('Não há outro participante pra encaminhar. Adicione participantes à tarefa.'); return; }
+  const obs = (document.getElementById('tk-enc-obs')?.value||'').trim();
+  const ativos = [...new Set([...(t.ativos||[]).filter(x=>x!==s.eu.id), para])];
+  const patch = { ativos }; if (t.status === 'NAO_INICIADA') patch.status = 'EM_ANDAMENTO';
+  if (await sfUpdTarefa(id, patch)){ await sfMov(id, 'encaminhar', s.eu.id, para, obs); document.getElementById('modal-sf')?.remove(); sfSetAba('painel'); }
+}
+async function sfRemoverAnexoTarefa(id, idx){
+  const t = STATE.sf.tarefas.find(x=>x.id===id); if (!t || !confirm('Remover este anexo da tarefa?')) return;
+  const anexos = (t.anexos||[]).filter((_,i)=>i!==idx);
+  if (await sfUpdTarefa(id, { anexos })) await abrirSfTarefa(id);
+}
+async function sfExcluirTarefaPainel(id){
+  if (!confirm('Excluir a tarefa? Os lançamentos de horas ficam, só perdem o vínculo.')) return;
+  const { error } = await sb.from('sf_tarefas').delete().eq('id', id); if (error){ alert(error.message); return; }
+  document.getElementById('modal-sf')?.remove(); await sfRecarregar(); sfSetAba('painel');
 }
 
 </script>
