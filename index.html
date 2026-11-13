@@ -290,7 +290,7 @@ tailwind.config = {
       <div class="pt-4 border-t border-ink-800 mt-4">
         <button class="tema-btn mb-2" id="tema-btn" onclick="alternarTema()" title="Alternar entre tema claro e escuro"><span id="tema-icone">🌙</span><span id="tema-label">Tema escuro</span></button>
         <div class="flex items-center gap-2.5 p-2 rounded-lg">
-          <div class="w-8 h-8 rounded-full grad-snack flex items-center justify-center text-white font-bold text-sm">S</div>
+          <div id="user-avatar" class="w-8 h-8 rounded-full grad-snack flex items-center justify-center text-white font-bold text-sm overflow-hidden shrink-0">S</div>
           <div class="flex-1 min-w-0">
             <div class="text-sm font-semibold truncate" id="user-email">—</div>
             <div class="text-[11px] text-ink-400 truncate">Snack</div>
@@ -995,6 +995,7 @@ async function entrar(){
     if (user){
       const nomeEl = document.getElementById('user-email');
       if (nomeEl) nomeEl.textContent = user.email || 'Usuário';
+      atualizarUsuarioSidebar();
     }
   } catch(e){}
   aplicarPaisNoBoot();
@@ -5014,7 +5015,7 @@ function renderUsuariosTabela(){
   return `<div class="divide-y divide-ink-800">
     ${lista.map(({u,i})=>{ const ehEu = (u.email||'').toLowerCase() === (STATE.currentUser?.email||'').toLowerCase(); const lg = (STATE.usuariosLogin||{})[u.email]; const semLogin = STATE.usuariosLogin != null && !lg;
       return `<button class="w-full text-left px-5 py-3 hover:bg-ink-900/40 flex items-center gap-3 ${u.ativo===false?'opacity-50':''}" onclick="abrirUsuarioConfig(${i})">
-        <div class="w-8 h-8 rounded-full bg-ink-800 flex items-center justify-center text-xs font-bold">${escapeHtml((u.nome||u.email).trim().charAt(0).toUpperCase())}</div>
+        ${usuarioAvatarHTML(u, 32)}
         <div class="flex-1 min-w-0"><div class="font-semibold truncate">${escapeHtml(u.nome||u.email.split('@')[0])}${ehEu?' <span class="text-orange-400 text-xs">(você)</span>':''}</div><div class="text-xs text-ink-500 truncate">${escapeHtml(u.email)}</div></div>
         <div class="flex items-center gap-1.5 text-[10px]">${u.admin?'<span class="pill pill-orange">Admin</span>':''}${u.ativo===false?'<span class="pill pill-red">Inativo</span>':''}${semLogin?'<span class="pill pill-yellow">sem login</span>':''}</div>
         <span class="text-ink-500">›</span>
@@ -5038,7 +5039,18 @@ function renderUsuarioConfig(i){
   const linha = (label, ctrl, hint) => `<label class="flex items-center justify-between gap-3 py-2 border-b border-ink-800/60"><span class="text-sm">${label}${hint?`<div class="text-[11px] text-ink-500">${hint}</div>`:''}</span>${ctrl}</label>`;
   return `
     <div class="p-6 border-b border-ink-800 flex items-start justify-between gap-3">
-      <div><div class="font-bold text-lg">${escapeHtml(u.nome||u.email.split('@')[0])}${ehEu?' <span class="text-orange-400 text-sm">(você)</span>':''}</div><div class="text-xs text-ink-500">${escapeHtml(u.email)}</div></div>
+      <div class="flex items-center gap-4 flex-1 min-w-0">
+        <div class="shrink-0 text-center">
+          <div id="usuario-foto-${i}">${usuarioAvatarHTML(u, 64)}</div>
+          <label class="block text-[11px] text-azul-400 cursor-pointer mt-1 hover:underline">${u.foto?'Trocar foto':'Enviar foto'}<input type="file" accept="image/*" class="hidden" onchange="uploadFotoUsuario(${i}, this)"></label>
+          ${u.foto?`<button class="text-[11px] text-ink-500 hover:text-red-400" onclick="removerFotoUsuario(${i})">remover</button>`:''}
+        </div>
+        <div class="flex-1 min-w-0">
+          <label class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">Nome${ehEu?' <span class="text-orange-400 normal-case">(você)</span>':''}</label>
+          <input class="input mt-1 font-bold" maxlength="80" value="${escapeHtml(u.nome||'')}" placeholder="${escapeHtml(u.email.split('@')[0])}" oninput="setAcessoCampo(${i},'nome',this.value)">
+          <div class="text-xs text-ink-500 mt-1 truncate">${escapeHtml(u.email)}</div>
+        </div>
+      </div>
       <button class="text-ink-400 hover:text-white text-xl leading-none" onclick="document.getElementById('modal-usuario').remove()">×</button>
     </div>
     <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -5051,6 +5063,9 @@ function renderUsuarioConfig(i){
         <div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold mb-2 mt-5">Unidades</div>
         ${linha('🇧🇷 Brasil', cb((u.paises||[]).includes('BR'), `toggleAcessoPais(${i},'BR',this.checked)`))}
         ${linha('🇵🇹 Portugal', cb((u.paises||[]).includes('PT'), `toggleAcessoPais(${i},'PT',this.checked)`))}
+        ${usuarioTemSnackFlow(u) ? `<div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold mb-2 mt-5">SnackFlow</div>
+        ${linha('Superior direto', `<select class="input py-1 text-xs" style="width:auto;max-width:190px" onchange="setAcessoCampo(${i},'superior_email',this.value||null)">${superiorOptionsHTML(u)}</select>`)}
+        ${linha('Elegível ao timesheet', cb(u.timesheet_elegivel!==false, `setAcessoCampo(${i},'timesheet_elegivel',this.checked)`), 'Preenche horas no SnackFlow')}` : ''}
       </div>
       <div>
         <div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold mb-2">Abas</div>
@@ -5118,6 +5133,101 @@ function renderUsuariosTabelaAntiga(){
   </table>
   <div class="p-3 text-xs text-ink-500 border-t border-ink-800">Dica: "Todas as abas" libera tudo, inclusive abas novas que forem criadas no futuro — exceto <b>Pipeline</b> e <b>SnackFlow</b>, que são liberados à parte (admins sempre têm). Desmarque pra escolher aba por aba. A aba <b>Validar NF Rápida</b> além disso exige um dos e-mails validadores (financeiro@, daniel@, administracao@).</div>`;
 }
+// ===== Cadastro de usuário: foto, superior direto, elegibilidade ao timesheet =====
+function colunaInexistente(error){
+  const m = String(error?.message||'') + ' ' + String(error?.code||'');
+  return /42703|PGRST204|column .* does not exist|Could not find the .* column/i.test(m);
+}
+function usuarioTemSnackFlow(u){ return !!u && (!!u.admin || (u.abas||[]).includes('snackflow')); }
+function usuarioAvatarHTML(u, tam){
+  const t = tam || 32;
+  const foto = u && typeof u.foto === 'string' && u.foto.startsWith('data:image/') ? u.foto : null;
+  if (foto) return `<img src="${foto}" alt="" style="width:${t}px;height:${t}px" class="rounded-full object-cover shrink-0">`;
+  const ini = escapeHtml(String(u?.nome||u?.email||'?').trim().charAt(0).toUpperCase());
+  return `<div style="width:${t}px;height:${t}px;font-size:${Math.round(t*0.4)}px" class="rounded-full bg-ink-800 flex items-center justify-center font-bold shrink-0">${ini}</div>`;
+}
+function superiorOptionsHTML(u){
+  const outros = (STATE.usuariosAcesso||[]).filter(x => x.email !== u.email && x.ativo !== false)
+    .sort((a,b)=> String(a.nome||a.email).localeCompare(String(b.nome||b.email), 'pt-BR', {sensitivity:'base'}));
+  const atual = u.superior_email || '';
+  const fora = atual && !outros.some(x => x.email === atual);
+  return `<option value="">— sem superior —</option>` +
+    (fora ? `<option value="${escapeHtml(atual)}" selected>${escapeHtml(atual)}</option>` : '') +
+    outros.map(x => `<option value="${escapeHtml(x.email)}" ${x.email===atual?'selected':''}>${escapeHtml(x.nome||x.email.split('@')[0])}</option>`).join('');
+}
+function rerenderUsuarioConfig(i){
+  const mc = document.getElementById('modal-usuario-conteudo'); if (mc) mc.innerHTML = renderUsuarioConfig(i);
+  marcarPendente(i);
+}
+// Redimensiona no navegador (recorte quadrado central, 160x160, JPEG) e guarda como data URL pequena.
+function uploadFotoUsuario(i, input){
+  const f = input.files && input.files[0]; if (!f) return;
+  if (!/^image\//.test(f.type)){ alert('Escolha um arquivo de imagem (JPG ou PNG).'); input.value=''; return; }
+  if (f.size > 15*1024*1024){ alert('Imagem muito grande (máx. 15 MB).'); input.value=''; return; }
+  const url = URL.createObjectURL(f); const img = new Image();
+  img.onload = () => {
+    try {
+      const T = 160, lado = Math.min(img.naturalWidth, img.naturalHeight);
+      const sx = (img.naturalWidth - lado)/2, sy = (img.naturalHeight - lado)/2;
+      const cv = document.createElement('canvas'); cv.width = T; cv.height = T;
+      const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0,0,T,T);
+      ctx.drawImage(img, sx, sy, lado, lado, 0, 0, T, T);
+      let q = 0.82, data = cv.toDataURL('image/jpeg', q);
+      while (data.length > 60000 && q > 0.4){ q -= 0.1; data = cv.toDataURL('image/jpeg', q); }
+      STATE.usuariosAcesso[i].foto = data;
+      rerenderUsuarioConfig(i);
+    } catch(e){ alert('Não consegui processar a imagem: ' + (e.message||e)); }
+    finally { URL.revokeObjectURL(url); }
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); alert('Não consegui abrir essa imagem. Tente um JPG ou PNG.'); };
+  img.src = url;
+}
+function removerFotoUsuario(i){ STATE.usuariosAcesso[i].foto = null; rerenderUsuarioConfig(i); }
+// Janela aberta ao liberar o SnackFlow: superior direto + elegibilidade ao timesheet
+function abrirPerguntaSnackFlow(i){
+  const u = STATE.usuariosAcesso[i]; if (!u) return;
+  const old = document.getElementById('modal-sf-pergunta'); if (old) old.remove();
+  const div = document.createElement('div'); div.id = 'modal-sf-pergunta'; div.className = 'fixed inset-0 flex items-center justify-center bg-black/60 p-4'; div.style.zIndex = 60;
+  const eleg = u.timesheet_elegivel !== false;
+  div.innerHTML = `<div class="card p-6 w-full max-w-md" onclick="event.stopPropagation()">
+    <h3 class="font-bold text-lg">Acesso ao SnackFlow</h3>
+    <div class="text-sm text-ink-400 mt-1">Você liberou o SnackFlow pra <b>${escapeHtml(u.nome||u.email.split('@')[0])}</b>. Duas perguntas rápidas:</div>
+    <div class="mt-4"><label class="text-xs text-ink-400">Quem é o superior direto?</label>
+      <select id="sfq-superior" class="input mt-1">${superiorOptionsHTML(u)}</select></div>
+    <div class="mt-4"><div class="text-xs text-ink-400 mb-1">É elegível ao preenchimento de horas no timesheet?</div>
+      <div class="flex gap-4 text-sm">
+        <label class="flex items-center gap-2 cursor-pointer"><input type="radio" name="sfq-eleg" value="1" class="accent-orange-500" ${eleg?'checked':''}>Sim</label>
+        <label class="flex items-center gap-2 cursor-pointer"><input type="radio" name="sfq-eleg" value="0" class="accent-orange-500" ${eleg?'':'checked'}>Não</label>
+      </div></div>
+    <div class="flex justify-end gap-2 mt-6">
+      <button class="btn-ghost" onclick="cancelarPerguntaSnackFlow(${i})" title="Desfaz a liberação do SnackFlow">Cancelar</button>
+      <button class="btn-primary" onclick="confirmarPerguntaSnackFlow(${i})">Confirmar</button>
+    </div>
+    <div class="text-[11px] text-ink-500 mt-3">Dá pra mudar depois na seção SnackFlow do cadastro. Lembre de clicar em Salvar.</div>
+  </div>`;
+  document.body.appendChild(div);
+}
+function confirmarPerguntaSnackFlow(i){
+  const u = STATE.usuariosAcesso[i]; if (!u) return;
+  u.superior_email = document.getElementById('sfq-superior')?.value || null;
+  u.timesheet_elegivel = (document.querySelector('input[name="sfq-eleg"]:checked')?.value ?? '1') === '1';
+  document.getElementById('modal-sf-pergunta')?.remove();
+  rerenderUsuarioConfig(i);
+}
+function cancelarPerguntaSnackFlow(i){
+  const u = STATE.usuariosAcesso[i];
+  if (u) u.abas = (u.abas||[]).filter(x => x !== 'snackflow');
+  document.getElementById('modal-sf-pergunta')?.remove();
+  rerenderUsuarioConfig(i);
+}
+// Nome e foto do usuário logado no rodapé do menu
+function atualizarUsuarioSidebar(){
+  const a = STATE.acesso; const email = STATE.currentUser?.email || '';
+  const nomeEl = document.getElementById('user-email'); if (nomeEl){ nomeEl.textContent = (a && a.nome) || email || 'Usuário'; nomeEl.title = email; }
+  const av = document.getElementById('user-avatar');
+  if (av && a && typeof a.foto === 'string' && a.foto.startsWith('data:image/')) av.innerHTML = `<img src="${a.foto}" alt="" class="w-8 h-8 rounded-full object-cover">`;
+  else if (av) av.textContent = String((a && a.nome) || email || 'S').trim().charAt(0).toUpperCase() || 'S';
+}
 function marcarPendente(i){ const b=document.getElementById('btn-salvar-user-'+i); if(b){ b.classList.add('btn-primary'); b.classList.remove('btn-ghost'); b.textContent='Salvar *'; } }
 function setAcessoCampo(i,campo,val){ STATE.usuariosAcesso[i][campo]=val; marcarPendente(i); }
 function toggleAcessoPais(i,pais,on){
@@ -5133,18 +5243,30 @@ function toggleAcessoTodas(i,on){
 function toggleAcessoAba(i,aba,on){
   const u=STATE.usuariosAcesso[i];
   if (aba==='pipeline' || aba==='snackflow'){ // liberados à parte; mantém o "*" se existir
-    let a=(u.abas||[]).filter(x=>x!==aba); if(on) a.push(aba); u.abas=a; marcarPendente(i); return;
+    let a=(u.abas||[]).filter(x=>x!==aba); if(on) a.push(aba); u.abas=a; marcarPendente(i);
+    if (aba==='snackflow'){ if (on) abrirPerguntaSnackFlow(i); else rerenderUsuarioConfig(i); }
+    return;
   }
   let a=(u.abas||[]).filter(x=>x!==aba && x!=='*'); if(on) a.push(aba); u.abas=a; marcarPendente(i);
 }
 async function salvarUsuarioAcesso(i){
   const u=STATE.usuariosAcesso[i];
   if (!(u.paises||[]).length && u.ativo!==false){ if(!confirm('Esse usuário ficou sem nenhuma unidade (BR/PT) — ele não vai conseguir usar a plataforma. Salvar mesmo assim?')) return; }
-  const payload={ email:u.email.toLowerCase(), nome:u.nome||null, paises:u.paises||[], abas:u.abas||[], admin:!!u.admin, ativo:u.ativo!==false, validador:!!u.validador, updated_at:new Date().toISOString() };
-  const { error } = await sb.from('usuarios_acesso').upsert(payload, { onConflict:'email' });
+  const nomeLimpo = String(u.nome||'').trim().replace(/\s+/g,' ').slice(0,80);
+  u.nome = nomeLimpo || null;
+  const base={ email:u.email.toLowerCase(), nome:u.nome, paises:u.paises||[], abas:u.abas||[], admin:!!u.admin, ativo:u.ativo!==false, validador:!!u.validador, updated_at:new Date().toISOString() };
+  const extras={ foto:u.foto||null, superior_email:u.superior_email||null, timesheet_elegivel:u.timesheet_elegivel!==false };
+  let payload={ ...base, ...extras };
+  let { error } = await sb.from('usuarios_acesso').upsert(payload, { onConflict:'email' });
+  if (error && colunaInexistente(error)){
+    // Banco ainda sem as colunas novas (migrations/2026-11-13_cadastro_usuarios.sql): salva o resto e avisa.
+    payload = base;
+    ({ error } = await sb.from('usuarios_acesso').upsert(payload, { onConflict:'email' }));
+    if (!error) alert('Nome e permissões foram salvos. Foto, superior direto e elegibilidade ao timesheet ainda não podem ser gravados: falta rodar a migração 2026-11-13_cadastro_usuarios.sql no banco.');
+  }
   if (error){ alert('Erro ao salvar: '+error.message); return; }
   const b=document.getElementById('btn-salvar-user-'+i); if(b){ b.classList.remove('btn-primary'); b.classList.add('btn-ghost'); b.textContent='Salvo ✓'; setTimeout(()=>{ if(b) b.textContent='Salvar'; },1500); }
-  if (payload.email === (STATE.currentUser?.email||'').toLowerCase()){ STATE.acesso = payload; aplicarAcessoNaUI(); }
+  if (payload.email === (STATE.currentUser?.email||'').toLowerCase()){ STATE.acesso = { ...(STATE.acesso||{}), ...payload }; aplicarAcessoNaUI(); atualizarUsuarioSidebar(); }
   const lt=document.getElementById('usuarios-tabela'); if(lt) lt.innerHTML=renderUsuariosTabela();
 }
 async function adicionarUsuarioAcesso(){
@@ -7877,6 +7999,7 @@ function renderSfHoras(){
 function sfMudarSemana(delta){ const seg = STATE.sf.semana || sfSegunda(new Date()); const n = new Date(seg); n.setDate(seg.getDate()+delta*7); STATE.sf.semana = n; sfRecarregar(); }
 
 function abrirSfLancamento(id, dataPad){
+  if (!id && STATE.acesso && STATE.acesso.timesheet_elegivel === false && !sfPodeAprovar()){ alert('Seu usuário não está marcado como elegível ao preenchimento de horas no timesheet. Fale com um administrador.'); return; }
   const s = STATE.sf; const t = id ? s.ts.find(x=>x.id===id) : null;
   if (t && t.status === 'APROVADO' && !sfPodeAprovar()){ alert('Lançamento já aprovado — só o financeiro pode alterar.'); return; }
   const old = document.getElementById('modal-sf'); if (old) old.remove();
