@@ -245,6 +245,10 @@ tailwind.config = {
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
           SnackFlow
         </div>
+        <div class="nav-item" data-route="snackstudios" title="SnackStudios: agenda de gravações nos estúdios A, B e C">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+          SnackStudios
+        </div>
         <div class="nav-item" data-route="custos">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
           Custos
@@ -895,7 +899,7 @@ const VIEW_TITLES = {
   'nota-rapida':'Nota Rápida',
   'relatorio-mensal':'Relatório de Custos',
   'backlog':'Backlog de Faturamento',
-  'usuarios':'Usuários & Acessos', realizado:'Realizado × Orçado', validador:'Validar NF Rápida', anexo:'Anexo', pipeline:'Pipeline Comercial', snackflow:'SnackFlow · Horas & Realizado', 'cadastro-clientes':'Cadastro de Clientes'
+  'usuarios':'Usuários & Acessos', realizado:'Realizado × Orçado', validador:'Validar NF Rápida', anexo:'Anexo', pipeline:'Pipeline Comercial', snackflow:'SnackFlow · Horas & Realizado', 'cadastro-clientes':'Cadastro de Clientes', snackstudios:'SnackStudios · Agenda dos Estúdios'
 };
 
 function navigate(r, ctx) {
@@ -962,6 +966,7 @@ function render() {
   else if (r==='anexo') el.innerHTML = renderAnexoView();
   else if (r==='pipeline') { el.innerHTML = renderPipeline(); if (!STATE.pipe.carregado) carregarPipeline(); }
   else if (r==='snackflow') { el.innerHTML = renderSnackFlow(); if (!STATE.sf.carregado) carregarSnackFlow(); }
+  else if (r==='snackstudios') { el.innerHTML = renderSnackStudios(); carregarStudios(); }
   else if (r==='cadastro-clientes') { el.innerHTML = renderCadClientes(); carregarClientesCad(); }
   // Aplica formatação BRL em todos inputs marcados depois do render
   aplicarBRLEmTodos();
@@ -4850,6 +4855,7 @@ const ABAS_DEF = [
   {id:'backlog', nome:'Backlog'},
   {id:'pipeline', nome:'Pipeline'},
   {id:'snackflow', nome:'SnackFlow'},
+  {id:'snackstudios', nome:'SnackStudios'},
   {id:'custos', nome:'Custos'},
   {id:'nota-rapida', nome:'Nota rápida'},
   {id:'validador', nome:'Validar NF Rápida'},
@@ -4895,7 +4901,7 @@ function podeAba(r){
   return abas.includes(base);
 }
 function primeiraAbaPermitida(){
-  const ordem = ['dashboard','orcamentos','novo','clientes','backlog','pipeline','snackflow','custos','nota-rapida','validador','relatorio-mensal','realizado','comparador','premissas','cargos','tipos'];
+  const ordem = ['dashboard','orcamentos','novo','clientes','backlog','pipeline','snackflow','snackstudios','custos','nota-rapida','validador','relatorio-mensal','realizado','comparador','premissas','cargos','tipos'];
   return ordem.find(r => podeAba(r)) || 'nota-rapida';
 }
 function aplicarAcessoNaUI(){
@@ -8635,6 +8641,276 @@ async function sfExcluirTarefaPainel(id){
   if (!confirm('Excluir a tarefa? Os lançamentos de horas ficam, só perdem o vínculo.')) return;
   const { error } = await sb.from('sf_tarefas').delete().eq('id', id); if (error){ alert(error.message); return; }
   document.getElementById('modal-sf')?.remove(); await sfRecarregar(); sfSetAba('painel');
+}
+
+
+/* =============================================================
+   MÓDULO SNACKSTUDIOS — agenda dos estúdios A, B e C
+   Visualização por dia, semana ou mês; agendamento de datas de gravação
+   com projeto (orçamento aprovado), participantes e anexos.
+   Tabela: studio_agendamentos (migrations/2026-11-13_snackstudios.sql)
+============================================================= */
+const ST_ESTUDIOS = { A:{ nome:'Estúdio A', cor:'#FF5722' }, B:{ nome:'Estúdio B', cor:'#2E6BFF' }, C:{ nome:'Estúdio C', cor:'#A855F7' } };
+const ST_DIAS = ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
+const ST_MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+const ST_H = 44; // px por hora na grade
+STATE.studios = { view:'semana', data:new Date(), eventos:[], usuarios:[], carregado:false, semTabela:false, erro:null };
+
+function stPad(n){ return String(n).padStart(2,'0'); }
+function stISO(d){ return `${d.getFullYear()}-${stPad(d.getMonth()+1)}-${stPad(d.getDate())}`; }
+function stInput(d){ return `${stISO(d)}T${stPad(d.getHours())}:${stPad(d.getMinutes())}`; }
+function stDia0(d){ return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+function stSomaDias(d, n){ const x = new Date(d); x.setDate(x.getDate()+n); return x; }
+function stSegunda(d){ const x = stDia0(d); x.setDate(x.getDate() - ((x.getDay()+6)%7)); return x; }
+function stHora(d){ return `${stPad(d.getHours())}:${stPad(d.getMinutes())}`; }
+function stTabelaInexistente(error){
+  const m = String(error?.message||'') + ' ' + String(error?.code||'');
+  return /42P01|PGRST205|relation .* does not exist|Could not find the table/i.test(m);
+}
+function stNomeUsuario(email){ const u = (STATE.studios.usuarios||[]).find(x=>x.email===email); return (u && u.nome) || String(email||'').split('@')[0]; }
+
+// ---------- Carga ----------
+async function carregarStudios(){
+  const s = STATE.studios;
+  const ini = stSomaDias(new Date(s.data.getFullYear(), s.data.getMonth(), 1), -8);
+  const fim = stSomaDias(new Date(s.data.getFullYear(), s.data.getMonth()+1, 1), 8);
+  try {
+    const [ev, us] = await Promise.all([
+      sb.from('studio_agendamentos').select('*').lt('inicio', fim.toISOString()).gt('fim', ini.toISOString()).order('inicio'),
+      s.usuarios.length ? Promise.resolve({ data: s.usuarios }) : sb.from('usuarios_acesso').select('email, nome, ativo').order('nome')
+    ]);
+    if (ev.error){
+      if (stTabelaInexistente(ev.error)){ s.semTabela = true; s.eventos = []; }
+      else throw ev.error;
+    } else { s.semTabela = false; s.eventos = ev.data || []; }
+    if (!us.error && us.data) s.usuarios = us.data.filter(u => u.ativo !== false);
+    s.erro = null;
+  } catch(e){ console.error(e); s.erro = e.message || String(e); }
+  s.carregado = true;
+  stRepintar();
+}
+function stRepintar(){
+  if (STATE.route !== 'snackstudios') return;
+  const el = document.getElementById('view'); if (!el) return;
+  el.innerHTML = renderSnackStudios();
+  const g = document.getElementById('st-grade-scroll'); if (g) g.scrollTop = 7 * ST_H - 8; // começa às 7h
+}
+function stSetView(v){ STATE.studios.view = v; stRepintar(); }
+function stNavegar(delta){
+  const s = STATE.studios; const mesAntes = s.data.getMonth() + '-' + s.data.getFullYear();
+  if (delta === 0) s.data = new Date();
+  else if (s.view === 'dia') s.data = stSomaDias(s.data, delta);
+  else if (s.view === 'semana') s.data = stSomaDias(s.data, delta*7);
+  else s.data = new Date(s.data.getFullYear(), s.data.getMonth()+delta, 1);
+  if (mesAntes !== s.data.getMonth() + '-' + s.data.getFullYear()) carregarStudios(); else stRepintar();
+}
+function stIrParaDia(iso){ const [y,m,d] = iso.split('-').map(Number); STATE.studios.data = new Date(y, m-1, d); STATE.studios.view = 'dia'; stRepintar(); }
+// eventos que tocam um dia (Date 00:00), já recortados ao dia
+function stEventosDoDia(dia){
+  const a = dia.getTime(), b = stSomaDias(dia, 1).getTime();
+  return (STATE.studios.eventos||[]).map(e => ({ e, i: new Date(e.inicio).getTime(), f: new Date(e.fim).getTime() }))
+    .filter(x => x.i < b && x.f > a)
+    .map(x => ({ e: x.e, ini: Math.max(x.i, a), fim: Math.min(x.f, b), a }))
+    .sort((x,y) => x.ini - y.ini);
+}
+
+// ---------- Render ----------
+function renderSnackStudios(){
+  const s = STATE.studios;
+  if (!s.carregado) return `<div class="p-10 text-center text-ink-400">Carregando agenda dos estúdios…</div>`;
+  const d = s.data; let titulo;
+  if (s.view === 'dia') titulo = `${ST_DIAS[(d.getDay()+6)%7]}, ${d.getDate()} de ${ST_MESES[d.getMonth()]} de ${d.getFullYear()}`;
+  else if (s.view === 'semana'){ const a = stSegunda(d), b = stSomaDias(a, 6); titulo = a.getMonth()===b.getMonth() ? `${a.getDate()} a ${b.getDate()} de ${ST_MESES[b.getMonth()]} de ${b.getFullYear()}` : `${a.getDate()} ${ST_MESES[a.getMonth()].slice(0,3)} a ${b.getDate()} ${ST_MESES[b.getMonth()].slice(0,3)} de ${b.getFullYear()}`; }
+  else titulo = `${ST_MESES[d.getMonth()]} de ${d.getFullYear()}`;
+  const tab = (id, txt) => `<button class="px-3 py-1.5 rounded-md text-xs font-semibold transition ${s.view===id?'bg-white/10 text-white':'text-ink-400 hover:text-white'}" onclick="stSetView('${id}')">${txt}</button>`;
+  return `
+  <div class="space-y-4 fade-in">
+    <div class="flex items-center justify-between gap-4 flex-wrap">
+      <div>
+        <h1 class="font-display font-bold text-2xl">SnackStudios</h1>
+        <div class="text-sm text-ink-400">Agenda de gravações nos estúdios. Clique num horário pra agendar ou num evento pra editar.</div>
+      </div>
+      <div class="flex items-center gap-2 flex-wrap">
+        <div class="flex items-center gap-3 text-[11px] mr-2">${Object.entries(ST_ESTUDIOS).map(([k,v])=>`<span class="flex items-center gap-1"><span class="w-2.5 h-2.5 rounded-sm" style="background:${v.cor}"></span>${v.nome}</span>`).join('')}</div>
+        <button class="btn btn-primary text-sm" ${s.semTabela?'disabled style="opacity:.5;cursor:not-allowed"':''} onclick="abrirStAgendamento(null)">+ Nova data de gravação</button>
+      </div>
+    </div>
+    ${s.semTabela ? `<div class="rounded-xl p-4 border border-yellow-500/40 bg-yellow-500/10 text-sm"><b>Módulo ainda não ativado no banco.</b> A tabela de agendamentos não existe: falta rodar a migração <span class="font-mono">migrations/2026-11-13_snackstudios.sql</span> no Supabase. Depois disso, é só recarregar a página.</div>` : ''}
+    ${s.erro ? `<div class="rounded-xl p-4 border border-red-500/40 bg-red-500/10 text-sm">Não consegui carregar a agenda: ${escapeHtml(s.erro)} <button class="underline ml-2" onclick="carregarStudios()">tentar de novo</button></div>` : ''}
+    <div class="card p-3 flex items-center justify-between gap-3 flex-wrap">
+      <div class="flex items-center gap-2">
+        <button class="btn btn-ghost text-xs" onclick="stNavegar(-1)">←</button>
+        <button class="btn btn-ghost text-xs" onclick="stNavegar(0)">Hoje</button>
+        <button class="btn btn-ghost text-xs" onclick="stNavegar(1)">→</button>
+        <div class="font-display font-bold text-lg ml-2">${titulo}</div>
+      </div>
+      <div class="flex items-center gap-1 bg-ink-900 rounded-lg p-1">${tab('dia','Dia')}${tab('semana','Semana')}${tab('mes','Mês')}</div>
+    </div>
+    ${s.view === 'mes' ? renderStMes() : renderStGrade()}
+  </div>`;
+}
+function stChip(e, compacto){
+  const est = ST_ESTUDIOS[e.estudio] || { nome:e.estudio, cor:'#888' }; const i = new Date(e.inicio), f = new Date(e.fim);
+  const tip = `${est.nome} · ${stHora(i)}–${stHora(f)}\n${e.cliente ? e.cliente + ' — ' : ''}${e.nome}`;
+  return `<div class="rounded px-1.5 py-0.5 text-[11px] leading-tight cursor-pointer truncate hover:brightness-110" style="background:${est.cor}22;border-left:3px solid ${est.cor}" title="${escapeHtml(tip)}" onclick="event.stopPropagation(); abrirStAgendamento(${e.id})"><span class="text-ink-400 tabular-nums">${stHora(i)}</span> ${e.cliente?`<b>${escapeHtml(e.cliente)}</b> · `:''}${escapeHtml(e.nome)}${compacto?'':` <span class="text-ink-500">(${e.estudio})</span>`}</div>`;
+}
+function renderStMes(){
+  const s = STATE.studios; const d = s.data; const hojeISO = stISO(new Date());
+  const primeiro = stSegunda(new Date(d.getFullYear(), d.getMonth(), 1));
+  const semanas = []; let dia = primeiro;
+  for (let w = 0; w < 6; w++){ const linha = []; for (let k = 0; k < 7; k++){ linha.push(dia); dia = stSomaDias(dia, 1); } semanas.push(linha); if (dia.getMonth() !== d.getMonth() && w >= 3) break; }
+  return `<div class="card overflow-hidden">
+    <div class="grid grid-cols-7 bg-ink-900 text-[10px] uppercase tracking-widest text-ink-400 font-semibold">${ST_DIAS.map(x=>`<div class="px-2 py-2">${x}</div>`).join('')}</div>
+    ${semanas.map(linha => `<div class="grid grid-cols-7 border-t border-ink-800">${linha.map(dd => { const iso = stISO(dd); const evs = stEventosDoDia(dd); const fora = dd.getMonth() !== d.getMonth(); const ehHoje = iso === hojeISO;
+      return `<div class="min-h-[110px] p-1.5 border-r border-ink-800 last:border-r-0 cursor-pointer hover:bg-white/5 ${fora?'opacity-50':''}" onclick="abrirStAgendamento(null, '${iso}T09:00')" title="Clique pra agendar neste dia">
+        <div class="flex items-center justify-between mb-1"><button class="text-xs font-bold w-6 h-6 rounded-full ${ehHoje?'bg-orange text-white':'hover:bg-white/10'}" onclick="event.stopPropagation(); stIrParaDia('${iso}')" title="Ver o dia">${dd.getDate()}</button>${evs.length?`<span class="text-[10px] text-ink-500">${evs.length}</span>`:''}</div>
+        <div class="space-y-0.5">${evs.slice(0,3).map(x=>stChip(x.e)).join('')}${evs.length>3?`<button class="text-[10px] text-ink-400 hover:underline" onclick="event.stopPropagation(); stIrParaDia('${iso}')">+ ${evs.length-3} mais</button>`:''}</div>
+      </div>`; }).join('')}</div>`).join('')}
+  </div>`;
+}
+// Grade de horas: visão "dia" (3 colunas = estúdios) e "semana" (7 dias, cada um com 3 faixas = estúdios)
+function renderStGrade(){
+  const s = STATE.studios; const hojeISO = stISO(new Date());
+  const dias = s.view === 'dia' ? [stDia0(s.data)] : [...Array(7)].map((_,k)=>stSomaDias(stSegunda(s.data), k));
+  const ests = Object.keys(ST_ESTUDIOS);
+  const fundo = `background-image:repeating-linear-gradient(to bottom, transparent 0, transparent ${ST_H-1}px, var(--fx-white) ${ST_H-1}px, var(--fx-white) ${ST_H}px)`;
+  const faixa = (dia, est, larguraPct, esquerdaPct) => { const iso = stISO(dia);
+    const evs = stEventosDoDia(dia).filter(x => x.e.estudio === est);
+    return `<div class="absolute top-0 bottom-0 cursor-pointer hover:bg-white/5" style="left:${esquerdaPct}%;width:${larguraPct}%;border-left:1px dashed var(--fx-white)" onclick="stCliqueGrade(event,'${iso}','${est}')" title="${ST_ESTUDIOS[est].nome} — clique pra agendar">
+      ${evs.map(x => { const top = (x.ini - x.a)/3600000*ST_H, alt = Math.max(20, (x.fim - x.ini)/3600000*ST_H - 2); const cor = ST_ESTUDIOS[est].cor; const i = new Date(x.e.inicio), f = new Date(x.e.fim);
+        return `<div class="absolute left-0.5 right-0.5 rounded-md px-1.5 py-1 overflow-hidden cursor-pointer hover:brightness-110 text-[11px] leading-tight" style="top:${top}px;height:${alt}px;background:${cor}26;border-left:3px solid ${cor}" onclick="event.stopPropagation(); abrirStAgendamento(${x.e.id})" title="${escapeHtml(`${ST_ESTUDIOS[est].nome} · ${stHora(i)}–${stHora(f)}\n${x.e.cliente ? x.e.cliente + ' — ' : ''}${x.e.nome}`)}">
+          ${x.e.cliente?`<div class="font-bold truncate">${escapeHtml(x.e.cliente)}</div>`:''}<div class="truncate">${escapeHtml(x.e.nome)}</div><div class="text-ink-400 tabular-nums truncate">${stHora(i)}–${stHora(f)}</div></div>`; }).join('')}
+    </div>`; };
+  return `<div class="card overflow-hidden">
+    <div class="flex bg-ink-900 border-b border-ink-800">
+      <div style="width:52px" class="shrink-0"></div>
+      ${dias.map(dd => { const iso = stISO(dd); const ehHoje = iso === hojeISO;
+        return `<div class="flex-1 min-w-0 border-l border-ink-800 text-center py-1.5">
+          <button class="text-xs font-bold ${ehHoje?'text-orange':''}" onclick="stIrParaDia('${iso}')">${ST_DIAS[(dd.getDay()+6)%7]} ${dd.getDate()}</button>
+          <div class="flex text-[9px] uppercase tracking-wider">${ests.map(k=>`<div class="flex-1 truncate" style="color:${ST_ESTUDIOS[k].cor}">${s.view==='dia'?ST_ESTUDIOS[k].nome:k}</div>`).join('')}</div>
+        </div>`; }).join('')}
+    </div>
+    <div id="st-grade-scroll" class="overflow-y-auto" style="max-height:calc(100vh - 300px)">
+      <div class="flex" style="height:${24*ST_H}px">
+        <div style="width:52px" class="shrink-0 relative">${[...Array(24)].map((_,h)=>`<div class="absolute right-2 text-[10px] text-ink-500 tabular-nums" style="top:${h*ST_H-6}px">${h?stPad(h)+':00':''}</div>`).join('')}</div>
+        ${dias.map(dd => `<div class="flex-1 min-w-0 relative border-l border-ink-800" style="${fundo}">${ests.map((k,idx)=>faixa(dd, k, 100/ests.length, idx*100/ests.length)).join('')}</div>`).join('')}
+      </div>
+    </div>
+  </div>`;
+}
+function stCliqueGrade(ev, iso, est){
+  const r = ev.currentTarget.getBoundingClientRect();
+  const min = Math.max(0, Math.min(23*60+30, Math.floor(((ev.clientY - r.top)/ST_H*60)/30)*30));
+  abrirStAgendamento(null, `${iso}T${stPad(Math.floor(min/60))}:${stPad(min%60)}`, est);
+}
+
+// ---------- Tela "Nova data de gravação" / edição ----------
+function abrirStAgendamento(id, inicioPad, estPad){
+  const s = STATE.studios;
+  if (s.semTabela){ alert('O módulo ainda não foi ativado no banco (falta rodar a migração do SnackStudios).'); return; }
+  const e = id ? s.eventos.find(x => x.id === id) : null;
+  const old = document.getElementById('modal-st'); if (old) old.remove();
+  let ini, fim;
+  if (e){ ini = new Date(e.inicio); fim = new Date(e.fim); }
+  else { ini = inicioPad ? new Date(inicioPad) : (()=>{ const n = new Date(); n.setMinutes(0,0,0); n.setHours(n.getHours()+1); return n; })(); fim = new Date(ini.getTime() + 2*3600000); }
+  const aprovados = (STATE.orcamentos||[]).filter(o => o.status === 'Aprovada').sort((a,b)=> String(a.cliente).localeCompare(String(b.cliente)) || String(a.projeto||'').localeCompare(String(b.projeto||'')));
+  const orcAtual = e?.orcamento_id || '';
+  const foraDaLista = orcAtual && !aprovados.some(o => String(o.id) === String(orcAtual));
+  const sel = new Set(e?.participantes_internos || []);
+  const usuarios = [...s.usuarios]; (e?.participantes_internos||[]).forEach(em => { if (!usuarios.some(u=>u.email===em)) usuarios.push({ email: em, nome: em }); });
+  const div = document.createElement('div'); div.id = 'modal-st'; div.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4';
+  div.innerHTML = `<div class="card w-full max-w-2xl max-h-[92vh] overflow-y-auto" onclick="event.stopPropagation()">
+    <div class="p-6 border-b border-ink-800 flex items-start justify-between gap-3">
+      <div><h3 class="font-bold text-lg">${e ? 'Editar data de gravação' : 'Nova data de gravação'}</h3><div id="st-cliente-destaque" class="text-sm font-bold text-orange mt-0.5">${e?.cliente ? escapeHtml(e.cliente) : ''}</div></div>
+      <button class="text-ink-400 hover:text-white text-xl leading-none" onclick="document.getElementById('modal-st').remove()">×</button>
+    </div>
+    <div class="p-6 grid grid-cols-2 gap-3">
+      <div class="col-span-2"><label class="text-xs text-ink-400">Nome da gravação *</label><input id="st-nome" class="input mt-1" maxlength="160" value="${escapeHtml(e?.nome||'')}" placeholder="Ex.: Reels de lançamento — dia 1"></div>
+      <div class="col-span-2"><label class="text-xs text-ink-400">Projeto <span class="text-ink-500">(orçamentos aprovados)</span></label>
+        <select id="st-orc" class="input mt-1" onchange="stProjetoMudou()"><option value="">— sem projeto —</option>
+          ${foraDaLista ? `<option value="${escapeHtml(orcAtual)}" data-cliente="${escapeHtml(e.cliente||'')}" data-projeto="${escapeHtml(e.projeto||'')}" selected>${escapeHtml(orcAtual)} · ${escapeHtml(e.cliente||'')} · ${escapeHtml(e.projeto||'')} (não aprovado/outra unidade)</option>` : ''}
+          ${aprovados.map(o => `<option value="${escapeHtml(o.id)}" data-cliente="${escapeHtml(o.cliente||'')}" data-projeto="${escapeHtml(o.projeto||'')}" ${String(o.id)===String(orcAtual)?'selected':''}>${escapeHtml(o.cliente||'')} · ${escapeHtml(o.projeto||'—')} (${escapeHtml(o.id)})</option>`).join('')}
+        </select></div>
+      <div><label class="text-xs text-ink-400">Início *</label><input id="st-ini" type="datetime-local" class="input mt-1" value="${stInput(ini)}" onchange="stInicioMudou()"></div>
+      <div><label class="text-xs text-ink-400">Término *</label><input id="st-fim" type="datetime-local" class="input mt-1" value="${stInput(fim)}"></div>
+      <div class="col-span-2"><label class="text-xs text-ink-400">Estúdio *</label><select id="st-estudio" class="input mt-1">${Object.entries(ST_ESTUDIOS).map(([k,v])=>`<option value="${k}" ${(e?.estudio||estPad||'A')===k?'selected':''}>${v.nome}</option>`).join('')}</select></div>
+      <div class="col-span-2"><label class="text-xs text-ink-400">Descrição</label><textarea id="st-desc" rows="3" class="input mt-1" placeholder="Roteiro, equipamento, observações…">${escapeHtml(e?.descricao||'')}</textarea></div>
+      <div class="col-span-2"><label class="text-xs text-ink-400">Participantes internos <span class="text-ink-500">(pode marcar vários)</span></label>
+        <div class="mt-1 grid grid-cols-2 gap-1 max-h-36 overflow-y-auto rounded-lg p-2" style="background:var(--fx-white-weak)">${usuarios.length ? usuarios.map(u=>`<label class="flex items-center gap-2 text-xs py-0.5 cursor-pointer"><input type="checkbox" class="st-part accent-orange-500" value="${escapeHtml(u.email)}" ${sel.has(u.email)?'checked':''}>${escapeHtml(u.nome||u.email.split('@')[0])}</label>`).join('') : '<div class="text-xs text-ink-500 col-span-2">Lista de usuários indisponível.</div>'}</div></div>
+      <div class="col-span-2"><label class="text-xs text-ink-400">Participantes externos</label><input id="st-ext" class="input mt-1" value="${escapeHtml(e?.participantes_externos||'')}" placeholder="Ex.: Maria (cliente), João (maquiador)"></div>
+      <div class="col-span-2"><label class="text-xs text-ink-400">Arquivos</label>
+        <div class="mt-1 space-y-1">${(e?.anexos||[]).map((a,i)=>`<div class="flex items-center gap-2 text-xs bg-white/5 rounded px-2 py-1"><button class="text-azul-400 truncate flex-1 text-left" onclick="baixarAnexo('${escapeHtml(a.path)}')">📎 ${escapeHtml(a.nome)}</button><label class="flex items-center gap-1 text-ink-500 cursor-pointer"><input type="checkbox" class="st-anexo-remover" value="${i}">remover</label></div>`).join('')}</div>
+        <input id="st-arquivos" type="file" multiple class="input mt-1 text-xs"></div>
+      <div id="st-erro" class="col-span-2 text-xs text-red-400 hidden"></div>
+    </div>
+    <div class="p-6 border-t border-ink-800 flex items-center justify-between">
+      <div>${e ? `<button class="btn-ghost text-xs text-red-400" onclick="excluirStAgendamento(${e.id})">Excluir agendamento</button>` : ''}</div>
+      <div class="flex items-center gap-3">${e?.created_by?`<span class="text-[11px] text-ink-500">agendado por ${escapeHtml(String(e.created_by).split('@')[0])}</span>`:''}<button class="btn-ghost" onclick="document.getElementById('modal-st').remove()">Cancelar</button><button class="btn-primary" id="st-ok" onclick="salvarStAgendamento(${e?e.id:'null'})">${e?'Salvar':'Agendar'}</button></div>
+    </div></div>`;
+  div.dataset.duracao = String(fim.getTime() - ini.getTime());
+  div.addEventListener('click', ()=>div.remove()); document.body.appendChild(div);
+  setTimeout(()=>document.getElementById('st-nome')?.focus(), 50);
+}
+function stProjetoMudou(){
+  const op = document.getElementById('st-orc')?.selectedOptions?.[0]; const el = document.getElementById('st-cliente-destaque');
+  if (el) el.textContent = op && op.value ? (op.dataset.cliente || '') : '';
+}
+// ao mudar o início, o término acompanha mantendo a duração
+function stInicioMudou(){
+  const m = document.getElementById('modal-st'), i = document.getElementById('st-ini'), f = document.getElementById('st-fim'); if (!m || !i || !f || !i.value) return;
+  const ini = new Date(i.value); if (isNaN(ini)) return;
+  f.value = stInput(new Date(ini.getTime() + (Number(m.dataset.duracao) || 2*3600000)));
+}
+async function salvarStAgendamento(id){
+  const s = STATE.studios; const erro = document.getElementById('st-erro'); const mostrar = m => { erro.textContent = m; erro.classList.remove('hidden'); };
+  const g = x => document.getElementById(x)?.value || '';
+  const nome = g('st-nome').trim(), estudio = g('st-estudio'); const ini = new Date(g('st-ini')), fim = new Date(g('st-fim'));
+  if (!nome) return mostrar('Informe o nome da gravação.');
+  if (isNaN(ini) || isNaN(fim)) return mostrar('Informe data e horário de início e término.');
+  if (fim <= ini) return mostrar('O término precisa ser depois do início.');
+  if (!ST_ESTUDIOS[estudio]) return mostrar('Escolha o estúdio.');
+  const antigo = id ? s.eventos.find(x => x.id === id) : null;
+  const btn = document.getElementById('st-ok'); const rotulo = btn.textContent; btn.disabled = true; btn.textContent = 'Salvando…';
+  const falhar = m => { btn.disabled = false; btn.textContent = rotulo; mostrar(m); };
+  try {
+    // Conflito de horário no mesmo estúdio (consulta o banco, não só o que está na tela)
+    let q = sb.from('studio_agendamentos').select('id, nome, cliente, inicio, fim').eq('estudio', estudio).lt('inicio', fim.toISOString()).gt('fim', ini.toISOString());
+    if (id) q = q.neq('id', id);
+    const { data: conflitos, error: eC } = await q; if (eC) throw eC;
+    if (conflitos && conflitos.length){ const c = conflitos[0]; const ci = new Date(c.inicio), cf = new Date(c.fim);
+      return falhar(`Conflito de horário: o ${ST_ESTUDIOS[estudio].nome} já está reservado para "${(c.cliente ? c.cliente + ' — ' : '') + c.nome}" em ${fmtData(stISO(ci))} das ${stHora(ci)} às ${stHora(cf)}. Escolha outro horário ou outro estúdio.`); }
+    // Anexos: mantém os que não foram marcados pra remover e sobe os novos
+    const remover = new Set([...document.querySelectorAll('.st-anexo-remover:checked')].map(c => Number(c.value)));
+    const anexos = (antigo?.anexos || []).filter((_, i) => !remover.has(i));
+    for (const f of [...(document.getElementById('st-arquivos')?.files || [])]){
+      if (f.size > 25*1024*1024) return falhar(`"${f.name}" passa de 25 MB.`);
+      const path = `studios/${Date.now()}_${f.name.replace(/[^a-zA-Z0-9._-]/g,'_')}`;
+      const { error: upErr } = await sb.storage.from('comprovantes').upload(path, f); if (upErr) throw upErr;
+      anexos.push({ nome: f.name, path, por: (STATE.currentUser?.email||'').toLowerCase(), em: new Date().toISOString() });
+    }
+    const op = document.getElementById('st-orc')?.selectedOptions?.[0];
+    const payload = { nome, estudio, inicio: ini.toISOString(), fim: fim.toISOString(),
+      orcamento_id: op && op.value ? op.value : null, cliente: op && op.value ? (op.dataset.cliente || null) : null, projeto: op && op.value ? (op.dataset.projeto || null) : null,
+      descricao: g('st-desc').trim() || null, participantes_internos: [...document.querySelectorAll('.st-part:checked')].map(c => c.value),
+      participantes_externos: g('st-ext').trim() || null, anexos, updated_at: new Date().toISOString() };
+    const r = id ? await sb.from('studio_agendamentos').update(payload).eq('id', id)
+                 : await sb.from('studio_agendamentos').insert({ ...payload, pais: STATE.pais, created_by: (STATE.currentUser?.email||'').toLowerCase() });
+    if (r.error){
+      if (/23P01|studio_agendamentos_sem_conflito/.test(String(r.error.code||'') + ' ' + String(r.error.message||''))) return falhar(`Conflito de horário: alguém acabou de reservar o ${ST_ESTUDIOS[estudio].nome} nesse período. Escolha outro horário ou outro estúdio.`);
+      throw r.error;
+    }
+    document.getElementById('modal-st')?.remove();
+    s.data = stDia0(ini); // leva a agenda pra data agendada
+    await carregarStudios();
+  } catch(e){ console.error(e); falhar(stTabelaInexistente(e) ? 'O módulo ainda não foi ativado no banco (falta rodar a migração do SnackStudios).' : 'Erro ao salvar: ' + (e.message || e)); }
+}
+async function excluirStAgendamento(id){
+  const e = STATE.studios.eventos.find(x => x.id === id); if (!e) return;
+  if (!confirm(`Excluir o agendamento "${e.nome}" (${ST_ESTUDIOS[e.estudio]?.nome || e.estudio})? Não dá pra desfazer.`)) return;
+  const { error } = await sb.from('studio_agendamentos').delete().eq('id', id);
+  if (error){ alert('Erro ao excluir: ' + error.message); return; }
+  document.getElementById('modal-st')?.remove();
+  await carregarStudios();
 }
 
 </script>
