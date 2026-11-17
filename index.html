@@ -7281,7 +7281,7 @@ const PIPE_TEMPS = { '1.HOT':{nome:'Hot', chance:.75, cor:'#EF4444'}, '2.WARM':{
 const PIPE_MOTIVOS = ['Preço','Criação','Timing','Escopo/Fit','Perdeu p/ concorrente','Sem resposta','Decisão interna cliente'];
 const PIPE_MOEDA = { Brasil:'R$', Portugal:'€', Italia:'€', USA:'US$' };
 
-STATE.pipe = { ano:null, anoAtivo:null, unidade:'Todos', aba:'lista', deals:[], dealsAnt:[], metas:{}, filtro:{ busca:'', estagio:'', servico:'', temp:'', mes:'' }, carregado:false };
+STATE.pipe = { ano:null, anoAtivo:null, anoComp:null, unidade:'Todos', aba:'lista', deals:[], dealsAnt:[], metas:{}, filtro:{ busca:'', estagio:'', servico:'', temp:'', mes:'' }, carregado:false };
 
 function pipeGeradoPor(servico){ return servico === 'Upsell' ? 'Atendimento' : 'New Business'; }
 function pipeCalc(d){
@@ -7328,21 +7328,32 @@ async function carregarPipeline(){
 }
 async function carregarDealsPipeline(){
   const ano = STATE.pipe.ano;
-  const [{ data: d1 }, { data: d0 }, { data: m }, { data: anos }] = await Promise.all([
+  // Ano de comparação do dashboard: por padrão o ano anterior; dá pra escolher outro (ex.: 2026 × 2024)
+  if (!STATE.pipe.anoComp || STATE.pipe.anoComp >= ano) STATE.pipe.anoComp = ano - 1;
+  const anoComp = STATE.pipe.anoComp;
+  // Anos disponíveis: menor e maior ano com dados (o select('ano') puro esbarra no limite de 1000 linhas da API
+  // e sumia com anos de histórico — ex.: 2024 — da lista)
+  const [{ data: d1 }, { data: d0 }, { data: m }, { data: aMin }, { data: aMax }] = await Promise.all([
     sb.from('pipeline_deals').select('*').eq('ano', ano).order('id', { ascending:false }),
-    sb.from('pipeline_deals').select('*').eq('ano', ano-1),
+    sb.from('pipeline_deals').select('*').eq('ano', anoComp),
     sb.from('pipeline_metas').select('*').eq('ano', ano),
-    sb.from('pipeline_deals').select('ano')
+    sb.from('pipeline_deals').select('ano').order('ano', { ascending:true }).limit(1),
+    sb.from('pipeline_deals').select('ano').order('ano', { ascending:false }).limit(1)
   ]);
   STATE.pipe.deals = d1 || [];
   STATE.pipe.dealsAnt = d0 || [];
   STATE.pipe.metas = {};
   (m||[]).forEach(x => { STATE.pipe.metas[`${x.unidade}|${x.mes}`] = Number(x.meta_leads_nb)||0; });
-  const set = new Set((anos||[]).map(x=>x.ano)); set.add(STATE.pipe.anoAtivo); set.add(ano);
+  const set = new Set([STATE.pipe.anoAtivo, ano]);
+  const lo = Math.min(Number(aMin?.[0]?.ano) || ano, ano), hi = Math.max(Number(aMax?.[0]?.ano) || ano, STATE.pipe.anoAtivo || ano, ano);
+  for (let a = lo; a <= hi; a++) set.add(a);
   STATE.pipe.anos = [...set].sort((a,b)=>b-a);
   if (STATE.pipe.carregado){ const el = document.getElementById('view'); if (el && STATE.route === 'pipeline') el.innerHTML = renderPipeline(); }
 }
-async function trocarAnoPipeline(ano){ STATE.pipe.ano = Number(ano); await carregarDealsPipeline(); }
+async function trocarAnoPipeline(ano){ STATE.pipe.ano = Number(ano); STATE.pipe.anoComp = null; await carregarDealsPipeline(); }
+async function trocarAnoCompPipeline(ano){ STATE.pipe.anoComp = Number(ano); await carregarDealsPipeline(); }
+// Linhas de histórico importadas por migração (planilhas de prospecção 2024/2025) — somente consulta
+function pipeEhHistorico(d){ return d && d.origem === 'historico'; }
 
 // ---------- Filtro ----------
 function pipeFiltrados(lista){
@@ -7423,7 +7434,7 @@ function renderPipelineLista(){
         lista.map(d => { const c = pipeCalc(d); const e = PIPE_ESTAGIOS[d.estagio]||{}; const t = PIPE_TEMPS[d.temperatura];
           return `<tr class="border-t border-ink-800 hover:bg-ink-850 ${d.estagio==='08 DECLINADOS/PERDIDOS'?'opacity-70':''}">
             <td class="px-2 py-2"><span class="pill" style="background:${e.bg};color:${e.cor};border:1px solid ${e.cor}55">${e.curto||d.estagio}</span></td>
-            <td class="px-2 py-2"><div class="font-semibold">${d.origem==='sheet'?'<span title="Vem da planilha (edite lá)" class="text-ink-500 mr-1">📄</span>':''}${escapeHtml(d.empresa)}</div><div class="text-ink-400 truncate max-w-[220px]" title="${escapeHtml(d.projeto||'')}">${escapeHtml(d.projeto||'—')}</div>${d.origem_deal_id?'<div class="text-[10px] text-ink-500">↪ vindo do ano anterior</div>':''}</td>
+            <td class="px-2 py-2"><div class="font-semibold">${d.origem==='sheet'?'<span title="Vem da planilha (edite lá)" class="text-ink-500 mr-1">📄</span>':pipeEhHistorico(d)?'<span title="Histórico importado da planilha de prospecção (somente consulta)" class="text-ink-500 mr-1">📚</span>':''}${escapeHtml(d.empresa)}</div><div class="text-ink-400 truncate max-w-[220px]" title="${escapeHtml(d.projeto||'')}">${escapeHtml(d.projeto||'—')}</div>${d.origem_deal_id?'<div class="text-[10px] text-ink-500">↪ vindo do ano anterior</div>':''}</td>
             <td class="px-2 py-2 whitespace-nowrap">${d.unidade}</td>
             <td class="px-2 py-2">${d.servico}</td>
             <td class="px-2 py-2 text-ink-300 whitespace-nowrap">${d.gerado_por||pipeGeradoPor(d.servico)}</td>
@@ -7436,7 +7447,7 @@ function renderPipelineLista(){
             <td class="px-2 py-2 text-right tabular-nums text-ink-400">${c.budgetProx?pipeFmt(c.budgetProx, d.unidade):'—'}</td>
             <td class="px-2 py-2 text-right tabular-nums ${d.estagio==='07 PROPOSTA ENVIADA'?'text-azul-400 font-semibold':'text-ink-500'}">${d.estagio==='07 PROPOSTA ENVIADA'?pipeFmt(c.previsao, d.unidade):(d.estagio==='09 GANHO'?'100%':'0%')}</td>
             <td class="px-2 py-2 text-ink-300 whitespace-nowrap">${d.motivo_perda?escapeHtml(d.motivo_perda):'—'}</td>
-            <td class="px-2 py-2 whitespace-nowrap text-right">${arquivado||d.origem==='sheet'?(d.origem==='sheet'?`<span class="text-[10px] text-ink-500" title="Linha ${d.sheet_row||''} da planilha">planilha</span>`:''):`<button class="btn-ghost text-xs" onclick="abrirDealModal(${d.id})" title="Editar">✎</button><button class="btn-ghost text-xs text-red-400" onclick="excluirDeal(${d.id})" title="Excluir">🗑</button>`}</td>
+            <td class="px-2 py-2 whitespace-nowrap text-right">${arquivado||d.origem==='sheet'||pipeEhHistorico(d)?(d.origem==='sheet'?`<span class="text-[10px] text-ink-500" title="Linha ${d.sheet_row||''} da planilha">planilha</span>`:pipeEhHistorico(d)?`<span class="text-[10px] text-ink-500" title="Linha ${d.sheet_row||''} da planilha de prospecção ${d.ano}">histórico</span>`:''):`<button class="btn-ghost text-xs" onclick="abrirDealModal(${d.id})" title="Editar">✎</button><button class="btn-ghost text-xs text-red-400" onclick="excluirDeal(${d.id})" title="Excluir">🗑</button>`}</td>
           </tr>`; }).join('')}
       </tbody>
       <tfoot><tr class="border-t-2 border-white/20 bg-white/5 font-bold">
@@ -7582,7 +7593,7 @@ function exportarCSVPipeline(){
   const lista = pipeFiltrados(); if (!lista.length){ alert('Nada pra exportar.'); return; }
   const dec = v => (Number(v)||0).toFixed(2).replace('.', ',');
   const rows = [['Ano','Estagio','Empresa','Projeto','Unidade','Servico','Gerado por','Concorrencia','Mes lead','Mes fechamento','Temperatura','Budget total','% ano seguinte','Budget ano','Budget proximo ano','Previsao ponderada','Motivo perda','Obs','Origem','Moeda']];
-  lista.forEach(d => { const c = pipeCalc(d); rows.push([d.ano, PIPE_ESTAGIOS[d.estagio]?.nome||d.estagio, d.empresa, d.projeto||'', d.unidade, d.servico, d.gerado_por||pipeGeradoPor(d.servico), d.concorrencia?'Sim':'Nao', d.mes_lead?MESES_PT[d.mes_lead-1]:'', d.mes_fechamento?MESES_PT[d.mes_fechamento-1]:'', PIPE_TEMPS[d.temperatura]?.nome||'', dec(c.budget), Math.round(c.pct*100)+'%', dec(c.budgetAno), dec(c.budgetProx), dec(c.previsao), d.motivo_perda||'', d.obs||'', d.origem==='sheet'?'planilha':'app', PIPE_MOEDA[d.unidade]||'']); });
+  lista.forEach(d => { const c = pipeCalc(d); rows.push([d.ano, PIPE_ESTAGIOS[d.estagio]?.nome||d.estagio, d.empresa, d.projeto||'', d.unidade, d.servico, d.gerado_por||pipeGeradoPor(d.servico), d.concorrencia?'Sim':'Nao', d.mes_lead?MESES_PT[d.mes_lead-1]:'', d.mes_fechamento?MESES_PT[d.mes_fechamento-1]:'', PIPE_TEMPS[d.temperatura]?.nome||'', dec(c.budget), Math.round(c.pct*100)+'%', dec(c.budgetAno), dec(c.budgetProx), dec(c.previsao), d.motivo_perda||'', d.obs||'', d.origem==='sheet'?'planilha':d.origem==='historico'?'historico':'app', PIPE_MOEDA[d.unidade]||'']); });
   const csv = rows.map(r=>r.map(v=>{ const x=String(v==null?'':v); return x.includes(';')||x.includes(',')||x.includes('\n')||x.includes('"') ? '"'+x.replace(/"/g,'""')+'"' : x; }).join(';')).join('\n');
   const blob = new Blob(['﻿'+csv], { type:'text/csv;charset=utf-8' }); const url = URL.createObjectURL(blob);
   const a = document.createElement('a'); a.href = url; a.download = `pipeline_${STATE.pipe.ano}_${STATE.pipe.unidade}.csv`; a.click(); URL.revokeObjectURL(url);
@@ -7607,10 +7618,15 @@ function cardDash(num, titulo, corpo, extra=''){
 function renderPipelineDash(){
   const p = STATE.pipe;
   const atual = pipePorUnidade(p.deals), ant = pipePorUnidade(p.dealsAnt);
+  const anoComp = p.anoComp || (p.ano - 1);
+  const anosComp = (p.anos||[]).filter(a => a < p.ano);
+  const seletorComp = `<div class="flex items-center gap-2 text-xs text-ink-400">Comparar ${p.ano} com
+    <select class="input py-1 text-xs" style="width:auto;min-width:90px" onchange="trocarAnoCompPipeline(this.value)">${(anosComp.length?anosComp:[anoComp]).map(a=>`<option value="${a}" ${a===anoComp?'selected':''}>${a}</option>`).join('')}</select>
+    <span class="text-ink-500">${ant.length ? `${ant.length} oportunidade${ant.length===1?'':'s'} em ${anoComp}` : `sem dados em ${anoComp}`}</span></div>`;
   const A = pipeAgregados(atual), B = pipeAgregados(ant);
   const kpi = (t, v, cor='') => `<div class="rounded-lg p-2 bg-white/5 text-center"><div class="text-[10px] uppercase tracking-widest text-ink-500">${t}</div><div class="font-bold tabular-nums ${cor}">${v}</div></div>`;
   const unidadeMista = p.unidade === 'Todos';
-  if (!atual.length) return `<div class="card p-10 text-center text-ink-400">Sem oportunidades em ${p.ano}${unidadeMista?'':' · '+p.unidade}. Cadastre na aba Pipeline.</div>`;
+  if (!atual.length) return `${seletorComp}<div class="card p-10 text-center text-ink-400 mt-3">Sem oportunidades em ${p.ano}${unidadeMista?'':' · '+p.unidade}. Cadastre na aba Pipeline.</div>`;
   const CORES_SERV = {Fee:'#FF5722',Upsell:'#A855F7',Projeto:'#2E6BFF'};
 
   // 1 Funil
@@ -7621,7 +7637,7 @@ function renderPipelineDash(){
   // 2 Win rate
   const wrN = (A.n.ganho+A.n.perd) ? A.n.ganho/(A.n.ganho+A.n.perd) : 0, wrV = (A.v.ganho+A.v.perd) ? A.v.ganho/(A.v.ganho+A.v.perd) : 0;
   const wrNant = (B.n.ganho+B.n.perd) ? B.n.ganho/(B.n.ganho+B.n.perd) : null;
-  const b2 = `<div class="grid grid-cols-2 gap-2">${kpi('Em nº de negócios', pipePct(wrN), 'text-2xl')}${kpi('Em valor', pipePct(wrV), 'text-2xl')}</div><div class="text-xs text-ink-400 mt-2 mb-2">${A.n.ganho} ganhos de ${A.n.ganho+A.n.perd} decididos${wrNant!=null?` · ano anterior: ${pipePct(wrNant)}`:''}</div>` + barra(wrN, 1, '#4ADE80', 'Win rate (nº)', pipePct(wrN)) + barra(wrV, 1, '#F59E0B', 'Win rate (valor)', pipePct(wrV));
+  const b2 = `<div class="grid grid-cols-2 gap-2">${kpi('Em nº de negócios', pipePct(wrN), 'text-2xl')}${kpi('Em valor', pipePct(wrV), 'text-2xl')}</div><div class="text-xs text-ink-400 mt-2 mb-2">${A.n.ganho} ganhos de ${A.n.ganho+A.n.perd} decididos${wrNant!=null?` · ${anoComp}: ${pipePct(wrNant)}`:''}</div>` + barra(wrN, 1, '#4ADE80', 'Win rate (nº)', pipePct(wrN)) + barra(wrV, 1, '#F59E0B', 'Win rate (valor)', pipePct(wrV));
   // 3 Receita por tipo (ganhos)
   const ganhos = atual.filter(d=>d.estagio==='09 GANHO');
   const porTipo = {}; PIPE_SERVICOS.forEach(s=>porTipo[s]={n:0,v:0}); ganhos.forEach(d=>{ porTipo[d.servico].n++; porTipo[d.servico].v+=pipeCalc(d).budget; });
@@ -7676,9 +7692,10 @@ function renderPipelineDash(){
     return { r, t }; };
   const M1 = mix(atual), M0 = mix(ant);
   const cel = (a, b) => `<td class="text-right tabular-nums">${pipePct(a)}</td><td class="text-right tabular-nums text-ink-500">${ant.length?pipePct(b):'—'}</td>`;
-  const b12 = `<table class="w-full text-xs"><thead><tr class="text-[10px] uppercase tracking-widest text-ink-500"><th class="text-left py-1">Tipo</th><th class="text-right" colspan="2">Leads</th><th class="text-right" colspan="2">Conversões</th><th class="text-right" colspan="2">Receita</th></tr><tr class="text-[9px] text-ink-600"><th></th><th class="text-right">${p.ano}</th><th class="text-right">${p.ano-1}</th><th class="text-right">${p.ano}</th><th class="text-right">${p.ano-1}</th><th class="text-right">${p.ano}</th><th class="text-right">${p.ano-1}</th></tr></thead><tbody>${PIPE_SERVICOS.map(s => `<tr class="border-t border-white/5"><td class="py-1.5 font-semibold">${s}</td>${cel(M1.r[s].leads/(M1.t.leads||1), M0.r[s].leads/(M0.t.leads||1))}${cel(M1.r[s].conv/(M1.t.conv||1), M0.r[s].conv/(M0.t.conv||1))}${cel(M1.r[s].rec/(M1.t.rec||1), M0.r[s].rec/(M0.t.rec||1))}</tr>`).join('')}</tbody></table><div class="text-[10px] text-ink-500 mt-2">${ant.length ? `Ano anterior: ${ant.length} negócios, ${B.n.ganho} ganhos, ${pipeFmt(B.v.ganho)} de receita.` : `Sem dados de ${p.ano-1} pra comparar.`}</div>`;
+  const b12 = `<table class="w-full text-xs"><thead><tr class="text-[10px] uppercase tracking-widest text-ink-500"><th class="text-left py-1">Tipo</th><th class="text-right" colspan="2">Leads</th><th class="text-right" colspan="2">Conversões</th><th class="text-right" colspan="2">Receita</th></tr><tr class="text-[9px] text-ink-600"><th></th><th class="text-right">${p.ano}</th><th class="text-right">${anoComp}</th><th class="text-right">${p.ano}</th><th class="text-right">${anoComp}</th><th class="text-right">${p.ano}</th><th class="text-right">${anoComp}</th></tr></thead><tbody>${PIPE_SERVICOS.map(s => `<tr class="border-t border-white/5"><td class="py-1.5 font-semibold">${s}</td>${cel(M1.r[s].leads/(M1.t.leads||1), M0.r[s].leads/(M0.t.leads||1))}${cel(M1.r[s].conv/(M1.t.conv||1), M0.r[s].conv/(M0.t.conv||1))}${cel(M1.r[s].rec/(M1.t.rec||1), M0.r[s].rec/(M0.t.rec||1))}</tr>`).join('')}</tbody></table><div class="text-[10px] text-ink-500 mt-2">${ant.length ? `${anoComp}: ${ant.length} negócios, ${B.n.ganho} ganhos, ${pipeFmt(B.v.ganho)} de receita.` : `Sem dados de ${anoComp} pra comparar.`}</div>`;
 
   return `
+  ${seletorComp}
   ${unidadeMista ? '<div class="text-xs text-ink-500">Visão "Todos": valores de países diferentes somados como estão (R$, € e US$). Selecione um país pra ver em uma moeda só.</div>' : ''}
   <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
     ${cardDash(1,'Funil de vendas',b1)}
@@ -7692,7 +7709,7 @@ function renderPipelineDash(){
     ${cardDash(9,'Meta de leads New Business',b9)}
     ${cardDash(10,'Previsão ponderada por temperatura',b10)}
     ${cardDash(11,'Leads e conversão por categoria',b11)}
-    ${cardDash(12,`Mix por tipo · ${p.ano} × ${p.ano-1}`,b12)}
+    ${cardDash(12,`Mix por tipo · ${p.ano} × ${anoComp}`,b12)}
   </div>`;
 }
 
@@ -7805,6 +7822,10 @@ async function sincronizarPipelineSheet(opts){
     let nHist = 0;
     if (cfg.aba_hist){
       try {
+        // Se o ano já tem histórico importado (origem = 'historico', planilhas de prospecção), não grava o resumo da aba antiga por cima
+        const anoH = Number(cfg.ano_hist) || (anoP-1);
+        const { count: nImp } = await sb.from('pipeline_deals').select('id', { count:'exact', head:true }).eq('ano', anoH).eq('origem', 'historico');
+        if (nImp) throw new Error(`histórico ${anoH} já importado (${nImp} linhas) — aba "${cfg.aba_hist}" ignorada`);
         const rowsH = pipeDesdeCabecalho(await pipeFetchAba(cfg.id, cfg.aba_hist, null, cfg.gid_hist));
         const h = pipeMapearHistorico(rowsH, Number(cfg.ano_hist) || (anoP-1));
         if (h.out.length){ await pipeGravarLote(h.out, Number(cfg.ano_hist) || (anoP-1), syncId); nHist = h.out.length; }
