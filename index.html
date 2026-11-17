@@ -8959,7 +8959,17 @@ function abrirStAgendamento(id, inicioPad, estPad){
       <div class="col-span-2"><label class="text-xs text-ink-400">Estúdio *</label><select id="st-estudio" class="input mt-1">${Object.entries(ST_ESTUDIOS).map(([k,v])=>`<option value="${k}" ${(e?.estudio||estPad||'A')===k?'selected':''}>${v.nome}</option>`).join('')}</select></div>
       <div class="col-span-2"><label class="text-xs text-ink-400">Descrição</label><textarea id="st-desc" rows="3" class="input mt-1" placeholder="Roteiro, equipamento, observações…">${escapeHtml(e?.descricao||'')}</textarea></div>
       <div class="col-span-2"><label class="text-xs text-ink-400">Participantes internos <span class="text-ink-500">(pode marcar vários)</span></label>
-        <div class="mt-1 grid grid-cols-2 gap-1 max-h-36 overflow-y-auto rounded-lg p-2" style="background:var(--fx-white-weak)">${usuarios.length ? usuarios.map(u=>`<label class="flex items-center gap-2 text-xs py-0.5 cursor-pointer"><input type="checkbox" class="st-part accent-orange-500" value="${escapeHtml(u.email)}" ${sel.has(u.email)?'checked':''}>${escapeHtml(u.nome||u.email.split('@')[0])}</label>`).join('') : '<div class="text-xs text-ink-500 col-span-2">Lista de usuários indisponível.</div>'}</div></div>
+        <div id="st-part-dd" class="relative mt-1">
+          <button type="button" id="st-part-btn" class="input flex items-center justify-between gap-2 text-left" aria-haspopup="listbox" aria-expanded="false" onclick="stPartToggle()" ${usuarios.length?'':'disabled'}>
+            <span id="st-part-resumo" class="truncate">${usuarios.length ? '' : 'Lista de usuários indisponível'}</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="shrink-0 text-ink-400"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div id="st-part-menu" role="listbox" aria-multiselectable="true" class="hidden absolute left-0 right-0 z-10 mt-1 rounded-lg shadow-2xl overflow-hidden" style="background:var(--surface);border:1px solid var(--border-2)">
+            <div class="p-2 border-b border-ink-800"><input id="st-part-busca" class="input py-1.5 text-xs" placeholder="Buscar pessoa…" autocomplete="off" oninput="stPartFiltrar(this.value)"></div>
+            <div class="max-h-48 overflow-y-auto py-1">${usuarios.map(u=>`<label class="st-part-op flex items-center gap-2 text-sm px-3 py-1.5 cursor-pointer hover:bg-white/5" data-nome="${escapeHtml(u.nome||u.email.split('@')[0])}"><input type="checkbox" class="st-part accent-orange-500" value="${escapeHtml(u.email)}" ${sel.has(u.email)?'checked':''} onchange="stPartAtualizar()"><span class="truncate">${escapeHtml(u.nome||u.email.split('@')[0])}</span></label>`).join('')}<div id="st-part-vazio" class="hidden text-xs text-ink-500 px-3 py-2">Ninguém encontrado.</div></div>
+            <div class="flex items-center justify-between px-3 py-2 border-t border-ink-800 text-xs"><button type="button" class="text-ink-400 hover:underline" onclick="stPartLimpar()">Limpar seleção</button><button type="button" class="font-semibold text-orange" onclick="stPartFechar()">Concluir</button></div>
+          </div>
+        </div></div>
       <div class="col-span-2"><label class="text-xs text-ink-400">Participantes externos</label><input id="st-ext" class="input mt-1" value="${escapeHtml(e?.participantes_externos||'')}" placeholder="Ex.: Maria (cliente), João (maquiador)"></div>
       <div class="col-span-2"><label class="text-xs text-ink-400">Arquivos</label>
         <div class="mt-1 space-y-1">${(e?.anexos||[]).map((a,i)=>`<div class="flex items-center gap-2 text-xs bg-white/5 rounded px-2 py-1"><button class="text-azul-400 truncate flex-1 text-left" onclick="baixarAnexo('${escapeHtml(a.path)}')">📎 ${escapeHtml(a.nome)}</button><label class="flex items-center gap-1 text-ink-500 cursor-pointer"><input type="checkbox" class="st-anexo-remover" value="${i}">remover</label></div>`).join('')}</div>
@@ -8971,9 +8981,43 @@ function abrirStAgendamento(id, inicioPad, estPad){
       <div class="flex items-center gap-3">${e?.created_by?`<span class="text-[11px] text-ink-500">agendado por ${escapeHtml(String(e.created_by).split('@')[0])}</span>`:''}<button class="btn-ghost" onclick="document.getElementById('modal-st').remove()">Cancelar</button><button class="btn-primary" id="st-ok" onclick="salvarStAgendamento(${e?e.id:'null'})">${e?'Salvar':'Agendar'}</button></div>
     </div></div>`;
   div.dataset.duracao = String(fim.getTime() - ini.getTime());
-  div.addEventListener('click', ()=>div.remove()); document.body.appendChild(div);
+  // Esc com o dropdown de participantes aberto fecha só o dropdown
+  div.addEventListener('keydown', ev => { if (ev.key === 'Escape' && !document.getElementById('st-part-menu')?.classList.contains('hidden')){ ev.stopPropagation(); stPartFechar(); } });
+  div.addEventListener('click', ()=>{ stPartFechar(); div.remove(); }); document.body.appendChild(div);
+  if (usuarios.length) stPartAtualizar();
   setTimeout(()=>document.getElementById('st-nome')?.focus(), 50);
 }
+// ---- Dropdown de participantes internos (seleção múltipla) ----
+// Os checkboxes .st-part continuam no DOM (dentro do menu), então salvarStAgendamento lê do mesmo jeito.
+function stPartAtualizar(){
+  const el = document.getElementById('st-part-resumo'); if (!el) return;
+  const nomes = [...document.querySelectorAll('.st-part:checked')].map(c => c.closest('.st-part-op')?.dataset.nome || c.value);
+  if (!nomes.length){ el.textContent = 'Selecione os participantes…'; el.classList.add('text-ink-500'); el.title = ''; return; }
+  el.classList.remove('text-ink-500');
+  el.textContent = nomes.length <= 3 ? nomes.join(', ') : `${nomes.length} selecionados`;
+  el.title = nomes.join(', ');
+}
+function stPartFiltrar(txt){
+  const f = String(txt||'').trim().toLowerCase(); let visiveis = 0;
+  document.querySelectorAll('.st-part-op').forEach(op => { const ok = !f || String(op.dataset.nome||'').toLowerCase().includes(f) || String(op.querySelector('input')?.value||'').toLowerCase().includes(f); op.style.display = ok ? '' : 'none'; if (ok) visiveis++; });
+  document.getElementById('st-part-vazio')?.classList.toggle('hidden', visiveis > 0);
+}
+// Clique fora do dropdown fecha o menu (também se limpa sozinho se o modal já foi removido)
+function stPartClicouFora(ev){ const dd = document.getElementById('st-part-dd'); if (!dd || !dd.contains(ev.target)) stPartFechar(); }
+function stPartAbrir(){
+  const m = document.getElementById('st-part-menu'); if (!m) return;
+  m.classList.remove('hidden'); document.getElementById('st-part-btn')?.setAttribute('aria-expanded','true');
+  // fase de captura: o card do modal dá stopPropagation nos cliques, então ouvimos antes dele
+  document.addEventListener('mousedown', stPartClicouFora, true);
+  const b = document.getElementById('st-part-busca'); if (b){ b.value = ''; stPartFiltrar(''); setTimeout(()=>b.focus(), 0); }
+}
+function stPartFechar(){
+  document.removeEventListener('mousedown', stPartClicouFora, true);
+  document.getElementById('st-part-menu')?.classList.add('hidden');
+  document.getElementById('st-part-btn')?.setAttribute('aria-expanded','false');
+}
+function stPartToggle(){ const m = document.getElementById('st-part-menu'); if (!m) return; if (m.classList.contains('hidden')) stPartAbrir(); else stPartFechar(); }
+function stPartLimpar(){ document.querySelectorAll('.st-part:checked').forEach(c => { c.checked = false; }); stPartAtualizar(); }
 function stProjetoMudou(){
   const op = document.getElementById('st-orc')?.selectedOptions?.[0]; const el = document.getElementById('st-cliente-destaque');
   if (el) el.textContent = op && op.value ? (op.dataset.cliente || '') : '';
