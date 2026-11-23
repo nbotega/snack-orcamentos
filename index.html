@@ -4934,7 +4934,8 @@ async function carregarUsuariosAcesso(){
   if (!isAdminAcesso()) return;
   const { data, error } = await sb.from('usuarios_acesso').select('*').order('admin',{ascending:false}).order('email');
   if (error){ alert('Erro ao carregar usuários: ' + error.message); return; }
-  STATE.usuariosAcesso = data || [];
+  // areas/squads podem não existir ainda no banco (migração 2026-11-23): normaliza pra array só com valores permitidos
+  STATE.usuariosAcesso = (data || []).map(u => ({ ...u, areas: sfSoPermitidos(u.areas, SF_AREAS), squads: sfSoPermitidos(u.squads, SF_SQUADS) }));
   const el = document.getElementById('usuarios-tabela');
   if (el) el.innerHTML = renderUsuariosTabela();
   // Situação do login (auth) — via função segura, só admin
@@ -5071,7 +5072,9 @@ function renderUsuarioConfig(i){
         ${linha('🇵🇹 Portugal', cb((u.paises||[]).includes('PT'), `toggleAcessoPais(${i},'PT',this.checked)`))}
         ${usuarioTemSnackFlow(u) ? `<div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold mb-2 mt-5">SnackFlow</div>
         ${linha('Superior direto', `<select class="input py-1 text-xs" style="width:auto;max-width:190px" onchange="setAcessoCampo(${i},'superior_email',this.value||null)">${superiorOptionsHTML(u)}</select>`)}
-        ${linha('Elegível ao timesheet', cb(u.timesheet_elegivel!==false, `setAcessoCampo(${i},'timesheet_elegivel',this.checked)`), 'Preenche horas no SnackFlow')}` : ''}
+        ${linha('Elegível ao timesheet', cb(u.timesheet_elegivel!==false, `setAcessoCampo(${i},'timesheet_elegivel',this.checked)`), 'Preenche horas no SnackFlow')}
+        <div class="py-2 border-b border-ink-800/60"><div class="text-sm mb-1">Área</div>${msddHTML(`ua-areas-${i}`, SF_AREAS, u.areas, vals => setAcessoCampo(i, 'areas', vals))}</div>
+        <div class="py-2 border-b border-ink-800/60"><div class="text-sm mb-1">Squad</div>${msddHTML(`ua-squads-${i}`, SF_SQUADS, u.squads, vals => setAcessoCampo(i, 'squads', vals))}</div>` : ''}
       </div>
       <div>
         <div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold mb-2">Abas</div>
@@ -5145,6 +5148,72 @@ function colunaInexistente(error){
   return /42703|PGRST204|column .* does not exist|Could not find the .* column/i.test(m);
 }
 function usuarioTemSnackFlow(u){ return !!u && (!!u.admin || (u.abas||[]).includes('snackflow')); }
+// Listas fixas do cadastro SnackFlow (as mesmas da migração 2026-11-23_snackflow_area_squad.sql)
+const SF_AREAS = ['Casting','Inteligência','Produção','Edição','Commerce','Atendimento','Conteúdo','Planejamento','Operações','Financeiro','Projetos'];
+const SF_SQUADS = ['Alpha','Omega','Delta','Sigma','Gamma'];
+// Devolve só os valores que estão na lista permitida, na ordem da lista, sem repetição (null/undefined => [])
+function sfSoPermitidos(vals, lista){
+  const set = new Set(Array.isArray(vals) ? vals.map(v => String(v)) : []);
+  return lista.filter(x => set.has(x));
+}
+
+// ===== Dropdown genérico de múltipla escolha (msdd) =====
+// Mesmo comportamento do dropdown de participantes do SnackStudios, mas reutilizável e com várias
+// instâncias na mesma tela. Uso: msddHTML('meu-id', opcoes, selecionados, vals => {...}); ler com msddValores('meu-id').
+const MSDD_CB = {}; // id -> callback chamado a cada mudança, com o array de selecionados
+function msddHTML(id, opcoes, selecionados, aoMudar){
+  const sel = new Set(sfSoPermitidos(selecionados, opcoes));
+  if (aoMudar) MSDD_CB[id] = aoMudar; else delete MSDD_CB[id];
+  const escolhidos = opcoes.filter(o => sel.has(o));
+  return `<div id="${escapeHtml(id)}" class="msdd relative">
+    <button type="button" class="msdd-btn input flex items-center justify-between gap-2 text-left" aria-haspopup="listbox" aria-expanded="false" onclick="msddToggle('${escapeHtml(id)}')">
+      <span class="msdd-resumo truncate ${escolhidos.length?'':'text-ink-500'}" title="${escapeHtml(escolhidos.join(', '))}">${escolhidos.length ? escapeHtml(escolhidos.join(', ')) : 'Selecionar…'}</span>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="shrink-0 text-ink-400"><polyline points="6 9 12 15 18 9"/></svg>
+    </button>
+    <div class="msdd-menu hidden absolute left-0 right-0 z-10 mt-1 rounded-lg shadow-2xl overflow-hidden" role="listbox" aria-multiselectable="true" style="background:var(--surface);border:1px solid var(--border-2)">
+      <div class="max-h-48 overflow-y-auto py-1">${opcoes.map(o => `<label class="flex items-center gap-2 text-sm px-3 py-1.5 cursor-pointer hover:bg-white/5"><input type="checkbox" class="msdd-cb accent-orange-500" value="${escapeHtml(o)}" ${sel.has(o)?'checked':''} onchange="msddAtualizar('${escapeHtml(id)}')"><span class="truncate">${escapeHtml(o)}</span></label>`).join('')}</div>
+      <div class="flex items-center justify-between px-3 py-2 border-t border-ink-800 text-xs"><button type="button" class="text-ink-400 hover:underline" onclick="msddLimpar('${escapeHtml(id)}')">Limpar seleção</button><button type="button" class="font-semibold text-orange" onclick="msddFechar('${escapeHtml(id)}')">Concluir</button></div>
+    </div>
+  </div>`;
+}
+function msddValores(id){
+  const dd = document.getElementById(id); if (!dd) return [];
+  return [...dd.querySelectorAll('.msdd-cb:checked')].map(c => c.value);
+}
+function msddAtualizar(id){
+  const dd = document.getElementById(id); if (!dd) return;
+  const vals = msddValores(id); const el = dd.querySelector('.msdd-resumo');
+  if (el){ el.textContent = vals.length ? vals.join(', ') : 'Selecionar…'; el.title = vals.join(', '); el.classList.toggle('text-ink-500', !vals.length); }
+  if (MSDD_CB[id]) MSDD_CB[id](vals);
+}
+function msddLimpar(id){
+  const dd = document.getElementById(id); if (!dd) return;
+  dd.querySelectorAll('.msdd-cb:checked').forEach(c => { c.checked = false; });
+  msddAtualizar(id);
+}
+function msddAbertos(){ return [...document.querySelectorAll('.msdd')].filter(dd => !dd.querySelector('.msdd-menu')?.classList.contains('hidden')); }
+// Clique fora fecha os menus abertos (e o listener se remove sozinho quando não sobra nenhum aberto)
+function msddClicouFora(ev){
+  msddAbertos().forEach(dd => { if (!dd.contains(ev.target)) msddFechar(dd.id); });
+  if (!msddAbertos().length) document.removeEventListener('mousedown', msddClicouFora, true);
+}
+function msddAbrir(id){
+  const dd = document.getElementById(id); if (!dd) return;
+  msddAbertos().forEach(o => { if (o !== dd) msddFechar(o.id); }); // só um menu aberto por vez
+  dd.querySelector('.msdd-menu')?.classList.remove('hidden');
+  dd.querySelector('.msdd-btn')?.setAttribute('aria-expanded','true');
+  // fase de captura: os cards de modal dão stopPropagation nos cliques, então ouvimos antes deles
+  document.addEventListener('mousedown', msddClicouFora, true);
+}
+function msddFechar(id){
+  const dd = document.getElementById(id); if (!dd) return;
+  dd.querySelector('.msdd-menu')?.classList.add('hidden');
+  dd.querySelector('.msdd-btn')?.setAttribute('aria-expanded','false');
+}
+function msddToggle(id){
+  const dd = document.getElementById(id); if (!dd) return;
+  if (dd.querySelector('.msdd-menu')?.classList.contains('hidden')) msddAbrir(id); else msddFechar(id);
+}
 function usuarioAvatarHTML(u, tam){
   const t = tam || 32;
   const foto = u && typeof u.foto === 'string' && u.foto.startsWith('data:image/') ? u.foto : null;
@@ -5189,7 +5258,7 @@ function uploadFotoUsuario(i, input){
   img.src = url;
 }
 function removerFotoUsuario(i){ STATE.usuariosAcesso[i].foto = null; rerenderUsuarioConfig(i); }
-// Janela aberta ao liberar o SnackFlow: superior direto + elegibilidade ao timesheet
+// Janela aberta ao liberar o SnackFlow: superior direto + elegibilidade ao timesheet + área + squad
 function abrirPerguntaSnackFlow(i){
   const u = STATE.usuariosAcesso[i]; if (!u) return;
   const old = document.getElementById('modal-sf-pergunta'); if (old) old.remove();
@@ -5197,7 +5266,7 @@ function abrirPerguntaSnackFlow(i){
   const eleg = u.timesheet_elegivel !== false;
   div.innerHTML = `<div class="card p-6 w-full max-w-md" onclick="event.stopPropagation()">
     <h3 class="font-bold text-lg">Acesso ao SnackFlow</h3>
-    <div class="text-sm text-ink-400 mt-1">Você liberou o SnackFlow pra <b>${escapeHtml(u.nome||u.email.split('@')[0])}</b>. Duas perguntas rápidas:</div>
+    <div class="text-sm text-ink-400 mt-1">Você liberou o SnackFlow pra <b>${escapeHtml(u.nome||u.email.split('@')[0])}</b>. Algumas informações rápidas:</div>
     <div class="mt-4"><label class="text-xs text-ink-400">Quem é o superior direto?</label>
       <select id="sfq-superior" class="input mt-1">${superiorOptionsHTML(u)}</select></div>
     <div class="mt-4"><div class="text-xs text-ink-400 mb-1">É elegível ao preenchimento de horas no timesheet?</div>
@@ -5205,6 +5274,8 @@ function abrirPerguntaSnackFlow(i){
         <label class="flex items-center gap-2 cursor-pointer"><input type="radio" name="sfq-eleg" value="1" class="accent-orange-500" ${eleg?'checked':''}>Sim</label>
         <label class="flex items-center gap-2 cursor-pointer"><input type="radio" name="sfq-eleg" value="0" class="accent-orange-500" ${eleg?'':'checked'}>Não</label>
       </div></div>
+    <div class="mt-4"><div class="text-xs text-ink-400 mb-1">Área <span class="text-ink-500">(pode marcar várias)</span></div>${msddHTML('sfq-areas', SF_AREAS, u.areas)}</div>
+    <div class="mt-4"><div class="text-xs text-ink-400 mb-1">Squad <span class="text-ink-500">(pode marcar vários)</span></div>${msddHTML('sfq-squads', SF_SQUADS, u.squads)}</div>
     <div class="flex justify-end gap-2 mt-6">
       <button class="btn-ghost" onclick="cancelarPerguntaSnackFlow(${i})" title="Desfaz a liberação do SnackFlow">Cancelar</button>
       <button class="btn-primary" onclick="confirmarPerguntaSnackFlow(${i})">Confirmar</button>
@@ -5217,6 +5288,8 @@ function confirmarPerguntaSnackFlow(i){
   const u = STATE.usuariosAcesso[i]; if (!u) return;
   u.superior_email = document.getElementById('sfq-superior')?.value || null;
   u.timesheet_elegivel = (document.querySelector('input[name="sfq-eleg"]:checked')?.value ?? '1') === '1';
+  u.areas = sfSoPermitidos(msddValores('sfq-areas'), SF_AREAS);
+  u.squads = sfSoPermitidos(msddValores('sfq-squads'), SF_SQUADS);
   document.getElementById('modal-sf-pergunta')?.remove();
   rerenderUsuarioConfig(i);
 }
@@ -5261,14 +5334,22 @@ async function salvarUsuarioAcesso(i){
   const nomeLimpo = String(u.nome||'').trim().replace(/\s+/g,' ').slice(0,80);
   u.nome = nomeLimpo || null;
   const base={ email:u.email.toLowerCase(), nome:u.nome, paises:u.paises||[], abas:u.abas||[], admin:!!u.admin, ativo:u.ativo!==false, validador:!!u.validador, updated_at:new Date().toISOString() };
-  const extras={ foto:u.foto||null, superior_email:u.superior_email||null, timesheet_elegivel:u.timesheet_elegivel!==false };
+  const extrasAntigos={ foto:u.foto||null, superior_email:u.superior_email||null, timesheet_elegivel:u.timesheet_elegivel!==false };
+  u.areas = sfSoPermitidos(u.areas, SF_AREAS); u.squads = sfSoPermitidos(u.squads, SF_SQUADS);
+  const extras={ ...extrasAntigos, areas:u.areas, squads:u.squads };
   let payload={ ...base, ...extras };
   let { error } = await sb.from('usuarios_acesso').upsert(payload, { onConflict:'email' });
   if (error && colunaInexistente(error)){
-    // Banco ainda sem as colunas novas (migrations/2026-11-13_cadastro_usuarios.sql): salva o resto e avisa.
-    payload = base;
+    // Banco ainda sem areas/squads (migrations/2026-11-23_snackflow_area_squad.sql): tenta sem elas.
+    payload = { ...base, ...extrasAntigos };
     ({ error } = await sb.from('usuarios_acesso').upsert(payload, { onConflict:'email' }));
-    if (!error) alert('Nome e permissões foram salvos. Foto, superior direto e elegibilidade ao timesheet ainda não podem ser gravados: falta rodar a migração 2026-11-13_cadastro_usuarios.sql no banco.');
+    if (!error) alert('Cadastro salvo, mas Área e Squad ainda não podem ser gravados: falta rodar a migração 2026-11-23_snackflow_area_squad.sql no banco.');
+    else if (colunaInexistente(error)){
+      // Banco também sem as colunas de 2026-11-13_cadastro_usuarios.sql: salva só o básico e avisa.
+      payload = base;
+      ({ error } = await sb.from('usuarios_acesso').upsert(payload, { onConflict:'email' }));
+      if (!error) alert('Nome e permissões foram salvos. Foto, superior direto, elegibilidade ao timesheet, Área e Squad ainda não podem ser gravados: falta rodar as migrações 2026-11-13_cadastro_usuarios.sql e 2026-11-23_snackflow_area_squad.sql no banco.');
+    }
   }
   if (error){ alert('Erro ao salvar: '+error.message); return; }
   const b=document.getElementById('btn-salvar-user-'+i); if(b){ b.classList.remove('btn-primary'); b.classList.add('btn-ghost'); b.textContent='Salvo ✓'; setTimeout(()=>{ if(b) b.textContent='Salvar'; },1500); }
