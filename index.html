@@ -8121,10 +8121,11 @@ function abrirSfLancamento(id, dataPad){
     <div class="grid grid-cols-2 gap-3 mt-4">
       ${sfPodeAprovar() ? `<div class="col-span-2"><label class="text-xs text-ink-400">Pessoa</label><select id="sf-membro" class="input mt-1">${s.membros.filter(m=>m.ativo!==false).map(m=>`<option value="${m.id}" ${m.id===membroSel?'selected':''}>${escapeHtml(m.nome||m.email)}</option>`).join('')}</select></div>` : `<input type="hidden" id="sf-membro" value="${s.eu.id}">`}
       <div class="col-span-2"><label class="text-xs text-ink-400">Projeto *</label><select id="sf-proj" class="input mt-1" onchange="sfAtualizaTarefas()">${projs.map(p=>`<option value="${p.id}" ${p.id===projSel?'selected':''}>${escapeHtml(p.cliente)} · ${escapeHtml(p.nome)}${p.orcamento_id?' ('+escapeHtml(p.orcamento_id)+')':''}</option>`).join('')}</select></div>
-      <div class="col-span-2"><label class="text-xs text-ink-400">Tarefa (opcional)</label><select id="sf-tarefa" class="input mt-1"></select></div>
+      <div class="col-span-2"><label class="text-xs text-ink-400">Tarefa (opcional)</label><select id="sf-tarefa" class="input mt-1" onchange="sfAtualizaJustificativa()"></select></div>
       <div><label class="text-xs text-ink-400">Data *</label><input id="sf-data" type="date" class="input mt-1" value="${t?t.data:(dataPad||hoje())}"></div>
       <div><label class="text-xs text-ink-400">Tempo * <span class="text-ink-500">(ex.: 1:30, 2h, 45m)</span></label><input id="sf-tempo" class="input mt-1" value="${t?sfFmtH(t.minutos):''}" placeholder="1:30"></div>
       <div class="col-span-2"><label class="text-xs text-ink-400">O que foi feito</label><textarea id="sf-desc" rows="2" class="input mt-1" placeholder="Ex.: roteiro dos 3 reels da semana">${escapeHtml(t?.descricao||'')}</textarea></div>
+      <div id="sf-just-wrap" class="col-span-2 hidden"><label class="text-xs text-ink-400">Justificativa * <span class="text-ink-500">(obrigatória pra horas lançadas no projeto, sem tarefa)</span></label><textarea id="sf-just" rows="2" class="input mt-1" placeholder="Por que essas horas foram no projeto e não numa tarefa?">${escapeHtml(t?.justificativa||'')}</textarea></div>
     </div>
     <div id="sf-erro" class="text-xs text-red-400 mt-2 hidden"></div>
     <div class="flex justify-between items-center mt-5">
@@ -8140,22 +8141,39 @@ function abrirSfLancamento(id, dataPad){
 function sfAtualizaTarefas(sel){
   const pid = document.getElementById('sf-proj')?.value; const el = document.getElementById('sf-tarefa'); if (!el) return;
   const ts = STATE.sf.tarefas.filter(t=>t.projeto_id===pid && t.status!=='FINALIZADA');
-  el.innerHTML = `<option value="">— sem tarefa —</option>` + ts.map(t=>`<option value="${t.id}" ${t.id===sel?'selected':''}>${escapeHtml(t.titulo)}</option>`).join('');
+  el.innerHTML = `<option value="">— sem tarefa (horas no projeto) —</option>` + ts.map(t=>`<option value="${t.id}" ${t.id===sel?'selected':''}>${escapeHtml(t.titulo)}</option>`).join('');
+  sfAtualizaJustificativa();
+}
+// Horas no nível de projeto (sem tarefa) exigem justificativa antes de ir pro aprovador; no nível de tarefa não. Asana 1220828901584716
+function sfAtualizaJustificativa(){
+  const w = document.getElementById('sf-just-wrap'); if (!w) return;
+  const nivelProjeto = !document.getElementById('sf-tarefa')?.value;
+  w.classList.toggle('hidden', !nivelProjeto);
 }
 async function salvarSfLancamento(id){
   const erro = document.getElementById('sf-erro'); const mostrar = m => { erro.textContent = m; erro.classList.remove('hidden'); };
   const membroId = document.getElementById('sf-membro').value, projId = document.getElementById('sf-proj').value, tarefaId = document.getElementById('sf-tarefa').value || null;
   const data = document.getElementById('sf-data').value, minutos = sfParseH(document.getElementById('sf-tempo').value), desc = document.getElementById('sf-desc').value.trim() || null;
   if (!projId) return mostrar('Escolhe o projeto.'); if (!data) return mostrar('Informe a data.'); if (!(minutos>0)) return mostrar('Tempo inválido (ex.: 1:30).'); if (minutos > 1440) return mostrar('Mais de 24h num dia?');
+  const justificativa = tarefaId ? null : (document.getElementById('sf-just')?.value.trim() || null);
+  if (!tarefaId && !justificativa){ mostrar('Horas lançadas no projeto (sem tarefa) precisam de justificativa antes de ir pro aprovador.'); document.getElementById('sf-just')?.focus(); return; }
   const m = sfMembro(membroId); const custo = Number(m?.custo_hora)||sfCustoHoraCargo(m?.cargo_id), rate = Number(m?.rate_hora)||0;
   const btn = document.getElementById('sf-ok'); btn.disabled = true; btn.textContent = 'Salvando…';
   try {
     const antigo = id ? STATE.sf.ts.find(x=>x.id===id) : null;
-    const payload = { membro_id: membroId, projeto_id: projId, tarefa_id: tarefaId, data, minutos, descricao: desc, updated_at: new Date().toISOString() };
+    const payload = { membro_id: membroId, projeto_id: projId, tarefa_id: tarefaId, data, minutos, descricao: desc, justificativa, updated_at: new Date().toISOString() };
     if (!id){ Object.assign(payload, { custo_hora_epoca: custo, rate_hora_epoca: rate, origem: 'manual', status: 'PENDENTE' }); }
     else if (antigo && antigo.status === 'REPROVADO'){ payload.status = 'PENDENTE'; payload.motivo_reprovacao = null; }
-    const q = id ? sb.from('sf_timesheets').update(payload).eq('id', id) : sb.from('sf_timesheets').insert(payload).select('id').single();
-    const { data: r, error } = await q; if (error) throw error;
+    const enviar = pl => id ? sb.from('sf_timesheets').update(pl).eq('id', id) : sb.from('sf_timesheets').insert(pl).select('id').single();
+    let { data: r, error } = await enviar(payload);
+    if (error && colunaInexistente(error)){
+      // Banco ainda sem sf_timesheets.justificativa (migrations/2026-11-23_snackflow_justificativa_horas.sql):
+      // grava a justificativa junto da descrição pra ela chegar ao aprovador mesmo assim.
+      const { justificativa: _j, ...semJust } = payload;
+      if (justificativa) semJust.descricao = `${desc ? desc + '\n' : ''}Justificativa: ${justificativa}`;
+      ({ data: r, error } = await enviar(semJust));
+    }
+    if (error) throw error;
     await sfAudit(id?'editar':'criar', 'timesheet', id || r?.id, antigo ? { minutos: antigo.minutos, data: antigo.data } : null, { minutos, data, projeto_id: projId });
     document.getElementById('modal-sf')?.remove();
     await sfRecarregar();
@@ -8187,7 +8205,7 @@ function renderSfAprovacoes(){
     ${pend.length===0 ? '<div class="p-8 text-center text-ink-400 text-sm">Nada pendente. 🎉</div>' : `
     <div class="overflow-x-auto"><table class="w-full text-sm"><thead class="bg-ink-900"><tr class="text-[10px] uppercase tracking-wider text-ink-400 text-left"><th class="p-3 w-8"></th><th class="p-3">Data</th><th class="p-3">Pessoa</th><th class="p-3">Projeto</th><th class="p-3">Tarefa / descrição</th><th class="p-3 text-right">Tempo</th><th class="p-3 text-right">Custo</th><th class="p-3 text-center">Ações</th></tr></thead><tbody>
       ${pend.map(t => { const m = sfMembro(t.membro_id), p = sfProjeto(t.projeto_id), ta = STATE.sf.tarefas.find(x=>x.id===t.tarefa_id);
-        return `<tr class="border-t border-ink-800 hover:bg-ink-850"><td class="p-3"><input type="checkbox" class="sf-chk" data-id="${t.id}"></td><td class="p-3 whitespace-nowrap">${fmtData(t.data)}</td><td class="p-3 font-semibold">${escapeHtml(m?.nome||m?.email||'?')}</td><td class="p-3">${escapeHtml(p?.cliente||'?')} <span class="text-ink-400">· ${escapeHtml(p?.nome||'')}</span></td><td class="p-3 text-xs text-ink-300">${ta?`<b>${escapeHtml(ta.titulo)}</b> · `:''}${escapeHtml(t.descricao||'—')}</td><td class="p-3 text-right tabular-nums font-bold">${sfFmtH(t.minutos)}</td><td class="p-3 text-right tabular-nums">${fmtMoeda(t.minutos/60*Number(t.custo_hora_epoca||0),2)}</td>
+        return `<tr class="border-t border-ink-800 hover:bg-ink-850"><td class="p-3"><input type="checkbox" class="sf-chk" data-id="${t.id}"></td><td class="p-3 whitespace-nowrap">${fmtData(t.data)}</td><td class="p-3 font-semibold">${escapeHtml(m?.nome||m?.email||'?')}</td><td class="p-3">${escapeHtml(p?.cliente||'?')} <span class="text-ink-400">· ${escapeHtml(p?.nome||'')}</span></td><td class="p-3 text-xs text-ink-300">${ta?`<b>${escapeHtml(ta.titulo)}</b> · `:'<span class="text-ink-500">Horas no projeto · </span>'}${escapeHtml(t.descricao||'—')}${t.justificativa?`<div class="mt-1 text-yellow-300"><b>Justificativa:</b> ${escapeHtml(t.justificativa)}</div>`:''}</td><td class="p-3 text-right tabular-nums font-bold">${sfFmtH(t.minutos)}</td><td class="p-3 text-right tabular-nums">${fmtMoeda(t.minutos/60*Number(t.custo_hora_epoca||0),2)}</td>
           <td class="p-3 text-center whitespace-nowrap"><button class="px-2 py-1 rounded bg-green-500/15 text-green-400 text-xs font-semibold" onclick="sfAprovar(['${t.id}'],'APROVADO')">✓</button> <button class="px-2 py-1 rounded text-red-400 hover:bg-red-500/15 text-xs" onclick="sfAprovar(['${t.id}'],'REPROVADO')">✕</button> <button class="px-2 py-1 rounded text-azul-400 text-xs" onclick="abrirSfLancamento('${t.id}')">✎</button></td></tr>`; }).join('')}
     </tbody></table></div>`}
   </div>`;
