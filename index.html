@@ -5072,6 +5072,7 @@ function renderUsuarioConfig(i){
         ${linha('🇵🇹 Portugal', cb((u.paises||[]).includes('PT'), `toggleAcessoPais(${i},'PT',this.checked)`))}
         ${usuarioTemSnackFlow(u) ? `<div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold mb-2 mt-5">SnackFlow</div>
         ${linha('Superior direto', `<select class="input py-1 text-xs" style="width:auto;max-width:190px" onchange="setAcessoCampo(${i},'superior_email',this.value||null)">${superiorOptionsHTML(u)}</select>`)}
+        ${linha('Aprovador de horas', `<select class="input py-1 text-xs" style="width:auto;max-width:190px" onchange="setAcessoCampo(${i},'aprovador_horas_email',this.value||null)">${aprovadorHorasOptionsHTML(u)}</select>`, 'Quem aprova as horas lançadas')}
         ${linha('Elegível ao timesheet', cb(u.timesheet_elegivel!==false, `setAcessoCampo(${i},'timesheet_elegivel',this.checked)`), 'Preenche horas no SnackFlow')}
         <div class="py-2 border-b border-ink-800/60"><div class="text-sm mb-1">Área</div>${msddHTML(`ua-areas-${i}`, SF_AREAS, u.areas, vals => setAcessoCampo(i, 'areas', vals))}</div>
         <div class="py-2 border-b border-ink-800/60"><div class="text-sm mb-1">Squad</div>${msddHTML(`ua-squads-${i}`, SF_SQUADS, u.squads, vals => setAcessoCampo(i, 'squads', vals))}</div>` : ''}
@@ -5221,6 +5222,16 @@ function usuarioAvatarHTML(u, tam){
   const ini = escapeHtml(String(u?.nome||u?.email||'?').trim().charAt(0).toUpperCase());
   return `<div style="width:${t}px;height:${t}px;font-size:${Math.round(t*0.4)}px" class="rounded-full bg-ink-800 flex items-center justify-center font-bold shrink-0">${ini}</div>`;
 }
+// Aprovador de horas (escolha única): todos os usuários cadastrados no sistema (Asana 1220828901584706)
+function aprovadorHorasOptionsHTML(u){
+  const todos = (STATE.usuariosAcesso||[]).slice()
+    .sort((a,b)=> String(a.nome||a.email).localeCompare(String(b.nome||b.email), 'pt-BR', {sensitivity:'base'}));
+  const atual = u.aprovador_horas_email || '';
+  const fora = atual && !todos.some(x => x.email === atual);
+  return `<option value="">— sem aprovador —</option>` +
+    (fora ? `<option value="${escapeHtml(atual)}" selected>${escapeHtml(atual)}</option>` : '') +
+    todos.map(x => `<option value="${escapeHtml(x.email)}" ${x.email===atual?'selected':''}>${escapeHtml(x.nome||x.email.split('@')[0])}${x.ativo===false?' (inativo)':''}</option>`).join('');
+}
 function superiorOptionsHTML(u){
   const outros = (STATE.usuariosAcesso||[]).filter(x => x.email !== u.email && x.ativo !== false)
     .sort((a,b)=> String(a.nome||a.email).localeCompare(String(b.nome||b.email), 'pt-BR', {sensitivity:'base'}));
@@ -5258,7 +5269,7 @@ function uploadFotoUsuario(i, input){
   img.src = url;
 }
 function removerFotoUsuario(i){ STATE.usuariosAcesso[i].foto = null; rerenderUsuarioConfig(i); }
-// Janela aberta ao liberar o SnackFlow: superior direto + elegibilidade ao timesheet + área + squad
+// Janela aberta ao liberar o SnackFlow: superior direto + aprovador de horas + elegibilidade ao timesheet + área + squad
 function abrirPerguntaSnackFlow(i){
   const u = STATE.usuariosAcesso[i]; if (!u) return;
   const old = document.getElementById('modal-sf-pergunta'); if (old) old.remove();
@@ -5269,6 +5280,8 @@ function abrirPerguntaSnackFlow(i){
     <div class="text-sm text-ink-400 mt-1">Você liberou o SnackFlow pra <b>${escapeHtml(u.nome||u.email.split('@')[0])}</b>. Algumas informações rápidas:</div>
     <div class="mt-4"><label class="text-xs text-ink-400">Quem é o superior direto?</label>
       <select id="sfq-superior" class="input mt-1">${superiorOptionsHTML(u)}</select></div>
+    <div class="mt-4"><label class="text-xs text-ink-400">Quem é o aprovador de horas?</label>
+      <select id="sfq-aprovador" class="input mt-1">${aprovadorHorasOptionsHTML(u)}</select></div>
     <div class="mt-4"><div class="text-xs text-ink-400 mb-1">É elegível ao preenchimento de horas no timesheet?</div>
       <div class="flex gap-4 text-sm">
         <label class="flex items-center gap-2 cursor-pointer"><input type="radio" name="sfq-eleg" value="1" class="accent-orange-500" ${eleg?'checked':''}>Sim</label>
@@ -5287,6 +5300,7 @@ function abrirPerguntaSnackFlow(i){
 function confirmarPerguntaSnackFlow(i){
   const u = STATE.usuariosAcesso[i]; if (!u) return;
   u.superior_email = document.getElementById('sfq-superior')?.value || null;
+  u.aprovador_horas_email = document.getElementById('sfq-aprovador')?.value || null;
   u.timesheet_elegivel = (document.querySelector('input[name="sfq-eleg"]:checked')?.value ?? '1') === '1';
   u.areas = sfSoPermitidos(msddValores('sfq-areas'), SF_AREAS);
   u.squads = sfSoPermitidos(msddValores('sfq-squads'), SF_SQUADS);
@@ -5336,19 +5350,26 @@ async function salvarUsuarioAcesso(i){
   const base={ email:u.email.toLowerCase(), nome:u.nome, paises:u.paises||[], abas:u.abas||[], admin:!!u.admin, ativo:u.ativo!==false, validador:!!u.validador, updated_at:new Date().toISOString() };
   const extrasAntigos={ foto:u.foto||null, superior_email:u.superior_email||null, timesheet_elegivel:u.timesheet_elegivel!==false };
   u.areas = sfSoPermitidos(u.areas, SF_AREAS); u.squads = sfSoPermitidos(u.squads, SF_SQUADS);
-  const extras={ ...extrasAntigos, areas:u.areas, squads:u.squads };
+  const extrasAreaSquad={ ...extrasAntigos, areas:u.areas, squads:u.squads };
+  const extras={ ...extrasAreaSquad, aprovador_horas_email:u.aprovador_horas_email||null };
   let payload={ ...base, ...extras };
   let { error } = await sb.from('usuarios_acesso').upsert(payload, { onConflict:'email' });
+  if (error && colunaInexistente(error)){
+    // Banco ainda sem aprovador_horas_email (migrations/2026-11-23_snackflow_aprovador_horas.sql): tenta sem ela.
+    payload = { ...base, ...extrasAreaSquad };
+    ({ error } = await sb.from('usuarios_acesso').upsert(payload, { onConflict:'email' }));
+    if (!error) alert('Cadastro salvo, mas o Aprovador de horas ainda não pode ser gravado: falta rodar a migração 2026-11-23_snackflow_aprovador_horas.sql no banco.');
+  }
   if (error && colunaInexistente(error)){
     // Banco ainda sem areas/squads (migrations/2026-11-23_snackflow_area_squad.sql): tenta sem elas.
     payload = { ...base, ...extrasAntigos };
     ({ error } = await sb.from('usuarios_acesso').upsert(payload, { onConflict:'email' }));
-    if (!error) alert('Cadastro salvo, mas Área e Squad ainda não podem ser gravados: falta rodar a migração 2026-11-23_snackflow_area_squad.sql no banco.');
+    if (!error) alert('Cadastro salvo, mas Área, Squad e Aprovador de horas ainda não podem ser gravados: faltam as migrações 2026-11-23_snackflow_area_squad.sql e 2026-11-23_snackflow_aprovador_horas.sql no banco.');
     else if (colunaInexistente(error)){
       // Banco também sem as colunas de 2026-11-13_cadastro_usuarios.sql: salva só o básico e avisa.
       payload = base;
       ({ error } = await sb.from('usuarios_acesso').upsert(payload, { onConflict:'email' }));
-      if (!error) alert('Nome e permissões foram salvos. Foto, superior direto, elegibilidade ao timesheet, Área e Squad ainda não podem ser gravados: falta rodar as migrações 2026-11-13_cadastro_usuarios.sql e 2026-11-23_snackflow_area_squad.sql no banco.');
+      if (!error) alert('Nome e permissões foram salvos. Foto, superior direto, elegibilidade ao timesheet, Área, Squad e Aprovador de horas ainda não podem ser gravados: faltam as migrações 2026-11-13_cadastro_usuarios.sql, 2026-11-23_snackflow_area_squad.sql e 2026-11-23_snackflow_aprovador_horas.sql no banco.');
     }
   }
   if (error){ alert('Erro ao salvar: '+error.message); return; }
