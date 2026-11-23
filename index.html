@@ -5161,18 +5161,22 @@ function sfSoPermitidos(vals, lista){
 // ===== Dropdown genérico de múltipla escolha (msdd) =====
 // Mesmo comportamento do dropdown de participantes do SnackStudios, mas reutilizável e com várias
 // instâncias na mesma tela. Uso: msddHTML('meu-id', opcoes, selecionados, vals => {...}); ler com msddValores('meu-id').
+// opcoes: array de strings (valor = rótulo) ou de objetos { v: valor, l: rótulo } (ex.: ids de projeto/pessoa).
+// opts (opcional): { placeholder: 'Todos', btnClass: 'py-1.5 text-sm', menuMinWidth: 260 }
 const MSDD_CB = {}; // id -> callback chamado a cada mudança, com o array de selecionados
-function msddHTML(id, opcoes, selecionados, aoMudar){
-  const sel = new Set(sfSoPermitidos(selecionados, opcoes));
+function msddHTML(id, opcoes, selecionados, aoMudar, opts){
+  const o2 = opts || {}; const ph = o2.placeholder || 'Selecionar…';
+  const ops = (opcoes||[]).map(o => (o && typeof o === 'object') ? { v:String(o.v), l:String(o.l ?? o.v) } : { v:String(o), l:String(o) });
+  const sel = new Set(sfSoPermitidos(selecionados, ops.map(o => o.v)));
   if (aoMudar) MSDD_CB[id] = aoMudar; else delete MSDD_CB[id];
-  const escolhidos = opcoes.filter(o => sel.has(o));
-  return `<div id="${escapeHtml(id)}" class="msdd relative">
-    <button type="button" class="msdd-btn input flex items-center justify-between gap-2 text-left" aria-haspopup="listbox" aria-expanded="false" onclick="msddToggle('${escapeHtml(id)}')">
-      <span class="msdd-resumo truncate ${escolhidos.length?'':'text-ink-500'}" title="${escapeHtml(escolhidos.join(', '))}">${escolhidos.length ? escapeHtml(escolhidos.join(', ')) : 'Selecionar…'}</span>
+  const escolhidos = ops.filter(o => sel.has(o.v)).map(o => o.l);
+  return `<div id="${escapeHtml(id)}" class="msdd relative" data-ph="${escapeHtml(ph)}">
+    <button type="button" class="msdd-btn input flex items-center justify-between gap-2 text-left ${escapeHtml(o2.btnClass||'')}" aria-haspopup="listbox" aria-expanded="false" onclick="msddToggle('${escapeHtml(id)}')">
+      <span class="msdd-resumo truncate ${escolhidos.length?'':'text-ink-500'}" title="${escapeHtml(escolhidos.join(', '))}">${escolhidos.length ? escapeHtml(escolhidos.join(', ')) : escapeHtml(ph)}</span>
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" class="shrink-0 text-ink-400"><polyline points="6 9 12 15 18 9"/></svg>
     </button>
-    <div class="msdd-menu hidden absolute left-0 right-0 z-10 mt-1 rounded-lg shadow-2xl overflow-hidden" role="listbox" aria-multiselectable="true" style="background:var(--surface);border:1px solid var(--border-2)">
-      <div class="max-h-48 overflow-y-auto py-1">${opcoes.map(o => `<label class="flex items-center gap-2 text-sm px-3 py-1.5 cursor-pointer hover:bg-white/5"><input type="checkbox" class="msdd-cb accent-orange-500" value="${escapeHtml(o)}" ${sel.has(o)?'checked':''} onchange="msddAtualizar('${escapeHtml(id)}')"><span class="truncate">${escapeHtml(o)}</span></label>`).join('')}</div>
+    <div class="msdd-menu hidden absolute left-0 right-0 z-10 mt-1 rounded-lg shadow-2xl overflow-hidden" role="listbox" aria-multiselectable="true" style="background:var(--surface);border:1px solid var(--border-2)${o2.menuMinWidth?`;min-width:${Number(o2.menuMinWidth)||0}px`:''}">
+      <div class="max-h-48 overflow-y-auto py-1">${ops.length ? ops.map(o => `<label class="flex items-center gap-2 text-sm px-3 py-1.5 cursor-pointer hover:bg-white/5"><input type="checkbox" class="msdd-cb accent-orange-500" value="${escapeHtml(o.v)}" ${sel.has(o.v)?'checked':''} onchange="msddAtualizar('${escapeHtml(id)}')"><span class="msdd-l truncate">${escapeHtml(o.l)}</span></label>`).join('') : '<div class="text-xs text-ink-500 px-3 py-2">Nenhuma opção</div>'}</div>
       <div class="flex items-center justify-between px-3 py-2 border-t border-ink-800 text-xs"><button type="button" class="text-ink-400 hover:underline" onclick="msddLimpar('${escapeHtml(id)}')">Limpar seleção</button><button type="button" class="font-semibold text-orange" onclick="msddFechar('${escapeHtml(id)}')">Concluir</button></div>
     </div>
   </div>`;
@@ -5184,7 +5188,8 @@ function msddValores(id){
 function msddAtualizar(id){
   const dd = document.getElementById(id); if (!dd) return;
   const vals = msddValores(id); const el = dd.querySelector('.msdd-resumo');
-  if (el){ el.textContent = vals.length ? vals.join(', ') : 'Selecionar…'; el.title = vals.join(', '); el.classList.toggle('text-ink-500', !vals.length); }
+  const rotulos = [...dd.querySelectorAll('.msdd-cb:checked')].map(c => c.parentElement?.querySelector('.msdd-l')?.textContent || c.value);
+  if (el){ el.textContent = rotulos.length ? rotulos.join(', ') : (dd.dataset.ph || 'Selecionar…'); el.title = rotulos.join(', '); el.classList.toggle('text-ink-500', !rotulos.length); }
   if (MSDD_CB[id]) MSDD_CB[id](vals);
 }
 function msddLimpar(id){
@@ -8054,12 +8059,24 @@ async function sfRecarregar(){
   ]);
   STATE.sf.membros = m.data||[]; STATE.sf.projetos = p.data||[]; STATE.sf.tarefas = t.data||[];
   STATE.sf.ts = ts.data||[]; STATE.sf.despesas = d.data||[]; STATE.sf.ausencias = a.data||[];
+  await sfCarregarAreasSquads();
   if (STATE.sf.carregado){ const el = document.getElementById('view'); if (el && STATE.route === 'snackflow') el.innerHTML = renderSnackFlow(); }
 }
 async function sfAudit(acao, entidade, entidadeId, antes, depois){
   try { await sb.from('sf_auditoria').insert({ usuario: (STATE.currentUser?.email||'').toLowerCase(), acao, entidade, entidade_id: entidadeId ? String(entidadeId) : null, antes: antes||null, depois: depois||null }); } catch(e){}
 }
 function sfMembro(id){ return STATE.sf.membros.find(x=>x.id===id); }
+// Área/Squad de cada pessoa vêm do cadastro (usuarios_acesso.areas / squads, migração 2026-11-23_snackflow_area_squad.sql).
+// Se as colunas ainda não existirem, os filtros Área/Squad ficam desabilitados (sem quebrar o resto).
+async function sfCarregarAreasSquads(){
+  try {
+    const { data, error } = await sb.from('usuarios_acesso').select('email, areas, squads');
+    if (error) throw error;
+    const mapa = {}; (data||[]).forEach(u => { mapa[String(u.email||'').toLowerCase()] = { areas: sfSoPermitidos(u.areas, SF_AREAS), squads: sfSoPermitidos(u.squads, SF_SQUADS) }; });
+    STATE.sf.uaPorEmail = mapa; STATE.sf.areaSquadOk = true;
+  } catch(e){ console.warn('SnackFlow áreas/squads indisponíveis:', e?.message||e); STATE.sf.uaPorEmail = {}; STATE.sf.areaSquadOk = false; }
+}
+function sfMembroAreaSquad(id){ const m = sfMembro(id); return (STATE.sf.uaPorEmail||{})[String(m?.email||'').toLowerCase()] || { areas:[], squads:[] }; }
 function sfProjeto(id){ return STATE.sf.projetos.find(x=>x.id===id); }
 function sfSetAba(a){ STATE.sf.aba = a; const el = document.getElementById('view'); if (el) el.innerHTML = renderSnackFlow(); }
 
@@ -8718,7 +8735,8 @@ function thOrd(col, label, cls, title){
    encaminhamento entre participantes, prazo, descrição e anexos.
 ============================================================= */
 const SF_TAREFA_COR = { NAO_INICIADA:'#8E8D98', EM_ANDAMENTO:'#2E6BFF', IMPEDIMENTO:'#EF4444', FINALIZADA:'#22C55E' };
-STATE.sfPainel = { projeto:'', pessoa:'', soMinhas:false };
+// Filtros do painel de Tarefas: todos de múltipla escolha (OU dentro do filtro, E entre filtros). Asana 1220828901584709
+STATE.sfPainel = { projetos:[], pessoas:[], clientes:[], areas:[], squads:[], soMinhas:false };
 function sfIniciais(m){ const n = String(m?.nome||m?.email||'?').trim().split(/\s+/); return ((n[0]||'?')[0] + (n.length>1 ? n[n.length-1][0] : '')).toUpperCase(); }
 function sfAvatar(id, ativo, tam){
   const m = sfMembro(id); const t = tam || 26;
@@ -8728,17 +8746,54 @@ function sfTarefaPessoas(t){ return [...new Set([t.responsavel_id, ...(t.partici
 function sfTarefasFiltradas(){
   const s = STATE.sf, f = STATE.sfPainel;
   return s.tarefas.filter(t => {
-    if (f.projeto && t.projeto_id !== f.projeto) return false;
-    if (f.pessoa && !sfTarefaPessoas(t).includes(f.pessoa)) return false;
-    if (f.soMinhas && !sfTarefaPessoas(t).includes(s.eu.id)) return false;
+    const pessoas = sfTarefaPessoas(t);
+    if (f.projetos.length && !f.projetos.includes(t.projeto_id)) return false;
+    if (f.clientes.length && !f.clientes.includes(String(sfProjeto(t.projeto_id)?.cliente||''))) return false;
+    if (f.pessoas.length && !pessoas.some(id => f.pessoas.includes(id))) return false;
+    // Área / Squad: a tarefa entra se alguém dela (responsável ou participante) é de uma das áreas/squads marcadas
+    if (f.areas.length && !pessoas.some(id => sfMembroAreaSquad(id).areas.some(a => f.areas.includes(a)))) return false;
+    if (f.squads.length && !pessoas.some(id => sfMembroAreaSquad(id).squads.some(q => f.squads.includes(q)))) return false;
+    if (f.soMinhas && !pessoas.includes(s.eu.id)) return false;
     return true;
   });
 }
 function renderSfPainel(){
-  const s = STATE.sf, f = STATE.sfPainel; const hojeISO = hoje();
-  const lista = sfTarefasFiltradas();
+  const s = STATE.sf, f = STATE.sfPainel;
   const comigo = s.tarefas.filter(t => (t.ativos||[]).includes(s.eu.id) && t.status !== 'FINALIZADA').length;
+  const projAtivos = s.projetos.filter(p=>p.status==='EM_ANDAMENTO');
+  const optProj = projAtivos.map(p => ({ v:p.id, l:`${p.cliente||'?'} · ${p.nome||''}` }));
+  const optPessoa = s.membros.filter(m=>m.ativo!==false).map(m => ({ v:m.id, l:m.nome||m.email }));
+  const optCliente = [...new Set(projAtivos.map(p => String(p.cliente||'')).filter(Boolean))].sort((a,b)=>a.localeCompare(b,'pt-BR',{sensitivity:'base'}));
+  const ok = s.areaSquadOk !== false;
+  const filtro = (rotulo, id, opcoes, chave, ph, extra) => `<div style="min-width:170px;max-width:240px"><label class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">${rotulo}</label><div class="mt-1">${msddHTML(id, opcoes, f[chave], vals => sfPainelFiltro(chave, vals), { placeholder: ph, btnClass:'py-1.5 text-sm', menuMinWidth: 240 })}</div>${extra||''}</div>`;
+  const temFiltro = f.projetos.length || f.pessoas.length || f.clientes.length || f.areas.length || f.squads.length;
+  return `
+  <div class="card p-3 relative z-20 flex items-end gap-3 flex-wrap">
+    ${filtro('Cliente', 'sfp-clientes', optCliente, 'clientes', 'Todos')}
+    ${filtro('Projeto', 'sfp-projetos', optProj, 'projetos', 'Todos')}
+    ${filtro('Pessoa', 'sfp-pessoas', optPessoa, 'pessoas', 'Todas')}
+    ${ok ? filtro('Área', 'sfp-areas', SF_AREAS, 'areas', 'Todas') + filtro('Squad', 'sfp-squads', SF_SQUADS, 'squads', 'Todos')
+         : `<div class="text-[11px] text-ink-500 pb-2" title="Falta rodar a migração 2026-11-23_snackflow_area_squad.sql">Filtros Área/Squad indisponíveis</div>`}
+    <label class="flex items-center gap-2 text-xs text-ink-300 pb-2 cursor-pointer"><input type="checkbox" class="accent-orange-500 w-4 h-4" ${f.soMinhas?'checked':''} onchange="sfPainelFiltro('soMinhas', this.checked)">Só as minhas</label>
+    ${temFiltro ? `<button class="text-xs text-ink-400 hover:underline pb-2" onclick="sfPainelLimparFiltros()">Limpar filtros</button>` : ''}
+    <div class="ml-auto flex items-center gap-4 text-xs"><span>Comigo agora: <b class="text-orange">${comigo}</b></span><span id="sf-painel-atrasadas"></span><button class="btn btn-primary text-sm" onclick="abrirSfTarefa(null)">+ Tarefa</button></div>
+  </div>
+  <div id="sf-painel-corpo">${renderSfPainelCorpo()}</div>
+  <div class="text-[11px] text-ink-500">Arraste o cartão pra mudar o status. Avatar laranja = quem está com a tarefa agora. Clique no cartão pra ver detalhes, encaminhar pra outro participante e anexar arquivos.</div>`;
+}
+// Mudou um filtro: atualiza só o quadro (mantém o dropdown aberto pra marcar várias opções)
+function sfPainelFiltro(chave, valor){
+  STATE.sfPainel[chave] = valor;
+  const corpo = document.getElementById('sf-painel-corpo');
+  if (!corpo){ sfSetAba('painel'); return; }
+  corpo.innerHTML = renderSfPainelCorpo();
+}
+function sfPainelLimparFiltros(){ Object.assign(STATE.sfPainel, { projetos:[], pessoas:[], clientes:[], areas:[], squads:[] }); sfSetAba('painel'); }
+function renderSfPainelCorpo(){
+  const s = STATE.sf; const hojeISO = hoje();
+  const lista = sfTarefasFiltradas();
   const atrasadas = lista.filter(t => t.prazo && t.prazo < hojeISO && t.status !== 'FINALIZADA').length;
+  setTimeout(() => { const el = document.getElementById('sf-painel-atrasadas'); if (el){ el.className = atrasadas ? 'text-red-400 font-bold' : ''; el.textContent = atrasadas ? `⚠ ${atrasadas} atrasada${atrasadas===1?'':'s'}` : ''; } }, 0);
   const col = (st) => { const ts = lista.filter(t=>t.status===st).sort((a,b)=> String(a.prazo||'9999').localeCompare(String(b.prazo||'9999')));
     return `<div class="rounded-xl p-2 min-w-[260px] flex-1" style="background:var(--fx-white-weak)">
       <div class="flex items-center justify-between px-2 py-1.5"><div class="flex items-center gap-2 text-xs font-bold uppercase tracking-wider"><span class="w-2 h-2 rounded-full" style="background:${SF_TAREFA_COR[st]}"></span>${SF_TAREFA_STATUS[st]}</div><span class="text-xs text-ink-400">${ts.length}</span></div>
@@ -8755,15 +8810,7 @@ function renderSfPainel(){
             ${ativos.length?`<div class="text-[10px] text-orange mt-1.5 truncate">▶ ${ativos.map(id=>escapeHtml((sfMembro(id)?.nome||'?').split(' ')[0])).join(', ')} trabalhando agora</div>`:''}
           </div>`; }).join('') || '<div class="text-xs text-ink-500 text-center py-4">—</div>'}
       </div></div>`; };
-  return `
-  <div class="card p-3 flex items-end gap-3 flex-wrap">
-    <div><label class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">Projeto</label><select class="input py-1.5 text-sm mt-1" style="max-width:260px" onchange="STATE.sfPainel.projeto=this.value; sfSetAba('painel')"><option value="">Todos</option>${s.projetos.filter(p=>p.status==='EM_ANDAMENTO').map(p=>`<option value="${p.id}" ${f.projeto===p.id?'selected':''}>${escapeHtml(p.cliente)} · ${escapeHtml(p.nome)}</option>`).join('')}</select></div>
-    <div><label class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">Pessoa</label><select class="input py-1.5 text-sm mt-1" onchange="STATE.sfPainel.pessoa=this.value; sfSetAba('painel')"><option value="">Todas</option>${s.membros.filter(m=>m.ativo!==false).map(m=>`<option value="${m.id}" ${f.pessoa===m.id?'selected':''}>${escapeHtml(m.nome||m.email)}</option>`).join('')}</select></div>
-    <label class="flex items-center gap-2 text-xs text-ink-300 pb-2 cursor-pointer"><input type="checkbox" class="accent-orange-500 w-4 h-4" ${f.soMinhas?'checked':''} onchange="STATE.sfPainel.soMinhas=this.checked; sfSetAba('painel')">Só as minhas</label>
-    <div class="ml-auto flex items-center gap-4 text-xs"><span>Comigo agora: <b class="text-orange">${comigo}</b></span>${atrasadas?`<span class="text-red-400 font-bold">⚠ ${atrasadas} atrasada${atrasadas===1?'':'s'}</span>`:''}<button class="btn btn-primary text-sm" onclick="abrirSfTarefa(null)">+ Tarefa</button></div>
-  </div>
-  <div class="flex gap-3 overflow-x-auto pb-2 items-start">${['NAO_INICIADA','EM_ANDAMENTO','IMPEDIMENTO','FINALIZADA'].map(col).join('')}</div>
-  <div class="text-[11px] text-ink-500">Arraste o cartão pra mudar o status. Avatar laranja = quem está com a tarefa agora. Clique no cartão pra ver detalhes, encaminhar pra outro participante e anexar arquivos.</div>`;
+  return `<div class="flex gap-3 overflow-x-auto pb-2 items-start">${['NAO_INICIADA','EM_ANDAMENTO','IMPEDIMENTO','FINALIZADA'].map(col).join('')}</div>`;
 }
 async function sfMov(tarefaId, acao, de, para, obs){
   try { await sb.from('sf_tarefa_mov').insert({ tarefa_id: tarefaId, acao, de_membro: de||null, para_membro: para||null, obs: obs||null, por: (STATE.currentUser?.email||'').toLowerCase() }); } catch(e){}
@@ -8796,7 +8843,7 @@ async function abrirSfTarefa(id){
     <div class="p-6 grid grid-cols-1 md:grid-cols-[1fr,260px] gap-6">
       <div class="space-y-3">
         <div><label class="text-xs text-ink-400">Título *</label><input id="tk-titulo" class="input mt-1" value="${escapeHtml(t?.titulo||'')}"></div>
-        <div><label class="text-xs text-ink-400">Projeto *</label><select id="tk-proj" class="input mt-1">${projs.map(p=>`<option value="${p.id}" ${(t?.projeto_id||STATE.sfPainel.projeto)===p.id?'selected':''}>${escapeHtml(p.cliente)} · ${escapeHtml(p.nome)}</option>`).join('')}</select></div>
+        <div><label class="text-xs text-ink-400">Projeto *</label><select id="tk-proj" class="input mt-1">${projs.map(p=>`<option value="${p.id}" ${(t?.projeto_id||(STATE.sfPainel.projetos.length===1?STATE.sfPainel.projetos[0]:""))===p.id?'selected':''}>${escapeHtml(p.cliente)} · ${escapeHtml(p.nome)}</option>`).join('')}</select></div>
         <div><label class="text-xs text-ink-400">Descrição</label><textarea id="tk-desc" rows="3" class="input mt-1" placeholder="Breve descrição do que precisa ser feito">${escapeHtml(t?.descricao||'')}</textarea></div>
         <div class="grid grid-cols-3 gap-3">
           <div><label class="text-xs text-ink-400">Prazo de entrega</label><input id="tk-prazo" type="date" class="input mt-1" value="${t?.prazo||''}"></div>
