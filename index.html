@@ -8362,18 +8362,10 @@ function abrirSfTarefas(pid){
   div.innerHTML = `<div class="card p-6 w-full max-w-xl max-h-[90vh] overflow-y-auto" onclick="event.stopPropagation()">
     <h3 class="font-bold text-lg">Tarefas · ${escapeHtml(p.cliente)} / ${escapeHtml(p.nome)}</h3>
     <div class="mt-3 space-y-2" id="sf-tarefas-lista">${ts.length?ts.map(t=>{ const h = STATE.sf.ts.filter(x=>x.tarefa_id===t.id && x.status!=='REPROVADO').reduce((a,x)=>a+x.minutos,0);
-      return `<div class="flex items-center gap-2 bg-white/5 rounded-lg px-3 py-2"><select class="input py-1 text-xs" style="width:auto" onchange="sfTarefaStatus('${t.id}', this.value)">${Object.entries(SF_TAREFA_STATUS).map(([k,v])=>`<option value="${k}" ${t.status===k?'selected':''}>${v}</option>`).join('')}</select><div class="flex-1 text-sm">${escapeHtml(t.titulo)}</div><div class="text-xs text-ink-400 tabular-nums">${sfFmtH(h)}${t.horas_estimadas?` / ${t.horas_estimadas}h`:''}</div><button class="text-red-400 text-xs" onclick="sfExcluirTarefa('${t.id}')">🗑</button></div>`; }).join(''):'<div class="text-sm text-ink-500">Nenhuma tarefa ainda.</div>'}</div>
-    <div class="flex gap-2 mt-4"><input id="sft-titulo" class="input" placeholder="Nova tarefa"><input id="sft-horas" type="number" step="0.5" class="input" style="width:110px" placeholder="h est."><button class="btn btn-primary text-sm" onclick="sfNovaTarefa('${pid}')">Adicionar</button></div>
-    <div class="flex justify-end mt-4"><button class="btn-ghost" onclick="document.getElementById('modal-sf').remove()">Fechar</button></div>
+      return `<div class="flex items-center gap-2 bg-white/5 rounded-lg px-3 py-2"><select class="input py-1 text-xs" style="width:auto" onchange="sfTarefaStatus('${t.id}', this.value)">${Object.entries(SF_TAREFA_STATUS).map(([k,v])=>`<option value="${k}" ${t.status===k?'selected':''}>${v}</option>`).join('')}</select><button class="flex-1 text-sm text-left hover:text-orange" title="Abrir tarefa" onclick="abrirSfTarefa('${t.id}', { voltarProjeto: '${pid}' })">${escapeHtml(t.titulo)}</button><div class="text-xs text-ink-400 tabular-nums">${sfFmtH(h)}${t.horas_estimadas?` / ${t.horas_estimadas}h`:''}</div><button class="text-red-400 text-xs" onclick="sfExcluirTarefa('${t.id}')">🗑</button></div>`; }).join(''):'<div class="text-sm text-ink-500">Nenhuma tarefa ainda.</div>'}</div>
+    <div class="flex justify-between items-center gap-2 mt-4"><button class="btn btn-primary text-sm" onclick="abrirSfTarefa(null, { projetoId: '${pid}', voltarProjeto: '${pid}' })">+ Tarefa</button><button class="btn-ghost" onclick="document.getElementById('modal-sf').remove()">Fechar</button></div>
   </div>`;
   div.addEventListener('click', ()=>div.remove()); document.body.appendChild(div);
-  setTimeout(()=>document.getElementById('sft-titulo')?.focus(), 50);
-}
-async function sfNovaTarefa(pid){
-  const titulo = document.getElementById('sft-titulo').value.trim(); if (!titulo) return;
-  const { error } = await sb.from('sf_tarefas').insert({ projeto_id: pid, titulo, horas_estimadas: Number(document.getElementById('sft-horas').value)||null });
-  if (error){ alert('Erro: '+error.message); return; }
-  await sfRecarregar(); abrirSfTarefas(pid);
 }
 async function sfTarefaStatus(id, status){ await sb.from('sf_tarefas').update({ status }).eq('id', id); const t = STATE.sf.tarefas.find(x=>x.id===id); if (t) t.status = status; }
 async function sfExcluirTarefa(id){ const t = STATE.sf.tarefas.find(x=>x.id===id); if (!t || !confirm('Excluir a tarefa? Os lançamentos ficam, só perdem o vínculo.')) return; await sb.from('sf_tarefas').delete().eq('id', id); await sfRecarregar(); abrirSfTarefas(t.projeto_id); }
@@ -8845,23 +8837,27 @@ async function sfDropTarefa(ev, status){
   if (await sfUpdTarefa(id, patch)){ await sfMov(id, 'status', null, null, `${SF_TAREFA_STATUS[antes]} → ${SF_TAREFA_STATUS[status]}`); sfSetAba('painel'); }
 }
 // ---- Modal: criar / detalhar tarefa ----
-async function abrirSfTarefa(id){
+// opts.projetoId: projeto pré-selecionado (ex.: aberto a partir de Projetos)
+// opts.voltarProjeto: ao fechar/salvar, volta para a lista de tarefas desse projeto (aba Projetos)
+async function abrirSfTarefa(id, opts){
   const s = STATE.sf; const t = id ? s.tarefas.find(x=>x.id===id) : null;
+  STATE.sfTarefaCtx = opts || null;
+  const preProj = t?.projeto_id || opts?.projetoId || (STATE.sfPainel.projetos.length===1?STATE.sfPainel.projetos[0]:"");
   const old = document.getElementById('modal-sf'); if (old) old.remove();
   const div = document.createElement('div'); div.id = 'modal-sf'; div.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4';
   const membros = s.membros.filter(m=>m.ativo!==false);
   const part = new Set(t?.participantes||[]); const ativos = t?.ativos||[];
-  const projs = s.projetos.filter(p=>p.status==='EM_ANDAMENTO' || p.id===t?.projeto_id);
+  const projs = s.projetos.filter(p=>p.status==='EM_ANDAMENTO' || p.id===preProj);
   let movs = [];
   if (t){ const { data } = await sb.from('sf_tarefa_mov').select('*').eq('tarefa_id', t.id).order('criado_em', {ascending:false}).limit(40); movs = data||[]; }
   const pessoas = t ? sfTarefaPessoas(t) : [];
   const euParticipo = t && pessoas.includes(s.eu.id); const euAtivo = ativos.includes(s.eu.id);
   div.innerHTML = `<div class="card w-full max-w-3xl max-h-[92vh] overflow-y-auto" onclick="event.stopPropagation()">
-    <div class="p-6 border-b border-ink-800 flex items-start justify-between gap-3"><h3 class="font-bold text-lg">${t?'Tarefa':'Nova tarefa'}</h3><button class="text-ink-400 hover:text-white text-xl leading-none" onclick="document.getElementById('modal-sf').remove()">×</button></div>
+    <div class="p-6 border-b border-ink-800 flex items-start justify-between gap-3"><h3 class="font-bold text-lg">${t?'Tarefa':'Nova tarefa'}</h3><button class="text-ink-400 hover:text-white text-xl leading-none" onclick="sfFecharModalTarefa()">×</button></div>
     <div class="p-6 grid grid-cols-1 md:grid-cols-[1fr,260px] gap-6">
       <div class="space-y-3">
         <div><label class="text-xs text-ink-400">Título *</label><input id="tk-titulo" class="input mt-1" value="${escapeHtml(t?.titulo||'')}"></div>
-        <div><label class="text-xs text-ink-400">Projeto *</label><select id="tk-proj" class="input mt-1">${projs.map(p=>`<option value="${p.id}" ${(t?.projeto_id||(STATE.sfPainel.projetos.length===1?STATE.sfPainel.projetos[0]:""))===p.id?'selected':''}>${escapeHtml(p.cliente)} · ${escapeHtml(p.nome)}</option>`).join('')}</select></div>
+        <div><label class="text-xs text-ink-400">Projeto *</label><select id="tk-proj" class="input mt-1">${projs.map(p=>`<option value="${p.id}" ${preProj===p.id?'selected':''}>${escapeHtml(p.cliente)} · ${escapeHtml(p.nome)}</option>`).join('')}</select></div>
         <div><label class="text-xs text-ink-400">Descrição</label><textarea id="tk-desc" rows="3" class="input mt-1" placeholder="Breve descrição do que precisa ser feito">${escapeHtml(t?.descricao||'')}</textarea></div>
         <div class="grid grid-cols-3 gap-3">
           <div><label class="text-xs text-ink-400">Prazo de entrega</label><input id="tk-prazo" type="date" class="input mt-1" value="${t?.prazo||''}"></div>
@@ -8894,9 +8890,20 @@ async function abrirSfTarefa(id){
     </div>
     <div class="p-6 border-t border-ink-800 flex items-center justify-between">
       <div>${t && (sfEhGestor() || t.responsavel_id===s.eu.id) ? `<button class="btn-ghost text-xs text-red-400" onclick="sfExcluirTarefaPainel('${t.id}')">Excluir tarefa</button>`:''}</div>
-      <div class="flex gap-2"><button class="btn-ghost" onclick="document.getElementById('modal-sf').remove()">Fechar</button><button class="btn-primary" id="tk-ok" onclick="salvarSfTarefa(${t?`'${t.id}'`:'null'})">${t?'Salvar':'Criar tarefa'}</button></div>
+      <div class="flex gap-2"><button class="btn-ghost" onclick="sfFecharModalTarefa()">Fechar</button><button class="btn-primary" id="tk-ok" onclick="salvarSfTarefa(${t?`'${t.id}'`:'null'})">${t?'Salvar':'Criar tarefa'}</button></div>
     </div></div>`;
-  div.addEventListener('click', ()=>div.remove()); document.body.appendChild(div);
+  div.addEventListener('click', ()=>sfFecharModalTarefa()); document.body.appendChild(div);
+}
+function sfFecharModalTarefa(){
+  document.getElementById('modal-sf')?.remove();
+  const ctx = STATE.sfTarefaCtx; STATE.sfTarefaCtx = null;
+  if (ctx?.voltarProjeto && sfProjeto(ctx.voltarProjeto)) abrirSfTarefas(ctx.voltarProjeto);
+}
+// depois de salvar/excluir: volta pro contexto de origem (Projetos) ou pro painel de Tarefas
+function sfPosTarefa(){
+  const ctx = STATE.sfTarefaCtx; STATE.sfTarefaCtx = null;
+  if (ctx?.voltarProjeto){ sfSetAba(STATE.sf.aba||'projetos'); if (sfProjeto(ctx.voltarProjeto)) abrirSfTarefas(ctx.voltarProjeto); }
+  else sfSetAba('painel');
 }
 async function salvarSfTarefa(id){
   const s = STATE.sf; const erro = document.getElementById('tk-erro'); const mostrar = m => { erro.textContent = m; erro.classList.remove('hidden'); };
@@ -8925,7 +8932,7 @@ async function salvarSfTarefa(id){
       const { data, error } = await sb.from('sf_tarefas').insert({ ...payload, created_by: (STATE.currentUser?.email||'').toLowerCase() }).select('id').single(); if (error) throw error;
       await sfMov(data.id, 'criar', null, resp, null);
     }
-    document.getElementById('modal-sf')?.remove(); await sfRecarregar(); sfSetAba('painel');
+    document.getElementById('modal-sf')?.remove(); await sfRecarregar(); sfPosTarefa();
   } catch(e){ btn.disabled = false; btn.textContent = id?'Salvar':'Criar tarefa'; mostrar('Erro: ' + (e.message||e)); }
 }
 async function sfToggleAtivo(id){
@@ -8933,7 +8940,7 @@ async function sfToggleAtivo(id){
   const era = (t.ativos||[]).includes(s.eu.id);
   const ativos = era ? t.ativos.filter(x=>x!==s.eu.id) : [...(t.ativos||[]), s.eu.id];
   const patch = { ativos }; if (!era && t.status === 'NAO_INICIADA') patch.status = 'EM_ANDAMENTO';
-  if (await sfUpdTarefa(id, patch)){ await sfMov(id, era?'pausar':'iniciar', s.eu.id, null, null); await abrirSfTarefa(id); const el = document.getElementById('view'); if (el && STATE.sf.aba==='painel') el.innerHTML = renderSnackFlow(); }
+  if (await sfUpdTarefa(id, patch)){ await sfMov(id, era?'pausar':'iniciar', s.eu.id, null, null); await abrirSfTarefa(id, STATE.sfTarefaCtx); const el = document.getElementById('view'); if (el && STATE.sf.aba==='painel') el.innerHTML = renderSnackFlow(); }
 }
 async function sfEncaminhar(id){
   const s = STATE.sf; const t = s.tarefas.find(x=>x.id===id); if (!t) return;
@@ -8941,17 +8948,17 @@ async function sfEncaminhar(id){
   const obs = (document.getElementById('tk-enc-obs')?.value||'').trim();
   const ativos = [...new Set([...(t.ativos||[]).filter(x=>x!==s.eu.id), para])];
   const patch = { ativos }; if (t.status === 'NAO_INICIADA') patch.status = 'EM_ANDAMENTO';
-  if (await sfUpdTarefa(id, patch)){ await sfMov(id, 'encaminhar', s.eu.id, para, obs); document.getElementById('modal-sf')?.remove(); sfSetAba('painel'); }
+  if (await sfUpdTarefa(id, patch)){ await sfMov(id, 'encaminhar', s.eu.id, para, obs); document.getElementById('modal-sf')?.remove(); sfPosTarefa(); }
 }
 async function sfRemoverAnexoTarefa(id, idx){
   const t = STATE.sf.tarefas.find(x=>x.id===id); if (!t || !confirm('Remover este anexo da tarefa?')) return;
   const anexos = (t.anexos||[]).filter((_,i)=>i!==idx);
-  if (await sfUpdTarefa(id, { anexos })) await abrirSfTarefa(id);
+  if (await sfUpdTarefa(id, { anexos })) await abrirSfTarefa(id, STATE.sfTarefaCtx);
 }
 async function sfExcluirTarefaPainel(id){
   if (!confirm('Excluir a tarefa? Os lançamentos de horas ficam, só perdem o vínculo.')) return;
   const { error } = await sb.from('sf_tarefas').delete().eq('id', id); if (error){ alert(error.message); return; }
-  document.getElementById('modal-sf')?.remove(); await sfRecarregar(); sfSetAba('painel');
+  document.getElementById('modal-sf')?.remove(); await sfRecarregar(); sfPosTarefa();
 }
 
 
