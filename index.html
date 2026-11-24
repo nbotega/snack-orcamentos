@@ -965,7 +965,7 @@ function render() {
   else if (r==='usuarios') { el.innerHTML = renderUsuarios(); carregarUsuariosAcesso(); }
   else if (r==='anexo') el.innerHTML = renderAnexoView();
   else if (r==='pipeline') { el.innerHTML = renderPipeline(); if (!STATE.pipe.carregado) carregarPipeline(); }
-  else if (r==='snackflow') { el.innerHTML = renderSnackFlow(); if (!STATE.sf.carregado) carregarSnackFlow(); }
+  else if (r==='snackflow') { el.innerHTML = renderSnackFlow(); if (!STATE.sf.carregado) carregarSnackFlow(); else if (STATE.sf.equipeDesatualizada){ STATE.sf.equipeDesatualizada = false; sfRecarregar(); } }
   else if (r==='snackstudios') { el.innerHTML = renderSnackStudios(); carregarStudios(); }
   else if (r==='cadastro-clientes') { el.innerHTML = renderCadClientes(); carregarClientesCad(); }
   // Aplica formatação BRL em todos inputs marcados depois do render
@@ -5381,6 +5381,7 @@ async function salvarUsuarioAcesso(i){
   const b=document.getElementById('btn-salvar-user-'+i); if(b){ b.classList.remove('btn-primary'); b.classList.add('btn-ghost'); b.textContent='Salvo ✓'; setTimeout(()=>{ if(b) b.textContent='Salvar'; },1500); }
   if (payload.email === (STATE.currentUser?.email||'').toLowerCase()){ STATE.acesso = { ...(STATE.acesso||{}), ...payload }; aplicarAcessoNaUI(); atualizarUsuarioSidebar(); }
   const lt=document.getElementById('usuarios-tabela'); if(lt) lt.innerHTML=renderUsuariosTabela();
+  if (STATE.sf) STATE.sf.equipeDesatualizada = true; // equipe do SnackFlow é derivada do cadastro
 }
 async function adicionarUsuarioAcesso(){
   const inp=document.getElementById('novo-usuario-email'); const email=(inp?.value||'').trim().toLowerCase();
@@ -5397,6 +5398,7 @@ async function removerUsuarioAcesso(i){
   if (!confirm('Remover o controle de acesso de '+u.email+'? O login continua existindo e o usuário volta a ter acesso total (sem restrição).')) return;
   const { error } = await sb.from('usuarios_acesso').delete().eq('email', u.email);
   if (error){ alert('Erro: '+error.message); return; }
+  if (STATE.sf) STATE.sf.equipeDesatualizada = true;
   await carregarUsuariosAcesso();
 }
 
@@ -8057,13 +8059,48 @@ async function sfRecarregar(){
     sb.from('sf_despesas').select('*').order('data', {ascending:false}).limit(1000),
     sb.from('sf_ausencias').select('*').order('inicio', {ascending:false}).limit(500)
   ]);
-  STATE.sf.membros = m.data||[]; STATE.sf.projetos = p.data||[]; STATE.sf.tarefas = t.data||[];
+  STATE.sf.membros = await sfDerivarEquipe(m.data||[]); STATE.sf.projetos = p.data||[]; STATE.sf.tarefas = t.data||[];
   STATE.sf.ts = ts.data||[]; STATE.sf.despesas = d.data||[]; STATE.sf.ausencias = a.data||[];
   await sfCarregarAreasSquads();
   if (STATE.sf.carregado){ const el = document.getElementById('view'); if (el && STATE.route === 'snackflow') el.innerHTML = renderSnackFlow(); }
 }
 async function sfAudit(acao, entidade, entidadeId, antes, depois){
   try { await sb.from('sf_auditoria').insert({ usuario: (STATE.currentUser?.email||'').toLowerCase(), acao, entidade, entidade_id: entidadeId ? String(entidadeId) : null, antes: antes||null, depois: depois||null }); } catch(e){}
+}
+// Equipe automática: quem está cadastrado no módulo Usuários (usuarios_acesso, ativo), com o SnackFlow liberado
+// (admin ou aba 'snackflow') e "elegível ao preenchimento de horas no timesheet" = sim.
+function sfUsuarioNaEquipe(u){ return !!u && u.ativo !== false && usuarioTemSnackFlow(u) && u.timesheet_elegivel !== false; }
+// sf_membros continua sendo a tabela usada por lançamentos, tarefas, ausências e relatórios (membro_id). Aqui:
+// - cria (sem duplicar) o registro de sf_membros pra quem entrou na equipe pelo cadastro e ainda não tem;
+// - marca em memória ativo = está na equipe (nada é apagado nem desativado no banco; históricos ficam);
+// - nome exibido vem do cadastro de Usuários.
+// Se o cadastro não puder ser lido, mantém a lista salva em sf_membros como antes (STATE.sf.equipeAuto = false).
+async function sfDerivarEquipe(membros){
+  let users = null;
+  try {
+    let r = await sb.from('usuarios_acesso').select('email, nome, admin, abas, ativo, validador, timesheet_elegivel');
+    if (r.error && colunaInexistente(r.error)) r = await sb.from('usuarios_acesso').select('email, nome, admin, abas, ativo, validador'); // banco sem timesheet_elegivel: todos elegíveis (padrão)
+    if (r.error) throw r.error;
+    users = r.data || [];
+  } catch(e){ console.warn('SnackFlow: cadastro de Usuários indisponível, usando equipe salva:', e?.message||e); STATE.sf.equipeAuto = false; STATE.sf.equipeErro = ''; return membros.map(m => ({ ...m, ativo_db: m.ativo })); }
+  const equipe = {}; users.filter(sfUsuarioNaEquipe).forEach(u => { const e = String(u.email||'').trim().toLowerCase(); if (e) equipe[e] = u; });
+  const porEmail = new Set(membros.map(m => String(m.email||'').toLowerCase()));
+  const faltam = Object.entries(equipe).filter(([e]) => !porEmail.has(e));
+  STATE.sf.equipeErro = '';
+  if (faltam.length){
+    const rows = faltam.map(([e,u]) => ({ email: e, nome: (u.nome||'').trim() || e.split('@')[0], papel: u.admin ? 'ADMIN' : (u.validador ? 'FINANCEIRO' : 'MEMBRO'), pais: STATE.pais }));
+    const { data: novos, error } = await sb.from('sf_membros').upsert(rows, { onConflict: 'email', ignoreDuplicates: true }).select('*');
+    if (error){ console.warn('SnackFlow: não consegui criar membros da equipe:', error.message); STATE.sf.equipeErro = error.message; }
+    else {
+      membros = [...membros, ...(novos||[])];
+      // se outra pessoa criou ao mesmo tempo (ignoreDuplicates não devolve a linha), relê
+      if ((novos||[]).length < rows.length){ const { data: todos } = await sb.from('sf_membros').select('*').order('nome'); if (todos) membros = todos; }
+    }
+  }
+  STATE.sf.equipeAuto = true;
+  return membros.map(m => { const u = equipe[String(m.email||'').toLowerCase()];
+    return { ...m, ativo_db: m.ativo, ativo: !!u, nome: ((u?.nome||'').trim()) || m.nome };
+  }).sort((a,b) => String(a.nome||a.email).localeCompare(String(b.nome||b.email), 'pt-BR'));
 }
 function sfMembro(id){ return STATE.sf.membros.find(x=>x.id===id); }
 // Área/Squad de cada pessoa vêm do cadastro (usuarios_acesso.areas / squads, migração 2026-11-23_snackflow_area_squad.sql).
@@ -8486,56 +8523,48 @@ async function sfExcluirAusencia(id, grupoId){
 // ---------- Equipe (membros, papéis, custo/hora) ----------
 function renderSfEquipe(){
   const s = STATE.sf;
-  const semMembro = (STATE.usuariosAcesso||[]).length ? (STATE.usuariosAcesso||[]).filter(u => !s.membros.some(m=>m.email===u.email)) : [];
+  const auto = s.equipeAuto !== false;
+  const lista = s.membros.filter(m => m.ativo !== false);
   return `
   <div class="card p-3 flex items-center justify-between flex-wrap gap-2">
-    <div class="text-sm text-ink-300">Quem lança horas, com papel, cargo e custo/hora. O custo/hora vem do cargo (salário com encargos ÷ 160h) e pode ser ajustado; o rate é o valor cobrado por hora (referência).</div>
-    <div class="flex gap-2">${isAdminAcesso()?`<button class="btn btn-ghost text-sm" onclick="sfSincronizarUsuarios()" title="Cria membros pra todos os usuários da plataforma que ainda não estão aqui">⬇ Trazer usuários da plataforma</button>`:''}<button class="btn btn-primary text-sm" onclick="abrirSfMembro(null)">+ Pessoa</button></div>
+    <div class="text-sm text-ink-300">${auto ? 'A equipe é montada automaticamente com quem está cadastrado no módulo <b>Usuários</b>, com o <b>SnackFlow</b> liberado e marcado como <b>elegível ao preenchimento de horas no timesheet</b>. Pra incluir ou tirar alguém, ajuste o cadastro em Usuários.' : '<span class="text-yellow-400">Não consegui ler o cadastro de Usuários agora; mostrando a equipe salva.</span>'} O custo/hora vem do cargo (salário com encargos ÷ 160h) e pode ser ajustado; o rate é o valor cobrado por hora (referência).</div>
+    ${isAdminAcesso() ? `<button class="btn btn-ghost text-sm" onclick="navigate('usuarios')">Abrir Usuários</button>` : ''}
   </div>
-  <div class="card overflow-auto"><table class="w-full text-sm"><thead class="bg-ink-900"><tr class="text-[10px] uppercase tracking-wider text-ink-400 text-left"><th class="p-3">Pessoa</th><th class="p-3">Papel</th><th class="p-3">Cargo</th><th class="p-3 text-right">Custo/h</th><th class="p-3 text-right">Rate/h</th><th class="p-3 text-right">Horas (30d)</th><th class="p-3">Ativo</th><th class="p-3"></th></tr></thead><tbody>
-    ${s.membros.map(m => { const c = CARGOS.find(x=>x.id===m.cargo_id); const d30 = new Date(); d30.setDate(d30.getDate()-30); const iso = sfISO(d30); const min = s.ts.filter(t=>t.membro_id===m.id && t.data>=iso && t.status!=='REPROVADO').reduce((a,t)=>a+t.minutos,0);
-      return `<tr class="border-t border-ink-800 ${m.ativo===false?'opacity-50':''}"><td class="p-3"><div class="font-semibold">${escapeHtml(m.nome||'')}</div><div class="text-xs text-ink-500">${escapeHtml(m.email)}</div></td><td class="p-3"><span class="pill ${m.papel==='ADMIN'?'pill-orange':m.papel==='FINANCEIRO'?'pill-green':m.papel==='OPERACOES'?'pill-azul':'pill-ink'}" style="font-size:10px">${SF_PAPEIS[m.papel]||m.papel}</span></td><td class="p-3 text-xs">${c?`${escapeHtml(c.cargo)} <span class="text-ink-500">${escapeHtml(c.nivel||'')}</span>`:'<span class="text-ink-600">—</span>'}</td><td class="p-3 text-right tabular-nums">${m.custo_hora>0?fmtMoeda(m.custo_hora,2):'<span class="text-yellow-400 text-xs">definir</span>'}</td><td class="p-3 text-right tabular-nums text-ink-300">${m.rate_hora>0?fmtMoeda(m.rate_hora,2):'—'}</td><td class="p-3 text-right tabular-nums">${sfFmtH(min)}</td><td class="p-3">${m.ativo===false?'não':'sim'}</td><td class="p-3 text-right"><button class="btn-ghost text-xs" onclick="abrirSfMembro('${m.id}')">Editar</button></td></tr>`; }).join('')}
+  ${s.equipeErro ? `<div class="card p-3 text-xs text-red-400">Algumas pessoas do cadastro ainda não entraram na equipe: ${escapeHtml(s.equipeErro)}</div>` : ''}
+  <div class="card overflow-auto"><table class="w-full text-sm"><thead class="bg-ink-900"><tr class="text-[10px] uppercase tracking-wider text-ink-400 text-left"><th class="p-3">Pessoa</th><th class="p-3">Papel</th><th class="p-3">Cargo</th><th class="p-3 text-right">Custo/h</th><th class="p-3 text-right">Rate/h</th><th class="p-3 text-right">Horas (30d)</th><th class="p-3"></th></tr></thead><tbody>
+    ${lista.map(m => { const c = CARGOS.find(x=>x.id===m.cargo_id); const d30 = new Date(); d30.setDate(d30.getDate()-30); const iso = sfISO(d30); const min = s.ts.filter(t=>t.membro_id===m.id && t.data>=iso && t.status!=='REPROVADO').reduce((a,t)=>a+t.minutos,0);
+      return `<tr class="border-t border-ink-800"><td class="p-3"><div class="font-semibold">${escapeHtml(m.nome||'')}</div><div class="text-xs text-ink-500">${escapeHtml(m.email)}</div></td><td class="p-3"><span class="pill ${m.papel==='ADMIN'?'pill-orange':m.papel==='FINANCEIRO'?'pill-green':m.papel==='OPERACOES'?'pill-azul':'pill-ink'}" style="font-size:10px">${SF_PAPEIS[m.papel]||m.papel}</span></td><td class="p-3 text-xs">${c?`${escapeHtml(c.cargo)} <span class="text-ink-500">${escapeHtml(c.nivel||'')}</span>`:'<span class="text-ink-600">—</span>'}</td><td class="p-3 text-right tabular-nums">${m.custo_hora>0?fmtMoeda(m.custo_hora,2):'<span class="text-yellow-400 text-xs">definir</span>'}</td><td class="p-3 text-right tabular-nums text-ink-300">${m.rate_hora>0?fmtMoeda(m.rate_hora,2):'—'}</td><td class="p-3 text-right tabular-nums">${sfFmtH(min)}</td><td class="p-3 text-right"><button class="btn-ghost text-xs" onclick="abrirSfMembro('${m.id}')">Editar</button></td></tr>`; }).join('')}
+    ${lista.length ? '' : '<tr><td colspan="7" class="p-6 text-center text-ink-400">Ninguém na equipe ainda. Libere o SnackFlow e marque “elegível ao timesheet” no cadastro em Usuários.</td></tr>'}
   </tbody></table></div>`;
 }
 function abrirSfMembro(id){
-  const m = id ? sfMembro(id) : null; const old = document.getElementById('modal-sf'); if (old) old.remove();
+  const m = id ? sfMembro(id) : null; if (!m) return; const old = document.getElementById('modal-sf'); if (old) old.remove();
   const div = document.createElement('div'); div.id = 'modal-sf'; div.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4';
   const cargosOrd = [...CARGOS].sort((a,b)=> (a.area+a.cargo).localeCompare(b.area+b.cargo));
-  div.innerHTML = `<div class="card p-6 w-full max-w-lg" onclick="event.stopPropagation()"><h3 class="font-bold text-lg">${m?'Editar pessoa':'Nova pessoa'}</h3>
+  div.innerHTML = `<div class="card p-6 w-full max-w-lg" onclick="event.stopPropagation()"><h3 class="font-bold text-lg">Editar pessoa</h3>
     <div class="grid grid-cols-2 gap-3 mt-4">
-      <div><label class="text-xs text-ink-400">Nome</label><input id="sfm-nome" class="input mt-1" value="${escapeHtml(m?.nome||'')}"></div>
-      <div><label class="text-xs text-ink-400">E-mail (login) *</label><input id="sfm-email" class="input mt-1" value="${escapeHtml(m?.email||'')}" ${m?'readonly':''}></div>
-      <div><label class="text-xs text-ink-400">Papel</label><select id="sfm-papel" class="input mt-1" ${isAdminAcesso()?'':'disabled'}>${Object.entries(SF_PAPEIS).map(([k,v])=>`<option value="${k}" ${(m?.papel||'MEMBRO')===k?'selected':''}>${v}</option>`).join('')}</select></div>
-      <div><label class="text-xs text-ink-400">Cargo (Cargos & Salários)</label><select id="sfm-cargo" class="input mt-1" onchange="const v=sfCustoHoraCargo(this.value); if(v) document.getElementById('sfm-custo').value=v.toFixed(2).replace('.',',');"><option value="">—</option>${cargosOrd.map(c=>`<option value="${c.id}" ${m?.cargo_id===c.id?'selected':''}>${escapeHtml(c.area)} · ${escapeHtml(c.cargo)} ${escapeHtml(c.nivel||'')}</option>`).join('')}</select></div>
-      <div><label class="text-xs text-ink-400">Custo/hora (${moedaAtual().simbolo})</label><input id="sfm-custo" class="input mt-1" inputmode="decimal" value="${m?Number(m.custo_hora).toFixed(2).replace('.',','):''}"></div>
-      <div><label class="text-xs text-ink-400">Rate/hora (${moedaAtual().simbolo})</label><input id="sfm-rate" class="input mt-1" inputmode="decimal" value="${m?Number(m.rate_hora).toFixed(2).replace('.',','):''}"></div>
-      <div><label class="text-xs text-ink-400">Ativo</label><select id="sfm-ativo" class="input mt-1"><option value="1" ${m?.ativo!==false?'selected':''}>Sim</option><option value="0" ${m?.ativo===false?'selected':''}>Não</option></select></div>
+      <div><label class="text-xs text-ink-400">Nome</label><input id="sfm-nome" class="input mt-1" value="${escapeHtml(m.nome||'')}" readonly></div>
+      <div><label class="text-xs text-ink-400">E-mail (login)</label><input id="sfm-email" class="input mt-1" value="${escapeHtml(m.email||'')}" readonly></div>
+      <div><label class="text-xs text-ink-400">Papel</label><select id="sfm-papel" class="input mt-1" ${isAdminAcesso()?'':'disabled'}>${Object.entries(SF_PAPEIS).map(([k,v])=>`<option value="${k}" ${(m.papel||'MEMBRO')===k?'selected':''}>${v}</option>`).join('')}</select></div>
+      <div><label class="text-xs text-ink-400">Cargo (Cargos & Salários)</label><select id="sfm-cargo" class="input mt-1" onchange="const v=sfCustoHoraCargo(this.value); if(v) document.getElementById('sfm-custo').value=v.toFixed(2).replace('.',',');"><option value="">—</option>${cargosOrd.map(c=>`<option value="${c.id}" ${m.cargo_id===c.id?'selected':''}>${escapeHtml(c.area)} · ${escapeHtml(c.cargo)} ${escapeHtml(c.nivel||'')}</option>`).join('')}</select></div>
+      <div><label class="text-xs text-ink-400">Custo/hora (${moedaAtual().simbolo})</label><input id="sfm-custo" class="input mt-1" inputmode="decimal" value="${Number(m.custo_hora||0).toFixed(2).replace('.',',')}"></div>
+      <div><label class="text-xs text-ink-400">Rate/hora (${moedaAtual().simbolo})</label><input id="sfm-rate" class="input mt-1" inputmode="decimal" value="${Number(m.rate_hora||0).toFixed(2).replace('.',',')}"></div>
     </div>
-    <div class="text-[11px] text-ink-500 mt-3">Custo/hora sugerido = salário do cargo × (1 + encargos ${Math.round((PREMISSAS.encargo||0)*100)}%) ÷ 160h. Lançamentos antigos mantêm o custo da época.</div>
+    <div class="text-[11px] text-ink-500 mt-3">Nome, e-mail e participação na equipe vêm do cadastro em Usuários. Custo/hora sugerido = salário do cargo × (1 + encargos ${Math.round((PREMISSAS.encargo||0)*100)}%) ÷ 160h. Lançamentos antigos mantêm o custo da época.</div>
     <div id="sf-erro" class="text-xs text-red-400 mt-2 hidden"></div>
-    <div class="flex justify-end gap-2 mt-5"><button class="btn-ghost" onclick="document.getElementById('modal-sf').remove()">Cancelar</button><button class="btn-primary" onclick="salvarSfMembro(${m?`'${m.id}'`:'null'})">Salvar</button></div></div>`;
+    <div class="flex justify-end gap-2 mt-5"><button class="btn-ghost" onclick="document.getElementById('modal-sf').remove()">Cancelar</button><button class="btn-primary" onclick="salvarSfMembro('${m.id}')">Salvar</button></div></div>`;
   div.addEventListener('click', ()=>div.remove()); document.body.appendChild(div);
 }
 async function salvarSfMembro(id){
+  if (!id) return;
   const g = x => document.getElementById(x)?.value; const erro = document.getElementById('sf-erro');
-  const email = (g('sfm-email')||'').trim().toLowerCase(); if (!email.includes('@')){ erro.textContent = 'E-mail inválido.'; erro.classList.remove('hidden'); return; }
-  const payload = { nome: (g('sfm-nome')||'').trim() || email.split('@')[0], cargo_id: g('sfm-cargo') || null, custo_hora: parseBRnum(g('sfm-custo')), rate_hora: parseBRnum(g('sfm-rate')), ativo: g('sfm-ativo') === '1', updated_at: new Date().toISOString() };
+  const payload = { cargo_id: g('sfm-cargo') || null, custo_hora: parseBRnum(g('sfm-custo')), rate_hora: parseBRnum(g('sfm-rate')), updated_at: new Date().toISOString() };
   if (isAdminAcesso()) payload.papel = g('sfm-papel');
-  const q = id ? sb.from('sf_membros').update(payload).eq('id', id) : sb.from('sf_membros').insert({ ...payload, email, papel: isAdminAcesso() ? g('sfm-papel') : 'MEMBRO', pais: STATE.pais });
-  const { error } = await q; if (error){ erro.textContent = 'Erro: ' + error.message; erro.classList.remove('hidden'); return; }
-  await sfAudit(id?'editar':'criar', 'membro', id || email, null, payload);
+  const { error } = await sb.from('sf_membros').update(payload).eq('id', id);
+  if (error){ erro.textContent = 'Erro: ' + error.message; erro.classList.remove('hidden'); return; }
+  await sfAudit('editar', 'membro', id, null, payload);
   document.getElementById('modal-sf')?.remove();
   if (id === STATE.sf.eu?.id) { const { data } = await sb.from('sf_membros').select('*').eq('id', id).single(); if (data) STATE.sf.eu = data; }
-  await sfRecarregar();
-}
-async function sfSincronizarUsuarios(){
-  if (!isAdminAcesso()) return;
-  const { data: users } = await sb.from('usuarios_acesso').select('email, nome, admin, validador, ativo');
-  const faltam = (users||[]).filter(u => u.ativo !== false && !STATE.sf.membros.some(m=>m.email===u.email));
-  if (!faltam.length){ alert('Todos os usuários da plataforma já estão na equipe.'); return; }
-  if (!confirm(`Criar ${faltam.length} pessoa(s) na equipe do SnackFlow (como Membro; admins como Admin, validadores como Financeiro)? Depois é só definir cargo e custo/hora.`)) return;
-  const rows = faltam.map(u => ({ email: u.email, nome: u.nome || u.email.split('@')[0], papel: u.admin ? 'ADMIN' : (u.validador ? 'FINANCEIRO' : 'MEMBRO'), pais: STATE.pais }));
-  const { error } = await sb.from('sf_membros').insert(rows); if (error){ alert('Erro: ' + error.message); return; }
   await sfRecarregar();
 }
 
