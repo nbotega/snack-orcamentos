@@ -178,7 +178,22 @@ tailwind.config = {
       <div id="login-erro" class="text-xs text-red-400 hidden"></div>
       <button id="btn-login" type="submit" class="btn btn-primary w-full justify-center text-base py-3 glow-orange mt-2">Entrar</button>
     </form>
-    <p class="text-xs text-ink-400 mt-6">Esqueceu a senha? Pede pra resetarem no Supabase.</p>
+    <div id="login-aviso" class="text-xs text-green-400 mt-4 hidden"></div>
+    <p class="text-xs text-ink-400 mt-6">Esqueceu a senha ou ainda não criou a sua? <button type="button" id="btn-esqueci-senha" class="text-orange underline" onclick="esqueciSenha()">Receber link por e-mail</button></p>
+    <!-- Definir nova senha (aberto pelo link do e-mail: convite / esqueci a senha) -->
+    <form id="nova-senha-form" onsubmit="event.preventDefault(); salvarNovaSenhaLink();" class="space-y-3 text-left hidden">
+      <div class="text-sm text-ink-300">Crie sua senha para <b id="nova-senha-email"></b>.</div>
+      <div>
+        <label class="label">Nova senha (mín. 8 caracteres)</label>
+        <input id="nova-senha-1" type="password" class="input" autocomplete="new-password" minlength="8" required>
+      </div>
+      <div>
+        <label class="label">Repetir senha</label>
+        <input id="nova-senha-2" type="password" class="input" autocomplete="new-password" minlength="8" required>
+      </div>
+      <div id="nova-senha-erro" class="text-xs text-red-400 hidden"></div>
+      <button id="btn-nova-senha" type="submit" class="btn btn-primary w-full justify-center text-base py-3 glow-orange mt-2">Salvar senha e entrar</button>
+    </form>
   </div>
 </div>
 
@@ -439,7 +454,20 @@ function aplicarPaisNoBoot(){
 ============================================================= */
 const SUPABASE_URL = 'https://jibstoejwfvpzlhymoxe.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImppYnN0b2Vqd2Z2cHpsaHltb3hlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk4MzQ1OTEsImV4cCI6MjA5NTQxMDU5MX0.YCuPwOIYdVTA19H7c9UXNF921JADVj7iBChnGIraDvA';
+// Link do e-mail de senha (convite / esqueci a senha): o Supabase volta pro app com
+// #access_token=...&type=recovery (ou #error=...&error_code=otp_expired). Guardamos o tipo
+// ANTES de criar o client, porque o supabase-js limpa o hash ao processar o link.
+const AUTH_LINK = (()=>{
+  try {
+    const h = new URLSearchParams((location.hash||'').replace(/^#\/?/, ''));
+    const q = new URLSearchParams(location.search||'');
+    const g = k => h.get(k) || q.get(k);
+    return { tipo: g('access_token') ? (g('type')||'') : '', erro: g('error_description') || g('error') ? (g('error_code') || g('error') || 'erro') : '', erroMsg: g('error_description') || '' };
+  } catch(e){ return { tipo:'', erro:'', erroMsg:'' }; }
+})();
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+// URL pra onde o link do e-mail leva de volta (precisa estar em Auth > URL Configuration > Redirect URLs)
+function urlRetornoSenha(){ return location.origin + location.pathname; }
 let SYNC_STATUS = 'idle'; // idle | saving | error
 let SYNC_TIMER = null;
 
@@ -1053,6 +1081,66 @@ function aplicarTema(t){
 function alternarTema(){ aplicarTema(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'); }
 window.addEventListener('DOMContentLoaded', () => { const t = document.documentElement.dataset.theme || 'light'; const ic = document.getElementById('tema-icone'), lb = document.getElementById('tema-label'); if (ic) ic.textContent = t === 'dark' ? '☀️' : '🌙'; if (lb) lb.textContent = t === 'dark' ? 'Tema claro' : 'Tema escuro'; });
 
+// ===== Senha por e-mail (convite / esqueci a senha) =====
+function traduzErroAuth(e){
+  const m = (e && (e.message||e.msg)) || '';
+  const st = e && e.status;
+  if (st === 429 || /rate limit|too many|seconds/i.test(m)) return 'Muitos envios em pouco tempo. Aguarde alguns minutos e tente de novo.';
+  if (/different from the old password/i.test(m)) return 'A nova senha precisa ser diferente da anterior.';
+  if (/at least|should be at least|weak/i.test(m)) return 'Senha fraca: use pelo menos 8 caracteres.';
+  if (/expired|invalid/i.test(m)) return 'Link expirado ou já usado. Peça um novo link.';
+  return m || 'Erro inesperado.';
+}
+async function enviarEmailSenha(email){
+  return await sb.auth.resetPasswordForEmail(String(email||'').trim().toLowerCase(), { redirectTo: urlRetornoSenha() });
+}
+async function esqueciSenha(){
+  const email = (document.getElementById('login-email')?.value||'').trim().toLowerCase();
+  const erro = document.getElementById('login-erro'); const aviso = document.getElementById('login-aviso');
+  erro.classList.add('hidden'); aviso.classList.add('hidden');
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){ erro.textContent = 'Digite seu e-mail no campo acima e clique de novo.'; erro.classList.remove('hidden'); document.getElementById('login-email')?.focus(); return; }
+  const btn = document.getElementById('btn-esqueci-senha'); if (btn) btn.disabled = true;
+  try {
+    const { error } = await enviarEmailSenha(email);
+    if (error) throw error;
+    aviso.textContent = 'Se esse e-mail tiver acesso à plataforma, você vai receber em instantes um link para criar uma nova senha. Confira também o spam.';
+    aviso.classList.remove('hidden');
+  } catch(e){ console.warn(e); erro.textContent = traduzErroAuth(e); erro.classList.remove('hidden'); }
+  finally { if (btn) btn.disabled = false; }
+}
+function mostrarTelaNovaSenha(email){
+  const ls = document.getElementById('login-screen');
+  ls.classList.remove('hidden'); document.getElementById('app').classList.add('hidden');
+  ls.querySelector('form:not(#nova-senha-form)')?.classList.add('hidden');
+  document.getElementById('btn-esqueci-senha')?.parentElement?.classList.add('hidden');
+  document.getElementById('login-aviso')?.classList.add('hidden');
+  document.getElementById('nova-senha-email').textContent = email || '';
+  document.getElementById('nova-senha-form').classList.remove('hidden');
+  setTimeout(()=>document.getElementById('nova-senha-1')?.focus(), 50);
+}
+async function salvarNovaSenhaLink(){
+  const s1 = document.getElementById('nova-senha-1').value || '', s2 = document.getElementById('nova-senha-2').value || '';
+  const erro = document.getElementById('nova-senha-erro');
+  const mostrar = m => { erro.textContent = m; erro.classList.remove('hidden'); };
+  erro.classList.add('hidden');
+  if (s1.length < 8) return mostrar('A senha precisa ter pelo menos 8 caracteres.');
+  if (s1 !== s2) return mostrar('As senhas não conferem.');
+  const btn = document.getElementById('btn-nova-senha'); btn.disabled = true; btn.textContent = 'Salvando…';
+  try {
+    const { error } = await sb.auth.updateUser({ password: s1 });
+    if (error) throw error;
+    document.getElementById('nova-senha-form').classList.add('hidden');
+    await entrar();
+  } catch(e){
+    console.warn(e); btn.disabled = false; btn.textContent = 'Salvar senha e entrar'; mostrar(traduzErroAuth(e));
+  }
+}
+const STATE_NOVA_SENHA = { aberta: false };
+// Ao abrir o link de recuperação o supabase-js também avisa por evento (garantia extra além do bootAuth)
+sb.auth.onAuthStateChange((ev, session)=>{
+  if (ev === 'PASSWORD_RECOVERY' && !STATE_NOVA_SENHA.aberta){ STATE_NOVA_SENHA.aberta = true; mostrarTelaNovaSenha(session?.user?.email); }
+});
+
 async function logout(){
   if (!confirm('Sair da plataforma?')) return;
   await sb.auth.signOut();
@@ -1063,6 +1151,21 @@ async function logout(){
 async function bootAuth(){
   try {
     const { data: { session } } = await sb.auth.getSession();
+    if (AUTH_LINK.erro){
+      // Link expirado/já usado: limpa a URL e orienta a pedir outro
+      try { history.replaceState(null, '', location.pathname); } catch(e){}
+      if (!(session && session.user)){
+        const erro = document.getElementById('login-erro');
+        erro.textContent = /expired|otp_expired|invalid/i.test(AUTH_LINK.erro + ' ' + AUTH_LINK.erroMsg) ? 'Esse link de senha expirou ou já foi usado. Digite seu e-mail e clique em "Receber link por e-mail" para receber um novo.' : 'Não foi possível validar o link: ' + (AUTH_LINK.erroMsg || AUTH_LINK.erro);
+        erro.classList.remove('hidden');
+      }
+    }
+    if (session && session.user && ['recovery','invite','signup'].includes(AUTH_LINK.tipo)){
+      // Veio do link do e-mail: primeiro a pessoa cria a senha, depois entra
+      STATE_NOVA_SENHA.aberta = true;
+      mostrarTelaNovaSenha(session.user.email);
+      return;
+    }
     if (session && session.user){
       await entrar();
       // Se URL já é #/nota-rapida OU user tem role only_notas, força tela mobile
@@ -4947,7 +5050,14 @@ async function carregarUsuariosAcesso(){
   if (el) el.innerHTML = renderUsuariosTabela();
 }
 
-// ---- Senha / criação de login (via RPC admin_definir_senha, SECURITY DEFINER) ----
+// ---- Senha / criação de login ----
+// Criar login: por padrão cria o login com uma senha aleatória que ninguém vê (RPC admin_definir_senha,
+// SECURITY DEFINER) e dispara o e-mail "definir senha" do Supabase (resetPasswordForEmail): a pessoa
+// clica no link, volta pro app e escolhe a própria senha. A opção manual (admin digita a senha) continua.
+function senhaAleatoriaForte(){
+  const a = new Uint8Array(24); crypto.getRandomValues(a);
+  return Array.from(a, b => b.toString(16).padStart(2,'0')).join('') + 'Aa1!';
+}
 function abrirModalSenha(email, criar){
   const old = document.getElementById('modal-senha'); if (old) old.remove();
   const div = document.createElement('div');
@@ -4955,38 +5065,94 @@ function abrirModalSenha(email, criar){
   div.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/60';
   div.innerHTML = `
     <div class="card p-6 w-full max-w-sm" onclick="event.stopPropagation()">
-      <h3 class="font-bold text-lg">${criar ? 'Criar login' : 'Definir nova senha'}</h3>
+      <h3 class="font-bold text-lg">${criar ? 'Criar login' : 'Senha'}</h3>
       <div class="text-xs text-ink-400 mt-1 mb-4 break-all">${escapeHtml(email)}</div>
       ${criar ? `<label class="text-xs text-ink-400">Nome</label><input id="senha-nome" class="input mt-1 mb-3" placeholder="Nome da pessoa" value="${escapeHtml(email.split('@')[0])}">` : ''}
-      <label class="text-xs text-ink-400">Senha (mín. 8 caracteres)</label>
-      <input id="senha-1" type="password" class="input mt-1 mb-3" autocomplete="new-password">
-      <label class="text-xs text-ink-400">Repetir senha</label>
-      <input id="senha-2" type="password" class="input mt-1" autocomplete="new-password">
+      <div class="space-y-2 mb-3 text-sm">
+        <label class="flex items-start gap-2 cursor-pointer"><input type="radio" name="senha-modo" value="email" checked onchange="senhaModo()" class="accent-orange-500 mt-1"><span>${criar ? 'Enviar convite por e-mail' : 'Enviar link por e-mail'}<div class="text-[11px] text-ink-500">A pessoa recebe um link e cria a própria senha.</div></span></label>
+        <label class="flex items-start gap-2 cursor-pointer"><input type="radio" name="senha-modo" value="manual" onchange="senhaModo()" class="accent-orange-500 mt-1"><span>Definir a senha agora<div class="text-[11px] text-ink-500">Você digita a senha e passa pra pessoa por um canal seguro.</div></span></label>
+      </div>
+      <div id="senha-manual" class="hidden">
+        <label class="text-xs text-ink-400">Senha (mín. 8 caracteres)</label>
+        <input id="senha-1" type="password" class="input mt-1 mb-3" autocomplete="new-password">
+        <label class="text-xs text-ink-400">Repetir senha</label>
+        <input id="senha-2" type="password" class="input mt-1" autocomplete="new-password">
+      </div>
       <div id="senha-erro" class="text-xs text-red-400 mt-2 hidden"></div>
       <div class="flex justify-end gap-2 mt-5">
         <button class="btn-ghost" onclick="document.getElementById('modal-senha').remove()">Cancelar</button>
-        <button class="btn-primary" id="senha-ok" onclick="confirmarSenha('${email}', ${criar?'true':'false'})">${criar ? 'Criar' : 'Salvar senha'}</button>
+        <button class="btn-primary" id="senha-ok" onclick="confirmarSenha('${email}', ${criar?'true':'false'})">${criar ? 'Criar e enviar convite' : 'Enviar link'}</button>
       </div>
-      <div class="text-[11px] text-ink-500 mt-4">A pessoa entra com esse e-mail e a senha definida aqui. Passe a senha por um canal seguro — ela não fica visível em lugar nenhum da plataforma.</div>
+      <div id="senha-nota" class="text-[11px] text-ink-500 mt-4">O link leva pra esta plataforma e vale por tempo limitado. Se expirar, use "Enviar link por e-mail" de novo (ou a pessoa clica em "Receber link por e-mail" na tela de login).</div>
     </div>`;
   div.addEventListener('click', ()=>div.remove());
   document.body.appendChild(div);
-  setTimeout(()=>document.getElementById(criar?'senha-nome':'senha-1')?.focus(), 50);
+  div.dataset.criar = criar ? '1' : '';
+  setTimeout(()=>document.getElementById(criar?'senha-nome':'senha-ok')?.focus(), 50);
+}
+function senhaModoAtual(){ return document.querySelector('#modal-senha input[name="senha-modo"]:checked')?.value || 'email'; }
+function senhaModo(){
+  const m = senhaModoAtual(); const criar = !!document.getElementById('modal-senha')?.dataset.criar;
+  document.getElementById('senha-manual').classList.toggle('hidden', m !== 'manual');
+  const ok = document.getElementById('senha-ok');
+  ok.textContent = m === 'manual' ? (criar ? 'Criar' : 'Salvar senha') : (criar ? 'Criar e enviar convite' : 'Enviar link');
+  document.getElementById('senha-nota').textContent = m === 'manual'
+    ? 'A pessoa entra com esse e-mail e a senha definida aqui. Passe a senha por um canal seguro — ela não fica visível em lugar nenhum da plataforma.'
+    : 'O link leva pra esta plataforma e vale por tempo limitado. Se expirar, use "Enviar link por e-mail" de novo (ou a pessoa clica em "Receber link por e-mail" na tela de login).';
+  if (m === 'manual') setTimeout(()=>document.getElementById('senha-1')?.focus(), 30);
 }
 async function confirmarSenha(email, criar){
-  const s1 = document.getElementById('senha-1')?.value || '';
-  const s2 = document.getElementById('senha-2')?.value || '';
+  const modo = senhaModoAtual();
   const nome = document.getElementById('senha-nome')?.value || null;
   const erro = document.getElementById('senha-erro');
   const mostrar = m => { erro.textContent = m; erro.classList.remove('hidden'); };
-  if (s1.length < 8) return mostrar('A senha precisa ter pelo menos 8 caracteres.');
-  if (s1 !== s2) return mostrar('As senhas não conferem.');
-  const btn = document.getElementById('senha-ok'); btn.disabled = true; btn.textContent = 'Salvando…';
-  const { data, error } = await sb.rpc('admin_definir_senha', { p_email: email, p_senha: s1, p_nome: nome });
-  if (error){ btn.disabled = false; btn.textContent = criar ? 'Criar' : 'Salvar senha'; return mostrar(error.message || 'Erro ao salvar.'); }
+  erro.classList.add('hidden');
+  const btn = document.getElementById('senha-ok'); const txt = btn.textContent;
+  const reset = () => { btn.disabled = false; btn.textContent = txt; };
+  if (modo === 'manual'){
+    const s1 = document.getElementById('senha-1')?.value || '';
+    const s2 = document.getElementById('senha-2')?.value || '';
+    if (s1.length < 8) return mostrar('A senha precisa ter pelo menos 8 caracteres.');
+    if (s1 !== s2) return mostrar('As senhas não conferem.');
+    btn.disabled = true; btn.textContent = 'Salvando…';
+    const { data, error } = await sb.rpc('admin_definir_senha', { p_email: email, p_senha: s1, p_nome: nome });
+    if (error){ reset(); return mostrar(error.message || 'Erro ao salvar.'); }
+    document.getElementById('modal-senha')?.remove();
+    alert(data && data.created ? `Login criado pra ${email}. Agora ajuste país e abas na linha dela e clique em Salvar.` : `Senha de ${email} atualizada.`);
+    await carregarUsuariosAcesso();
+    return;
+  }
+  // Por e-mail
+  btn.disabled = true; btn.textContent = 'Enviando…';
+  let criado = false;
+  if (criar){
+    // cria o login com senha aleatória (ninguém conhece); a pessoa define a dela pelo link
+    const { data, error } = await sb.rpc('admin_definir_senha', { p_email: email, p_senha: senhaAleatoriaForte(), p_nome: nome });
+    if (error){ reset(); return mostrar(error.message || 'Erro ao criar o login.'); }
+    criado = !!(data && data.created);
+  }
+  const { error: e2 } = await enviarEmailSenha(email);
+  if (e2){
+    console.warn(e2);
+    if (criar){
+      document.getElementById('modal-senha')?.remove();
+      alert(`Login criado pra ${email}, mas o e-mail não foi enviado: ${traduzErroAuth(e2)}\n\nTente de novo em "Senha" > "Enviar link por e-mail".`);
+      await carregarUsuariosAcesso();
+      return;
+    }
+    reset(); return mostrar('E-mail não enviado: ' + traduzErroAuth(e2));
+  }
   document.getElementById('modal-senha')?.remove();
-  alert(data && data.created ? `Login criado pra ${email}. Agora ajuste país e abas na linha dela e clique em Salvar.` : `Senha de ${email} atualizada.`);
+  alert(criar
+    ? `Convite enviado pra ${email}: a pessoa recebe um link pra criar a própria senha.${criado ? ' Agora ajuste país e abas na linha dela e clique em Salvar.' : ''}`
+    : `Link de senha enviado pra ${email}.`);
   await carregarUsuariosAcesso();
+}
+// Outro administrador: não dá pra definir a senha dele, mas dá pra mandar o link (só ele, no e-mail dele, cria a senha)
+async function enviarLinkSenhaAdmin(email){
+  if (!confirm('Enviar para ' + email + ' um link por e-mail para criar uma nova senha?')) return;
+  const { error } = await enviarEmailSenha(email);
+  alert(error ? 'E-mail não enviado: ' + traduzErroAuth(error) : 'Link de senha enviado pra ' + email + '.');
 }
 function renderUsuarios(){
   if (!isAdminAcesso()){
@@ -5042,7 +5208,7 @@ function renderUsuarioConfig(i){
   const ehEu = (u.email||'').toLowerCase() === (STATE.currentUser?.email||'').toLowerCase();
   const cb = (checked, on, dis=false) => `<input type="checkbox" ${checked?'checked':''} ${dis?'disabled':''} onchange="${on}" class="accent-orange-500 w-4 h-4 cursor-pointer">`;
   const lg = (STATE.usuariosLogin||{})[u.email];
-  const loginHtml = STATE.usuariosLogin == null ? '<span class="text-ink-500 text-xs">…</span>' : !lg ? `<span class="text-xs text-yellow-400">sem login</span> <button class="btn-ghost text-xs ml-1" onclick="abrirModalSenha('${u.email}', true)">Criar login</button>` : `<span class="text-xs text-green-400">ativo</span> <span class="text-xs text-ink-500">· último acesso ${lg.last_sign_in_at ? new Date(lg.last_sign_in_at).toLocaleDateString('pt-BR') : 'nunca'}</span> ${(!u.admin||ehEu)?`<button class="btn-ghost text-xs ml-1" onclick="abrirModalSenha('${u.email}', false)">Trocar senha</button>`:''}`;
+  const loginHtml = STATE.usuariosLogin == null ? '<span class="text-ink-500 text-xs">…</span>' : !lg ? `<span class="text-xs text-yellow-400">sem login</span> <button class="btn-ghost text-xs ml-1" onclick="abrirModalSenha('${u.email}', true)">Criar login</button>` : `<span class="text-xs text-green-400">ativo</span> <span class="text-xs text-ink-500">· último acesso ${lg.last_sign_in_at ? new Date(lg.last_sign_in_at).toLocaleDateString('pt-BR') : 'nunca'}</span> ${(!u.admin||ehEu)?`<button class="btn-ghost text-xs ml-1" onclick="abrirModalSenha('${u.email}', false)">Trocar senha</button>`:`<button class="btn-ghost text-xs ml-1" onclick="enviarLinkSenhaAdmin('${u.email}')" title="A pessoa recebe um link pra criar uma nova senha">Enviar link de senha</button>`}`;
   const linha = (label, ctrl, hint) => `<label class="flex items-center justify-between gap-3 py-2 border-b border-ink-800/60"><span class="text-sm">${label}${hint?`<div class="text-[11px] text-ink-500">${hint}</div>`:''}</span>${ctrl}</label>`;
   return `
     <div class="p-6 border-b border-ink-800 flex items-start justify-between gap-3">
@@ -5128,7 +5294,7 @@ function renderUsuariosTabelaAntiga(){
             if (!lg) return `<span class="text-xs text-yellow-400">sem login</span> <button class="btn-ghost text-xs ml-1" onclick="abrirModalSenha('${u.email}', true)">Criar login</button>`;
             const ult = lg.last_sign_in_at ? new Date(lg.last_sign_in_at).toLocaleDateString('pt-BR') : 'nunca entrou';
             const podeSenha = !u.admin || ehEu;
-            return `<span class="text-xs text-green-400" title="Último acesso: ${ult}">ativo</span> ${podeSenha?`<button class="btn-ghost text-xs ml-1" onclick="abrirModalSenha('${u.email}', false)">Senha</button>`:''}`;
+            return `<span class="text-xs text-green-400" title="Último acesso: ${ult}">ativo</span> ${podeSenha?`<button class="btn-ghost text-xs ml-1" onclick="abrirModalSenha('${u.email}', false)">Senha</button>`:`<button class="btn-ghost text-xs ml-1" onclick="enviarLinkSenhaAdmin('${u.email}')" title="A pessoa recebe um link pra criar uma nova senha">Link de senha</button>`}`;
           })()}</td>
           <td class="px-3 py-2 text-center bg-ink-900/30">${cb(todas, `toggleAcessoTodas(${i},this.checked)`)}</td>
           ${ABAS_DEF.map(a=>`<td class="px-3 py-2 text-center">${(a.id==='pipeline'||a.id==='snackflow') ? cb(!!u.admin || (u.abas||[]).includes(a.id), `toggleAcessoAba(${i},'${a.id}',this.checked)`, !!u.admin) : cb(todas || (u.abas||[]).includes(a.id), `toggleAcessoAba(${i},'${a.id}',this.checked)`, todas)}</td>`).join('')}
