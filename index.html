@@ -4994,6 +4994,7 @@ function podePais(pais){
 function podeAba(r){
   if (r === 'usuarios') return isAdminAcesso();
   const a = STATE.acesso;
+  if (r === 'anexo') return podeAba('validador') || usuarioPodeRelatorioNfRapida();
   if (r === 'pipeline') return isAdminAcesso() || !!(a && a.ativo !== false && (a.abas||[]).includes('pipeline'));
   if (r === 'snackflow') return isAdminAcesso() || !!(a && a.ativo !== false && (a.abas||[]).includes('snackflow'));
   if (!a) return true;
@@ -5233,6 +5234,7 @@ function renderUsuarioConfig(i){
         ${linha('Administrador', cb(!!u.admin, `setAcessoCampo(${i},'admin',this.checked)`, ehEu), 'Vê tudo e gerencia usuários')}
         ${linha('Ativo', cb(u.ativo!==false, `setAcessoCampo(${i},'ativo',this.checked)`, ehEu))}
         ${linha('Valida NF Rápida', cb(!!u.validador || EMAILS_VALIDADORES.includes(u.email), `setAcessoCampo(${i},'validador',this.checked)`, EMAILS_VALIDADORES.includes(u.email)), 'Pode validar notas da produção')}
+        ${linha('Relatório Nota rápida', cb(!!u.relatorio_nf_rapida, `setAcessoCampo(${i},'relatorio_nf_rapida',this.checked)`), 'Gera planilha de todas as notas rápidas (pendentes e validadas)')}
         <div class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold mb-2 mt-5">Unidades</div>
         ${linha('🇧🇷 Brasil', cb((u.paises||[]).includes('BR'), `toggleAcessoPais(${i},'BR',this.checked)`))}
         ${linha('🇵🇹 Portugal', cb((u.paises||[]).includes('PT'), `toggleAcessoPais(${i},'PT',this.checked)`))}
@@ -5522,9 +5524,16 @@ async function salvarUsuarioAcesso(i){
   const extrasAntigos={ foto:u.foto||null, superior_email:u.superior_email||null, timesheet_elegivel:u.timesheet_elegivel!==false };
   u.areas = sfSoPermitidos(u.areas, SF_AREAS); u.squads = sfSoPermitidos(u.squads, SF_SQUADS);
   const extrasAreaSquad={ ...extrasAntigos, areas:u.areas, squads:u.squads };
-  const extras={ ...extrasAreaSquad, aprovador_horas_email:u.aprovador_horas_email||null };
+  const extrasAprov={ ...extrasAreaSquad, aprovador_horas_email:u.aprovador_horas_email||null };
+  const extras={ ...extrasAprov, relatorio_nf_rapida:!!u.relatorio_nf_rapida };
   let payload={ ...base, ...extras };
   let { error } = await sb.from('usuarios_acesso').upsert(payload, { onConflict:'email' });
+  if (error && colunaInexistente(error)){
+    // Banco ainda sem relatorio_nf_rapida (migrations/2026-11-26_relatorio_nf_rapida.sql): tenta sem ela.
+    payload = { ...base, ...extrasAprov };
+    ({ error } = await sb.from('usuarios_acesso').upsert(payload, { onConflict:'email' }));
+    if (!error) alert('Cadastro salvo, mas o Relatório Nota rápida ainda não pode ser gravado: falta rodar a migração 2026-11-26_relatorio_nf_rapida.sql no banco.');
+  }
   if (error && colunaInexistente(error)){
     // Banco ainda sem aprovador_horas_email (migrations/2026-11-23_snackflow_aprovador_horas.sql): tenta sem ela.
     payload = { ...base, ...extrasAreaSquad };
@@ -5583,6 +5592,17 @@ function usuarioPodeValidar(user){
   const a = STATE.acesso;
   return !!(a && a.email === email && a.validador && a.ativo !== false);
 }
+function usuarioPodeRelatorioNfRapida(user){
+  const u = user || STATE.currentUser;
+  if (!u) return false;
+  const email = (u.email||'').toLowerCase();
+  const a = STATE.acesso;
+  return !!(a && a.email === email && a.relatorio_nf_rapida && a.ativo !== false);
+}
+function notaRapidaRelatorioBtnHTML(){
+  if (!usuarioPodeRelatorioNfRapida()) return '';
+  return `<button type="button" class="btn btn-ghost text-xs py-1.5 px-3" onclick="abrirRelatorioNfRapida()" title="Baixar planilha de todas as notas rápidas (pendentes e validadas)">⬇ Relatório</button>`;
+}
 
 // Modo produtor: user com raw_user_meta_data.only_notas = true fica preso na tela de nota rápida
 function usuarioSoNotaRapida(user){
@@ -5620,6 +5640,7 @@ function renderNotaRapida(){
         <div class="font-display font-bold text-xl">Nota rápida</div>
         <div class="text-xs text-ink-400">Registre uma nota da produção em campo</div>
       </div>
+      ${notaRapidaRelatorioBtnHTML()}
       <button class="btn btn-ghost text-xs py-1.5 px-3" onclick="logout()" title="Sair da plataforma">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
         Sair
@@ -6826,6 +6847,7 @@ function renderValidadorNotas(){
       </div>
       <div class="flex items-center gap-2 flex-wrap">
         ${abasValidadorHTML(naoValidados.length)}
+        ${notaRapidaRelatorioBtnHTML()}
         <button class="btn btn-ghost text-sm" onclick="exportarCSVValidador()" title="Exporta as linhas visíveis (com filtros) em CSV">⬇ CSV</button>
         <input id="valid-busca" type="text" placeholder="Buscar ID, cliente, cartão…" class="input py-2 text-sm" style="min-width:220px" oninput="filtrarValidador(this.value)">
         <input id="valid-cartao-filtro" type="text" placeholder="Só cartão XXXX" maxlength="4" inputmode="numeric" class="input py-2 text-sm font-mono" style="width:130px" oninput="filtrarValidador()">
@@ -6916,6 +6938,7 @@ function renderValidadasNotas(nPend){
       </div>
       <div class="flex items-center gap-2 flex-wrap">
         ${abasValidadorHTML(nPend)}
+        ${notaRapidaRelatorioBtnHTML()}
         <button class="btn btn-ghost text-sm" onclick="exportarCSVValidador()" title="Exporta as linhas visíveis (com filtros) em CSV">⬇ CSV</button>
         <input id="valid-busca" type="text" placeholder="Buscar ID, cliente, cartão…" class="input py-2 text-sm" style="min-width:220px" oninput="filtrarValidador(this.value)">
         <input id="valid-cartao-filtro" type="text" placeholder="Só cartão XXXX" maxlength="4" inputmode="numeric" class="input py-2 text-sm font-mono" style="width:130px" oninput="filtrarValidador()">
@@ -7092,7 +7115,7 @@ function linkAnexoPlataforma(pagamentoId){
   return `${location.origin}${location.pathname}#/anexo/${pagamentoId}`;
 }
 function renderAnexoView(){
-  if (!usuarioPodeValidar()) return `<div class="max-w-md mx-auto card p-8 text-center"><div class="font-bold">Acesso restrito</div><div class="text-sm text-ink-400 mt-1">Só quem valida NF Rápida pode abrir anexos por link.</div></div>`;
+  if (!usuarioPodeValidar() && !usuarioPodeRelatorioNfRapida()) return `<div class="max-w-md mx-auto card p-8 text-center"><div class="font-bold">Acesso restrito</div><div class="text-sm text-ink-400 mt-1">Só quem valida NF Rápida ou tem o relatório da Nota rápida pode abrir anexos por link.</div></div>`;
   const id = STATE.ctx;
   const p = (STATE.pagamentos||[]).find(x => String(x.id) === String(id));
   if (!p) return `<div class="max-w-md mx-auto card p-8 text-center"><div class="font-bold">Lançamento não encontrado</div><div class="text-sm text-ink-400 mt-1">Confira se está no país certo (BR/PT) e se o lançamento ainda existe.</div><button class="btn btn-ghost mt-4" onclick="navigate('validador')">Ir pro Validador</button></div>`;
@@ -7109,6 +7132,124 @@ function renderAnexoView(){
 }
 
 const CSV_ANEXO_VALIDADE_DIAS = 7; // validade dos links assinados do Supabase no CSV
+const RELATORIO_NF_ANEXO_VALIDADE_DIAS = 30; // links assinados no XLSX (o link da plataforma, com login, não expira)
+
+function abrirRelatorioNfRapida(){
+  if (!usuarioPodeRelatorioNfRapida()){ alert('Acesso restrito: um administrador libera o relatório da Nota rápida em Configuração → Usuários.'); return; }
+  const hoje = new Date().toISOString().slice(0,10);
+  document.getElementById('modal-content').innerHTML = `
+    <div class="flex items-start justify-between gap-3 mb-4">
+      <div>
+        <div class="font-display font-bold text-xl">Relatório de Nota rápida</div>
+        <div class="text-sm text-ink-400 mt-1">Planilha com todas as notas (pendentes e validadas) da unidade ${STATE.pais}. Filtre por status e pela data da compra.</div>
+      </div>
+      <button class="btn btn-ghost text-sm" onclick="fecharModal()">Fechar</button>
+    </div>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <div>
+        <label class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold mb-1 block" for="nr-rel-status">Status</label>
+        <select id="nr-rel-status" class="input py-2 text-sm w-full">
+          <option value="todas" selected>Todas</option>
+          <option value="pendente">Pendentes</option>
+          <option value="validada">Validadas</option>
+        </select>
+      </div>
+      <div>
+        <label class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold mb-1 block" for="nr-rel-de">Data da compra (de)</label>
+        <input id="nr-rel-de" type="date" class="input py-2 text-sm w-full" max="${hoje}">
+      </div>
+      <div>
+        <label class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold mb-1 block" for="nr-rel-ate">Data da compra (até)</label>
+        <input id="nr-rel-ate" type="date" class="input py-2 text-sm w-full" max="${hoje}">
+      </div>
+    </div>
+    <div id="nr-rel-status-msg" class="text-xs text-ink-400 mt-3">A planilha inclui foto (link da plataforma, que pede login, e link assinado válido por ${RELATORIO_NF_ANEXO_VALIDADE_DIAS} dias), ID do projeto, valor, tipo, final do cartão, data da compra, observações, status, quem registrou e quando, e o total dos valores. Nenhum e-mail entra na planilha.</div>
+    <div class="flex justify-end gap-2 mt-5">
+      <button class="btn btn-ghost" onclick="fecharModal()">Cancelar</button>
+      <button id="nr-rel-btn" class="btn btn-primary" onclick="baixarRelatorioNfRapida()">Baixar planilha (.xlsx)</button>
+    </div>`;
+  document.getElementById('modal-bg').classList.remove('hidden');
+  document.getElementById('modal-bg').classList.add('flex');
+}
+
+async function baixarRelatorioNfRapida(){
+  if (!usuarioPodeRelatorioNfRapida()){ alert('Acesso restrito: um administrador libera o relatório da Nota rápida em Configuração → Usuários.'); return; }
+  const status = document.getElementById('nr-rel-status')?.value || 'todas';
+  const de = document.getElementById('nr-rel-de')?.value || null;
+  const ate = document.getElementById('nr-rel-ate')?.value || null;
+  if (de && ate && de > ate){ alert('A data inicial não pode ser depois da data final.'); return; }
+  const btn = document.getElementById('nr-rel-btn');
+  const msg = document.getElementById('nr-rel-status-msg');
+  if (btn){ btn.disabled = true; btn.textContent = 'Gerando…'; }
+  try {
+    const { data, error } = await sb.rpc('nf_rapida_relatorio', {
+      p_status: status,
+      p_de: de || null,
+      p_ate: ate || null,
+      p_pais: STATE.pais || null
+    });
+    if (error){
+      if (/not_authorized|42501|permission/i.test(error.message||'')) throw new Error('Seu usuário não tem permissão pra gerar esse relatório.');
+      if (/schema cache|does not exist|404|nf_rapida_relatorio/i.test(error.message||'')) throw new Error('A migração 2026-11-26_relatorio_nf_rapida.sql ainda não foi aplicada no banco.');
+      throw error;
+    }
+    const lista = data || [];
+    if (!lista.length){ alert('Nenhuma nota rápida com esses filtros.'); return; }
+    const linkDireto = {};
+    const paths = [...new Set(lista.filter(p=>p.anexo_path).map(p=>p.anexo_path))];
+    if (paths.length){
+      try {
+        const { data: urls, error: urlErr } = await sb.storage.from('comprovantes').createSignedUrls(paths, RELATORIO_NF_ANEXO_VALIDADE_DIAS*24*3600);
+        if (urlErr) throw urlErr;
+        (urls||[]).forEach(r => { if (r.signedUrl) linkDireto[r.path] = r.signedUrl; });
+      } catch(e){ console.warn('links assinados do relatório:', e); alert('Não consegui gerar os links assinados das fotos ('+(e.message||e)+'). A planilha sai com o link da plataforma, que pede login e não expira.'); }
+    }
+    const wbOut = montarWorkbookRelatorioNfRapida(lista, linkDireto);
+    if (!wbOut){ alert('Não consegui montar a planilha (biblioteca XLSX ausente).'); return; }
+    const nome = `nf_rapida_${status}_${STATE.pais||'BR'}_${new Date().toISOString().slice(0,10)}.xlsx`;
+    XLSX.writeFile(wbOut, nome);
+    if (msg) msg.textContent = lista.length + ' nota' + (lista.length===1?'':'s') + ' exportada' + (lista.length===1?'':'s') + '.';
+  } catch(e){
+    alert(e.message || String(e));
+  } finally {
+    if (btn){ btn.disabled = false; btn.textContent = 'Baixar planilha (.xlsx)'; }
+  }
+}
+
+function montarWorkbookRelatorioNfRapida(lista, linkDireto){
+  if (typeof XLSX === 'undefined') return null;
+  const dec = v => Number(v)||0;
+  const fmtDt = iso => {
+    if (!iso) return '';
+    const s = String(iso);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return fmtData ? fmtData(s) : s;
+    try { return new Date(s).toLocaleString('pt-BR'); } catch(e){ return s; }
+  };
+  const header = ['Foto (plataforma, com login)','Link da foto (assinado, '+RELATORIO_NF_ANEXO_VALIDADE_DIAS+' dias)','ID do projeto','Valor','Tipo','Final do cartão','Data da compra','Observações','Status','Registrado por','Registrado em'];
+  const rows = [header];
+  lista.forEach(p => {
+    rows.push([
+      p.anexo_path ? linkAnexoPlataforma(p.id) : '',
+      p.anexo_path ? (linkDireto[p.anexo_path] || '') : '',
+      p.orcamento_id || '',
+      dec(p.valor),
+      p.tipo || '',
+      p.final_cartao || '',
+      p.data_compra ? fmtDt(p.data_compra) : '',
+      p.observacoes || '',
+      p.status || '',
+      p.registrado_por || '—',
+      p.registrado_em ? fmtDt(p.registrado_em) : ''
+    ]);
+  });
+  const total = lista.reduce((s,p)=>s+dec(p.valor),0);
+  rows.push(['TOTAL','','', total,'','','','','','','']);
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{wch:42},{wch:42},{wch:16},{wch:12},{wch:20},{wch:14},{wch:14},{wch:30},{wch:12},{wch:22},{wch:20}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Nota rápida');
+  return wb;
+}
 
 async function exportarCSVValidador(){
   const aba = STATE.validadorAba || 'pendentes';
