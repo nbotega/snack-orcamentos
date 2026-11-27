@@ -3725,16 +3725,11 @@ function toggleFiltroClientesStatus(s){
 /* =============================================================
    VIEW: CARTA PRO CLIENTE
 ============================================================= */
-function renderCarta(ctx){
-  const orc = STATE.orcamentos.find(o=>o.id===ctx?.id);
-  if (!orc) return `<div class="card p-8 text-center text-ink-400">Orçamento não encontrado.</div>`;
-  const c = calcular(orc);
-
-  // Cálculo da carta — com overrides editáveis
-  const ovr = orc.carta_overrides || {};
-  const ovrVals = ovr.vals || {};
-  // Default: mostrar % alocação. Cliente pode esconder por orçamento.
-  const mostrarAlocacao = ovr.mostrarAlocacao !== false;
+/* Valores da carta pro cliente (tela e "Copiar texto" usam esta mesma conta).
+   Imposto da carta (14,25%) incide sobre a Receita Bruta MENOS os custos marcados como repasse
+   (ex.: 100.000 com 40.000 de repasse → 14,25% sobre 60.000). Não mexe no imposto interno (calcular()). */
+function cartaValores(orc){
+  const ovrVals = (orc.carta_overrides || {}).vals || {};
   // Quando custos_mensais = true, os valores digitados são POR MÊS — multiplica pelos meses
   const cMult = orc.custos_mensais ? (orc.meses||1) : 1;
   const totalCarta = ovrVals.total ?? (orc.fee_mensal * orc.meses);
@@ -3745,11 +3740,34 @@ function renderCarta(ctx){
   // Em Influ-repasse e UGC simples, cachês são PASS-THROUGH (cliente paga creators direto,
   // sem NF Snack). Imposto incide só sobre o que entra na NF Snack.
   const tipoObj = TIPOS.find(t => t.tipo === orc.tipo);
-  const cachePassThrough = tipoObj && !tipoObj.cache_na_receita;
-  const baseImposto = cachePassThrough ? Math.max(0, totalCarta - cachesT) : totalCarta;
+  const cachePassThrough = !!(tipoObj && !tipoObj.cache_na_receita);
+  // Custos marcados como "repasse" no orçamento (cachê / mídia / produção)
+  const rp = orc.repasse || {};
+  const repCache = !!rp.cache, repMidia = !!rp.midia, repProducao = !!rp.producao;
+  const repasseT = (repCache?cachesT:0) + (repMidia?midiaT:0) + (repProducao?producaoT:0);
+  // cachê de tipo pass-through já sai da base; se também está marcado repasse, não subtrai duas vezes
+  const cachePTsoTipo = (cachePassThrough && !repCache) ? cachesT : 0;
+  const deducaoImposto = repasseT + cachePTsoTipo;
+  const baseImposto = Math.max(0, totalCarta - deducaoImposto);
   const impostoPctCarta = (PREMISSAS.imposto_carta != null ? Number(PREMISSAS.imposto_carta) : 0.1425);
-  const impostoCarta = ovrVals.impostos ?? (baseImposto * impostoPctCarta);
+  const impostoCarta = ((orc.carta_overrides || {}).vals || {}).impostos ?? (baseImposto * impostoPctCarta);
   const feeSnackPuro = ovrVals.fee_snack ?? Math.max(0, totalCarta - cachesT - midiaT - producaoT - impostoCarta);
+  return { totalCarta, cachesT, midiaT, producaoT, cachePassThrough, repCache, repMidia, repProducao,
+           repasseT, deducaoImposto, baseImposto, impostoPctCarta, impostoCarta, feeSnackPuro };
+}
+
+function renderCarta(ctx){
+  const orc = STATE.orcamentos.find(o=>o.id===ctx?.id);
+  if (!orc) return `<div class="card p-8 text-center text-ink-400">Orçamento não encontrado.</div>`;
+  const c = calcular(orc);
+
+  // Cálculo da carta — com overrides editáveis (mesma conta usada em "Copiar texto")
+  const ovr = orc.carta_overrides || {};
+  const ovrVals = ovr.vals || {};
+  // Default: mostrar % alocação. Cliente pode esconder por orçamento.
+  const mostrarAlocacao = ovr.mostrarAlocacao !== false;
+  const { totalCarta, cachesT, midiaT, producaoT, cachePassThrough, repCache, repMidia, repProducao,
+          repasseT, deducaoImposto, baseImposto, impostoPctCarta, impostoCarta, feeSnackPuro } = cartaValores(orc);
   const totalMensal = totalCarta / Math.max(1, orc.meses);
   const somaComposicao = cachesT + midiaT + producaoT + impostoCarta + feeSnackPuro;
   const inconsistente = Math.abs(somaComposicao - totalCarta) > 1;
@@ -3942,7 +3960,7 @@ function renderCarta(ctx){
         <div class="space-y-2">
           ${cachesT>0 ? `<div class="flex items-baseline justify-between py-3 border-b border-ink-800">
             <div>
-              <div class="font-semibold text-base">Cachês${cachePassThrough ? ' <span class="text-[10px] uppercase tracking-wider text-azul-400 font-bold ml-1">pass-through</span>' : ''}</div>
+              <div class="font-semibold text-base">Cachês${repCache ? ' (Repasse)' : ''}${cachePassThrough ? ' <span class="text-[10px] uppercase tracking-wider text-azul-400 font-bold ml-1">pass-through</span>' : ''}</div>
               <div class="text-xs text-ink-400 mt-0.5">${cachePassThrough ? 'Pagos direto pelos creators — não passam pela NF Snack' : 'Investimento em creators / talentos'}</div>
             </div>
             <div class="flex items-baseline gap-3">
@@ -3953,7 +3971,7 @@ function renderCarta(ctx){
 
           ${producaoT>0 ? `<div class="flex items-baseline justify-between py-3 border-b border-ink-800">
             <div>
-              <div class="font-semibold text-base">Produção</div>
+              <div class="font-semibold text-base">Produção${repProducao ? ' (Repasse)' : ''}</div>
               <div class="text-xs text-ink-400 mt-0.5">Custos de produção audiovisual</div>
             </div>
             <div class="flex items-baseline gap-3">
@@ -3964,7 +3982,7 @@ function renderCarta(ctx){
 
           ${midiaT>0 ? `<div class="flex items-baseline justify-between py-3 border-b border-ink-800">
             <div>
-              <div class="font-semibold text-base">Mídia</div>
+              <div class="font-semibold text-base">Mídia${repMidia ? ' (Repasse)' : ''}</div>
               <div class="text-xs text-ink-400 mt-0.5">Investimento em mídia paga</div>
             </div>
             <div class="flex items-baseline gap-3">
@@ -3977,7 +3995,7 @@ function renderCarta(ctx){
           <div class="flex items-baseline justify-between py-3 border-b border-ink-800">
             <div>
               <div class="font-semibold text-base">Impostos</div>
-              <div class="text-xs text-ink-400 mt-0.5">${(impostoPctCarta*100).toFixed(2).replace('.',',')}% sobre ${cachePassThrough ? `<span class="text-azul-400 font-semibold">o fee Snack</span> (${fmtBRL(baseImposto)}) — cachês não incidem` : 'o investimento total'}</div>
+              <div class="text-xs text-ink-400 mt-0.5">${(impostoPctCarta*100).toFixed(2).replace('.',',')}% sobre ${repasseT>0 ? `<span class="text-azul-400 font-semibold">${fmtBRL(baseImposto)}</span> (receita bruta ${fmtBRL(totalCarta)} − repasses ${fmtBRL(repasseT)}${deducaoImposto>repasseT ? ` − cachês pass-through ${fmtBRL(deducaoImposto-repasseT)}` : ''})` : cachePassThrough ? `<span class="text-azul-400 font-semibold">o fee Snack</span> (${fmtBRL(baseImposto)}) — cachês não incidem` : 'o investimento total'}</div>
             </div>
             <div class="flex items-baseline gap-3">
               ${cachePassThrough ? '' : `<div class="text-xs text-ink-400 tabular-nums">${(impostoCarta/totalCarta*100).toFixed(1).replace('.',',')}%</div>`}
@@ -4263,9 +4281,7 @@ async function limparCartaIA(id){
 function copiarCarta(id){
   const orc = STATE.orcamentos.find(o=>o.id===id);
   if (!orc) return;
-  const totalCarta = orc.fee_mensal * orc.meses;
-  const impostoCarta = totalCarta * ((PREMISSAS.imposto_carta != null ? Number(PREMISSAS.imposto_carta) : 0.1425));
-  const feeSnackPuro = Math.max(0, totalCarta - (orc.caches||0) - (orc.midia||0) - (orc.producao||0) - impostoCarta);
+  const { totalCarta, cachesT, midiaT, producaoT, repCache, repMidia, repProducao, impostoPctCarta, impostoCarta, feeSnackPuro } = cartaValores(orc);
 
   const HEAD_TO_AREA = {
     'Criação': {area:'CONTEÚDO',cargo:'Diretor de Criação'},
@@ -4300,10 +4316,10 @@ function copiarCarta(id){
   txt += `INVESTIMENTO TOTAL DO CONTRATO   ${fmtBRL(totalCarta)}\n`;
   txt += `(${fmtBRL(totalCarta/Math.max(1,orc.meses))}/mês × ${orc.meses} ${orc.meses===1?'mês':'meses'})\n\n`;
   txt += `Composição (% do total):\n`;
-  if (orc.caches>0) txt += `  Cachês                          ${fmtBRL(orc.caches).padStart(16)}   ${pct(orc.caches)}\n`;
-  if (orc.producao>0) txt += `  Produção                        ${fmtBRL(orc.producao).padStart(16)}   ${pct(orc.producao)}\n`;
-  if (orc.midia>0) txt += `  Mídia                           ${fmtBRL(orc.midia).padStart(16)}   ${pct(orc.midia)}\n`;
-  if (impostoCarta > 0) txt += `  Impostos (${(PREMISSAS.imposto_carta*100).toFixed(2).replace('.',',')}%)                ${fmtBRL(impostoCarta).padStart(16)}   ${pct(impostoCarta)}\n`;
+  if (cachesT>0) txt += `  ${('Cachês'+(repCache?' (Repasse)':'')).padEnd(32)}${fmtBRL(cachesT).padStart(16)}   ${pct(cachesT)}\n`;
+  if (producaoT>0) txt += `  ${('Produção'+(repProducao?' (Repasse)':'')).padEnd(32)}${fmtBRL(producaoT).padStart(16)}   ${pct(producaoT)}\n`;
+  if (midiaT>0) txt += `  ${('Mídia'+(repMidia?' (Repasse)':'')).padEnd(32)}${fmtBRL(midiaT).padStart(16)}   ${pct(midiaT)}\n`;
+  if (impostoCarta > 0) txt += `  Impostos (${(impostoPctCarta*100).toFixed(2).replace('.',',')}%)                ${fmtBRL(impostoCarta).padStart(16)}   ${pct(impostoCarta)}\n`;
   txt += `  Fee Snack (gestão e operação)   ${fmtBRL(feeSnackPuro).padStart(16)}   ${pct(feeSnackPuro)}\n\n`;
   txt += `=== 2 · O QUE A SNACK ENTREGA ===\n\n`;
   if (orc.carta_ia?.introducao){ txt += orc.carta_ia.introducao + '\n\n'; }
