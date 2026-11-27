@@ -3955,7 +3955,6 @@ function renderCarta(ctx){
         <!-- DECOMPOSIÇÃO -->
         <div class="flex items-end justify-between mb-3">
           <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">Composição</div>
-          <div class="text-[10px] uppercase tracking-wider text-ink-500">% do total</div>
         </div>
         <div class="space-y-2">
           ${cachesT>0 ? `<div class="flex items-baseline justify-between py-3 border-b border-ink-800">
@@ -3964,7 +3963,6 @@ function renderCarta(ctx){
               <div class="text-xs text-ink-400 mt-0.5">${cachePassThrough ? 'Pagos direto pelos creators — não passam pela NF Snack' : 'Investimento em creators / talentos'}</div>
             </div>
             <div class="flex items-baseline gap-3">
-              <div class="text-xs text-ink-400 tabular-nums">${(cachesT/totalCarta*100).toFixed(1).replace('.',',')}%</div>
               <div class="font-display font-bold text-lg tabular-nums w-36 text-right">${editVal('caches', cachesT)}</div>
             </div>
           </div>` : ''}
@@ -3975,7 +3973,6 @@ function renderCarta(ctx){
               <div class="text-xs text-ink-400 mt-0.5">Custos de produção audiovisual</div>
             </div>
             <div class="flex items-baseline gap-3">
-              <div class="text-xs text-ink-400 tabular-nums">${(producaoT/totalCarta*100).toFixed(1).replace('.',',')}%</div>
               <div class="font-display font-bold text-lg tabular-nums w-36 text-right">${editVal('producao', producaoT)}</div>
             </div>
           </div>` : ''}
@@ -3986,7 +3983,6 @@ function renderCarta(ctx){
               <div class="text-xs text-ink-400 mt-0.5">Investimento em mídia paga</div>
             </div>
             <div class="flex items-baseline gap-3">
-              <div class="text-xs text-ink-400 tabular-nums">${(midiaT/totalCarta*100).toFixed(1).replace('.',',')}%</div>
               <div class="font-display font-bold text-lg tabular-nums w-36 text-right">${editVal('midia', midiaT)}</div>
             </div>
           </div>` : ''}
@@ -3998,7 +3994,6 @@ function renderCarta(ctx){
               <div class="text-xs text-ink-400 mt-0.5">${(impostoPctCarta*100).toFixed(2).replace('.',',')}% sobre ${repasseT>0 ? `<span class="text-azul-400 font-semibold">${fmtBRL(baseImposto)}</span> (receita bruta ${fmtBRL(totalCarta)} − repasses ${fmtBRL(repasseT)}${deducaoImposto>repasseT ? ` − cachês pass-through ${fmtBRL(deducaoImposto-repasseT)}` : ''})` : cachePassThrough ? `<span class="text-azul-400 font-semibold">o fee Snack</span> (${fmtBRL(baseImposto)}) — cachês não incidem` : 'o investimento total'}</div>
             </div>
             <div class="flex items-baseline gap-3">
-              ${cachePassThrough ? '' : `<div class="text-xs text-ink-400 tabular-nums">${(impostoCarta/totalCarta*100).toFixed(1).replace('.',',')}%</div>`}
               <div class="font-display font-bold text-lg tabular-nums w-36 text-right">${editVal('impostos', impostoCarta)}</div>
             </div>
           </div>` : ''}
@@ -4009,7 +4004,6 @@ function renderCarta(ctx){
               <div class="text-xs text-ink-400 mt-0.5">Gestão estratégica, criativa e operacional</div>
             </div>
             <div class="flex items-baseline gap-3">
-              <div class="text-xs text-orange/80 tabular-nums">${(feeSnackPuro/totalCarta*100).toFixed(1).replace('.',',')}%</div>
               <div class="font-display font-bold text-xl tabular-nums text-orange w-36 text-right">${editVal('fee_snack', feeSnackPuro)}</div>
             </div>
           </div>
@@ -4307,7 +4301,6 @@ function copiarCarta(id){
     else _add(cg.area, cg.cargo, 1.0);
   });
   const ordemAreas = Object.keys(areasAlocadas).sort();
-  const pct = v => totalCarta>0 ? (v/totalCarta*100).toFixed(1).replace('.',',')+'%' : '';
 
   let txt = `PROPOSTA COMERCIAL — SNACK CONTENT\n${orc.cliente}\n`;
   if (orc.projeto) txt += `${orc.projeto.replace(' (cópia)','')}\n`;
@@ -4315,12 +4308,12 @@ function copiarCarta(id){
   txt += `=== 1 · INVESTIMENTO ===\n`;
   txt += `INVESTIMENTO TOTAL DO CONTRATO   ${fmtBRL(totalCarta)}\n`;
   txt += `(${fmtBRL(totalCarta/Math.max(1,orc.meses))}/mês × ${orc.meses} ${orc.meses===1?'mês':'meses'})\n\n`;
-  txt += `Composição (% do total):\n`;
-  if (cachesT>0) txt += `  ${('Cachês'+(repCache?' (Repasse)':'')).padEnd(32)}${fmtBRL(cachesT).padStart(16)}   ${pct(cachesT)}\n`;
-  if (producaoT>0) txt += `  ${('Produção'+(repProducao?' (Repasse)':'')).padEnd(32)}${fmtBRL(producaoT).padStart(16)}   ${pct(producaoT)}\n`;
-  if (midiaT>0) txt += `  ${('Mídia'+(repMidia?' (Repasse)':'')).padEnd(32)}${fmtBRL(midiaT).padStart(16)}   ${pct(midiaT)}\n`;
-  if (impostoCarta > 0) txt += `  Impostos (${(impostoPctCarta*100).toFixed(2).replace('.',',')}%)                ${fmtBRL(impostoCarta).padStart(16)}   ${pct(impostoCarta)}\n`;
-  txt += `  Fee Snack (gestão e operação)   ${fmtBRL(feeSnackPuro).padStart(16)}   ${pct(feeSnackPuro)}\n\n`;
+  txt += `Composição:\n`;
+  if (cachesT>0) txt += `  ${('Cachês'+(repCache?' (Repasse)':'')).padEnd(32)}${fmtBRL(cachesT).padStart(16)}\n`;
+  if (producaoT>0) txt += `  ${('Produção'+(repProducao?' (Repasse)':'')).padEnd(32)}${fmtBRL(producaoT).padStart(16)}\n`;
+  if (midiaT>0) txt += `  ${('Mídia'+(repMidia?' (Repasse)':'')).padEnd(32)}${fmtBRL(midiaT).padStart(16)}\n`;
+  if (impostoCarta > 0) txt += `  Impostos (${(impostoPctCarta*100).toFixed(2).replace('.',',')}%)                ${fmtBRL(impostoCarta).padStart(16)}\n`;
+  txt += `  Fee Snack (gestão e operação)   ${fmtBRL(feeSnackPuro).padStart(16)}\n\n`;
   txt += `=== 2 · O QUE A SNACK ENTREGA ===\n\n`;
   if (orc.carta_ia?.introducao){ txt += orc.carta_ia.introducao + '\n\n'; }
   ordemAreas.forEach(area=>{
