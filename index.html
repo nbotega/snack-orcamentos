@@ -6009,16 +6009,171 @@ function moverRelatorio(delta){
   render();
 }
 
+// ----- Filtros do relatório: Tipo de custo, ID e Cliente (múltipla escolha) -----
+// AND entre filtros (e com o período), OR dentro de cada filtro, vazio = todos.
+// Opções de ID e Cliente = o que aparece no relatório no período escolhido (ignora os outros filtros).
+// Seleções que não existem no período atual não valem (e não aparecem) até o período voltar a ter esses lançamentos.
+const REL_OPC_TIPO = [ {v:'cache',l:'Cachês'}, {v:'midia',l:'Mídia'}, {v:'producao',l:'Produção'}, {v:'frila',l:'Freelas'} ];
+function relFiltros(){ return STATE.relFiltros = STATE.relFiltros || { cats:[], ids:[], clientes:[] }; }
+function relatorioOpcoes(todas){
+  const ids = new Map(), clientes = new Set();
+  todas.forEach(l => { ids.set(l.orc.id, l.orc.cliente); clientes.add(l.orc.cliente); });
+  return {
+    ids: [...ids.entries()].sort((a,b)=>String(a[0]).localeCompare(String(b[0]),'pt-BR',{numeric:true})).map(([id,cli]) => ({ v:id, l:`${id} · ${cli}` })),
+    clientes: [...clientes].filter(c=>c!=null && c!=='').sort((a,b)=>String(a).localeCompare(String(b),'pt-BR',{sensitivity:'base'}))
+  };
+}
+function relatorioFiltroEfetivo(todas){
+  const f = relFiltros(), op = relatorioOpcoes(todas);
+  return {
+    // na ordem das opções (resumo e dropdown ficam sempre na mesma ordem, não na do clique)
+    cats: REL_OPC_TIPO.map(o => o.v).filter(c => f.cats.includes(c)),
+    ids: op.ids.map(o => o.v).filter(v => f.ids.includes(v)),
+    clientes: op.clientes.filter(v => f.clientes.includes(v)),
+    opcoes: op
+  };
+}
+function relatorioAplicaFiltros(todas, ef){
+  return todas.filter(l =>
+    (!ef.cats.length || ef.cats.includes(l.cat)) &&
+    (!ef.ids.length || ef.ids.includes(l.orc.id)) &&
+    (!ef.clientes.length || ef.clientes.includes(l.orc.cliente)));
+}
+// Linhas do relatório já filtradas + totais — usado pela tela e pelo CSV (mesma conta)
+function relatorioDados(per){
+  const todas = relatorioLinhas(per);
+  const ef = relatorioFiltroEfetivo(todas);
+  const linhas = relatorioAplicaFiltros(todas, ef);
+  const totCat = { cache:0, midia:0, producao:0, frila:0 };
+  linhas.forEach(l => { totCat[l.cat] += l.valorMes; });
+  const totalMes = Object.values(totCat).reduce((s,v)=>s+v, 0);
+  const filtrado = !!(ef.cats.length || ef.ids.length || ef.clientes.length);
+  return { todas, ef, linhas, totCat, totalMes, filtrado };
+}
+function relatorioResumoFiltros(ef){
+  const partes = [];
+  if (ef.cats.length) partes.push('Tipo: ' + ef.cats.map(c => NOMES_CAT_REL[c]).join(', '));
+  if (ef.ids.length) partes.push('ID: ' + ef.ids.join(', '));
+  if (ef.clientes.length) partes.push('Cliente: ' + ef.clientes.join(', '));
+  return escapeHtml(partes.join(' · '));
+}
+function relatorioFiltrosHTML(per, dados){
+  const ef = dados.ef;
+  const filtro = (rotulo, id, opcoes, chave, sel, ph) => `<div style="min-width:170px;max-width:260px"><label class="text-[10px] uppercase tracking-widest text-ink-500 font-semibold">${rotulo}</label><div class="mt-1">${msddHTML(id, opcoes, sel, vals => relatorioFiltroMudou(chave, vals), { placeholder: ph, btnClass:'py-1.5 text-sm', menuMinWidth: 260 })}</div></div>`;
+  return `<div class="card p-3 relative z-20 flex items-end gap-3 flex-wrap">
+    ${filtro('Tipo de custo', 'rel-f-cats', REL_OPC_TIPO, 'cats', ef.cats, 'Todos')}
+    ${filtro('ID', 'rel-f-ids', ef.opcoes.ids, 'ids', ef.ids, 'Todos')}
+    ${filtro('Cliente', 'rel-f-clientes', ef.opcoes.clientes, 'clientes', ef.clientes, 'Todos')}
+    <button id="rel-f-limpar" class="text-xs text-ink-400 hover:underline pb-2 ${dados.filtrado?'':'hidden'}" onclick="relatorioLimparFiltros()">Limpar filtros</button>
+    <div class="ml-auto text-[11px] text-ink-500 pb-2">Os filtros valem para os totais, o detalhamento e o CSV.</div>
+  </div>`;
+}
+// Mudou um filtro: atualiza só total/cards/tabela (mantém o dropdown aberto pra marcar várias opções)
+function relatorioFiltroMudou(chave, vals){
+  relFiltros()[chave] = vals;
+  const per = relatorioPeriodo(), dados = relatorioDados(per);
+  const tot = document.getElementById('rel-total'), corpo = document.getElementById('rel-corpo'), lim = document.getElementById('rel-f-limpar');
+  if (!tot || !corpo){ render(); return; }
+  tot.innerHTML = relatorioTotalHTML(per, dados);
+  corpo.innerHTML = relatorioCorpoHTML(per, dados);
+  if (lim) lim.classList.toggle('hidden', !dados.filtrado);
+}
+function relatorioLimparFiltros(){ STATE.relFiltros = { cats:[], ids:[], clientes:[] }; render(); }
+
+// Total do período (respeita os filtros) — redesenhado sozinho quando um filtro muda
+function relatorioTotalHTML(per, dados){
+  const { linhas, totalMes } = dados;
+  const rotuloPeriodo = per.unico ? 'mês' : 'período';
+  const nProj = new Set(linhas.map(l=>l.orc.id)).size;
+  return `
+      <!-- Total do mês -->
+      <div class="mt-6 flex items-baseline gap-4 flex-wrap">
+        <div>
+          <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">Total do ${rotuloPeriodo}</div>
+          <div class="font-display font-black text-5xl text-orange">${fmtBRL(totalMes)}</div>
+        </div>
+        <div class="text-xs text-ink-300 ml-2">${linhas.length} lançamento${linhas.length===1?'':'s'} · ${nProj} projeto${nProj===1?'':'s'}</div>
+      </div>
+${dados.filtrado ? `      <div class="text-xs text-azul-400 mt-2">Filtrado: ${relatorioResumoFiltros(dados.ef)}</div>\n` : ''}  `;
+}
+
+// Cards por categoria + detalhamento (respeitam os filtros)
+function relatorioCorpoHTML(per, dados){
+  const { linhas, totCat, totalMes } = dados;
+  const cats = ['cache','midia','producao','frila'];
+  const rotuloPeriodo = per.unico ? 'mês' : 'período';
+  return `
+    <!-- CARDS por categoria -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+      ${cats.map(cat=>{
+        const v = totCat[cat]; const pct = totalMes>0 ? (v/totalMes*100) : 0;
+        return `<div class="card p-4">
+          <div class="flex items-center gap-2 mb-1">
+            <span class="w-2 h-2 rounded-full" style="background:${CORES_CAT_REL[cat]};"></span>
+            <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">${NOMES_CAT_REL[cat]}</div>
+          </div>
+          <div class="text-2xl font-display font-bold tabular-nums" style="color:${CORES_CAT_REL[cat]};">${fmtBRL(v)}</div>
+          <div class="text-[11px] text-ink-400 mt-1">${pct.toFixed(1)}% do ${rotuloPeriodo}</div>
+        </div>`;
+      }).join('')}
+    </div>
+
+    <!-- TABELA DETALHADA -->
+    <div class="card overflow-hidden">
+      <div class="px-6 py-4 border-b border-ink-800 flex items-center justify-between">
+        <div class="font-display font-bold">Detalhamento</div>
+        <div class="text-xs text-ink-400">${linhas.length} linha${linhas.length===1?'':'s'}</div>
+      </div>
+      ${linhas.length === 0 ? `<div class="p-8 text-center text-sm text-ink-400 italic">${dados.filtrado ? `Nenhum custo deste ${rotuloPeriodo} bate com os filtros selecionados.` : `Nenhum custo cai neste ${rotuloPeriodo}.`}</div>` : `
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead class="bg-ink-900">
+            <tr class="text-[11px] uppercase tracking-wider text-ink-400">
+              <th class="text-left font-semibold py-3 px-6">ID</th>
+              <th class="text-left font-semibold">Cliente / Projeto</th>
+              <th class="text-left font-semibold">Categoria</th>
+              <th class="text-right font-semibold">Valor ${per.unico?'mês':'no período'}</th>
+              ${per.unico ? '' : per.meses.map(pm=>`<th class="text-right font-semibold text-ink-500">${MESES_PT[pm.mes-1]}${per.a1!==per.a2?'/'+String(pm.ano).slice(2):''}</th>`).join('')}
+              <th class="text-right font-semibold">Valor total contrato</th>
+              <th class="text-center font-semibold">Meses</th>
+              <th class="text-left font-semibold pr-6">Início execução</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${linhas.map(({orc, cat, valorMes, porMes, valorTotal})=>`
+              <tr class="border-t border-ink-800 hover:bg-ink-850">
+                <td class="py-3 px-6 font-mono text-ink-300 whitespace-nowrap">${orc.id}</td>
+                <td>
+                  <div class="font-semibold">${orc.cliente}</div>
+                  <div class="text-xs text-ink-400">${orc.projeto||'—'}</div>
+                </td>
+                <td><span class="pill" style="background:${CORES_CAT_REL[cat]}25; color:${CORES_CAT_REL[cat]}; border:1px solid ${CORES_CAT_REL[cat]}55; font-size:10px;">${NOMES_CAT_REL[cat]}</span></td>
+                <td class="text-right tabular-nums font-bold" style="color:${CORES_CAT_REL[cat]};">${fmtBRL(valorMes)}</td>
+                ${per.unico ? '' : porMes.map(v=>`<td class="text-right tabular-nums text-xs text-ink-400 whitespace-nowrap px-1">${v>0?fmtBRL(v):'—'}</td>`).join('')}
+                <td class="text-right tabular-nums text-ink-300">${fmtBRL(valorTotal)}</td>
+                <td class="text-center tabular-nums">${orc.meses}</td>
+                <td class="pr-6 text-xs text-ink-300 whitespace-nowrap">${fmtData(orc.data_inicio)}</td>
+              </tr>
+            `).join('')}
+            <tr class="border-t-2 border-orange/30 bg-orange/5">
+              <td colspan="3" class="py-3 px-6 font-bold uppercase text-xs tracking-widest text-orange">Total do ${rotuloPeriodo}</td>
+              <td class="text-right tabular-nums font-black text-lg text-orange">${fmtBRL(totalMes)}</td>
+              ${per.unico ? '' : per.meses.map((pm,i)=>`<td class="text-right tabular-nums text-xs font-bold text-orange whitespace-nowrap px-1">${fmtBRL(linhas.reduce((s,l)=>s+l.porMes[i],0))}</td>`).join('')}
+              <td colspan="3"></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>`}
+    </div>
+
+  `;
+}
+
 function renderRelatorioMensal(){
   const per = relatorioPeriodo();
   const anoAtual = per.a1, mesAtual = per.m1;
   const cats = ['cache','midia','producao','frila'];
-  const linhas = relatorioLinhas(per);
-
-  // Totais por categoria
-  const totCat = { cache:0, midia:0, producao:0, frila:0 };
-  linhas.forEach(l => { totCat[l.cat] += l.valorMes; });
-  const totalMes = Object.values(totCat).reduce((s,v)=>s+v, 0);
+  const dados = relatorioDados(per);
 
   const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
   const rotuloPeriodo = per.unico ? 'mês' : 'período';
@@ -6061,79 +6216,13 @@ function renderRelatorioMensal(){
         </div>
       </div>
 
-      <!-- Total do mês -->
-      <div class="mt-6 flex items-baseline gap-4 flex-wrap">
-        <div>
-          <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">Total do ${rotuloPeriodo}</div>
-          <div class="font-display font-black text-5xl text-orange">${fmtBRL(totalMes)}</div>
-        </div>
-        <div class="text-xs text-ink-300 ml-2">${linhas.length} lançamento${linhas.length===1?'':'s'} · ${new Set(linhas.map(l=>l.orc.id)).size} projeto${new Set(linhas.map(l=>l.orc.id)).size===1?'':'s'}</div>
-      </div>
+      <div id="rel-total">${relatorioTotalHTML(per, dados)}</div>
     </div>
 
-    <!-- CARDS por categoria -->
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-      ${cats.map(cat=>{
-        const v = totCat[cat]; const pct = totalMes>0 ? (v/totalMes*100) : 0;
-        return `<div class="card p-4">
-          <div class="flex items-center gap-2 mb-1">
-            <span class="w-2 h-2 rounded-full" style="background:${CORES_CAT_REL[cat]};"></span>
-            <div class="text-[11px] uppercase tracking-widest text-ink-400 font-semibold">${NOMES_CAT_REL[cat]}</div>
-          </div>
-          <div class="text-2xl font-display font-bold tabular-nums" style="color:${CORES_CAT_REL[cat]};">${fmtBRL(v)}</div>
-          <div class="text-[11px] text-ink-400 mt-1">${pct.toFixed(1)}% do ${rotuloPeriodo}</div>
-        </div>`;
-      }).join('')}
-    </div>
+    <!-- FILTROS (tipo de custo, ID, cliente) — combinam com o período e entre si -->
+    ${relatorioFiltrosHTML(per, dados)}
 
-    <!-- TABELA DETALHADA -->
-    <div class="card overflow-hidden">
-      <div class="px-6 py-4 border-b border-ink-800 flex items-center justify-between">
-        <div class="font-display font-bold">Detalhamento</div>
-        <div class="text-xs text-ink-400">${linhas.length} linha${linhas.length===1?'':'s'}</div>
-      </div>
-      ${linhas.length === 0 ? `<div class="p-8 text-center text-sm text-ink-400 italic">Nenhum custo cai neste ${rotuloPeriodo}.</div>` : `
-      <div class="overflow-x-auto">
-        <table class="w-full text-sm">
-          <thead class="bg-ink-900">
-            <tr class="text-[11px] uppercase tracking-wider text-ink-400">
-              <th class="text-left font-semibold py-3 px-6">ID</th>
-              <th class="text-left font-semibold">Cliente / Projeto</th>
-              <th class="text-left font-semibold">Categoria</th>
-              <th class="text-right font-semibold">Valor ${per.unico?'mês':'no período'}</th>
-              ${per.unico ? '' : per.meses.map(pm=>`<th class="text-right font-semibold text-ink-500">${MESES_PT[pm.mes-1]}${per.a1!==per.a2?'/'+String(pm.ano).slice(2):''}</th>`).join('')}
-              <th class="text-right font-semibold">Valor total contrato</th>
-              <th class="text-center font-semibold">Meses</th>
-              <th class="text-left font-semibold pr-6">Início execução</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${linhas.map(({orc, cat, valorMes, porMes, valorTotal})=>`
-              <tr class="border-t border-ink-800 hover:bg-ink-850">
-                <td class="py-3 px-6 font-mono text-ink-300 whitespace-nowrap">${orc.id}</td>
-                <td>
-                  <div class="font-semibold">${orc.cliente}</div>
-                  <div class="text-xs text-ink-400">${orc.projeto||'—'}</div>
-                </td>
-                <td><span class="pill" style="background:${CORES_CAT_REL[cat]}25; color:${CORES_CAT_REL[cat]}; border:1px solid ${CORES_CAT_REL[cat]}55; font-size:10px;">${NOMES_CAT_REL[cat]}</span></td>
-                <td class="text-right tabular-nums font-bold" style="color:${CORES_CAT_REL[cat]};">${fmtBRL(valorMes)}</td>
-                ${per.unico ? '' : porMes.map(v=>`<td class="text-right tabular-nums text-xs text-ink-400 whitespace-nowrap px-1">${v>0?fmtBRL(v):'—'}</td>`).join('')}
-                <td class="text-right tabular-nums text-ink-300">${fmtBRL(valorTotal)}</td>
-                <td class="text-center tabular-nums">${orc.meses}</td>
-                <td class="pr-6 text-xs text-ink-300 whitespace-nowrap">${fmtData(orc.data_inicio)}</td>
-              </tr>
-            `).join('')}
-            <tr class="border-t-2 border-orange/30 bg-orange/5">
-              <td colspan="3" class="py-3 px-6 font-bold uppercase text-xs tracking-widest text-orange">Total do ${rotuloPeriodo}</td>
-              <td class="text-right tabular-nums font-black text-lg text-orange">${fmtBRL(totalMes)}</td>
-              ${per.unico ? '' : per.meses.map((pm,i)=>`<td class="text-right tabular-nums text-xs font-bold text-orange whitespace-nowrap px-1">${fmtBRL(linhas.reduce((s,l)=>s+l.porMes[i],0))}</td>`).join('')}
-              <td colspan="3"></td>
-            </tr>
-          </tbody>
-        </table>
-      </div>`}
-    </div>
-
+    <div id="rel-corpo" class="space-y-5">${relatorioCorpoHTML(per, dados)}</div>
   </div>
   `;
 }
@@ -6142,7 +6231,8 @@ function exportarCSVRelatorio(){
   const per = relatorioPeriodo();
   const anoAtual = per.a1, mesAtual = per.m1;
   const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-  const linhas = relatorioLinhas(per);
+  const dados = relatorioDados(per);   // já aplica os filtros de tipo, ID e cliente
+  const linhas = dados.linhas;
   const colsMes = per.unico ? [] : per.meses.map(pm=>`${MESES_PT[pm.mes-1]}/${pm.ano}`);
   const rows = [
     ['ID','Cliente','Projeto','Categoria', per.unico ? 'Valor no mes' : 'Valor no periodo', ...colsMes, 'Valor total contrato','Meses do contrato','Inicio execucao']
@@ -6168,7 +6258,7 @@ function exportarCSVRelatorio(){
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = per.unico ? `custos_${MESES[mesAtual-1]}_${anoAtual}.csv` : `custos_${MESES_PT[per.m1-1]}${per.a1}_a_${MESES_PT[per.m2-1]}${per.a2}.csv`;
+  a.download = (per.unico ? `custos_${MESES[mesAtual-1]}_${anoAtual}` : `custos_${MESES_PT[per.m1-1]}${per.a1}_a_${MESES_PT[per.m2-1]}${per.a2}`) + (dados.filtrado ? '_filtrado' : '') + '.csv';
   a.click();
   URL.revokeObjectURL(url);
 }
